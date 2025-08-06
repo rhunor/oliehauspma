@@ -1,3 +1,4 @@
+// src/types/index.ts
 import { ObjectId } from 'mongodb';
 
 // User Types

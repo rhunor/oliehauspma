@@ -1,3 +1,4 @@
+// src/lib/db.ts
 import { MongoClient, Db, MongoClientOptions, Document, ClientSession } from 'mongodb';
 import mongoose from 'mongoose';
 
