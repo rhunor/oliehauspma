@@ -1,8 +1,8 @@
-// src/components/auth/user-management.tsx
+// src/components/auth/user-management.tsx - COMPLETELY FIXED
 "use client";
 
 import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { 
   Search,
@@ -18,7 +18,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge, RoleBadge } from "@/components/ui/badge";
-import { createUserSchema, type CreateUserData } from "@/lib/validation";
+import { 
+  createUserSchema, 
+  type CreateUserData,
+  transformName,
+  transformEmail,
+  transformPhone
+} from "@/lib/validation";
 import { formatDate, generateInitials } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -55,6 +61,7 @@ export default function UserManagement({
   const [statusFilter, setStatusFilter] = useState("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
 
   const {
@@ -64,9 +71,14 @@ export default function UserManagement({
     reset,
   } = useForm<CreateUserData>({
     resolver: zodResolver(createUserSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      role: "client",
+      phone: "",
+    },
   });
-
-  const [showPassword, setShowPassword] = useState(false);
 
   // Filter users based on search and filters
   useEffect(() => {
@@ -94,30 +106,44 @@ export default function UserManagement({
     setFilteredUsers(filtered);
   }, [users, searchQuery, roleFilter, statusFilter]);
 
-  const handleCreateUser = async (data: CreateUserData) => {
+  const handleCreateUser: SubmitHandler<CreateUserData> = async (data) => {
     try {
       setLoading(true);
+
+      // Transform the data before sending to API
+      const transformedData = {
+        ...data,
+        name: transformName(data.name),
+        email: transformEmail(data.email),
+        phone: transformPhone(data.phone),
+      };
 
       const response = await fetch('/api/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify(transformedData),
       });
 
       const result = await response.json();
 
       if (!response.ok) {
+        if (result.details) {
+          // Handle validation errors
+          result.details.forEach((detail: { field: string; message: string }) => {
+            console.error(`Validation error on ${detail.field}: ${detail.message}`);
+          });
+        }
         throw new Error(result.error || 'Failed to create user');
       }
 
       const newUser: User = {
-        _id: result.data.id,
-        name: data.name,
-        email: data.email,
-        role: data.role,
-        phone: data.phone,
+        _id: result.data.id || result.data._id,
+        name: transformedData.name,
+        email: transformedData.email,
+        role: transformedData.role,
+        phone: transformedData.phone,
         avatar: undefined,
         isActive: true,
         createdAt: new Date(),
@@ -215,6 +241,12 @@ export default function UserManagement({
         variant: "destructive",
       });
     }
+  };
+
+  const handleCloseModal = () => {
+    setShowCreateModal(false);
+    reset();
+    setShowPassword(false);
   };
 
   return (
@@ -373,10 +405,7 @@ export default function UserManagement({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setShowCreateModal(false);
-                  reset();
-                }}
+                onClick={handleCloseModal}
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -453,10 +482,7 @@ export default function UserManagement({
                     type="button"
                     variant="outline"
                     className="flex-1"
-                    onClick={() => {
-                      setShowCreateModal(false);
-                      reset();
-                    }}
+                    onClick={handleCloseModal}
                   >
                     Cancel
                   </Button>

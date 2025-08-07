@@ -1,7 +1,7 @@
-//src/app/(dashboard)/admin/page.tsx
+// src/app/(dashboard)/admin/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Users, 
@@ -18,105 +18,141 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, StatsCard } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, PriorityBadge } from "@/components/ui/badge";
-import { formatTimeAgo, calculatePercentage } from "@/lib/utils";
+import { formatTimeAgo, formatDate } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+import CreateProjectModal from "@/components/projects/create-project-modal";
+import Link from "next/link";
 
-// Mock data - replace with actual API calls
-const mockStats = {
-  totalProjects: 24,
-  activeProjects: 18,
-  completedProjects: 6,
-  totalTasks: 156,
-  completedTasks: 89,
-  pendingTasks: 45,
-  overdueTasks: 12,
-  totalUsers: 32,
-  activeUsers: 28,
-};
+interface DashboardStats {
+  projects: {
+    total: number;
+    active: number;
+    completed: number;
+    onHold: number;
+    averageProgress: number;
+    totalBudget: number;
+    trend: number;
+  };
+  tasks: {
+    total: number;
+    completed: number;
+    pending: number;
+    inProgress: number;
+    overdue: number;
+    completionRate: number;
+    trend: number;
+  };
+  users: {
+    total: number;
+    active: number;
+    superAdmins: number;
+    projectManagers: number;
+    clients: number;
+    trend: number;
+  };
+  performance: {
+    averageCompletionTime: number;
+    onTimePercentage: number;
+    overdueTasksTrend: number;
+  };
+  recentActivity: Array<{
+    id: string;
+    type: string;
+    title: string;
+    status: string;
+    progress: number;
+    client: string;
+    manager: string;
+    timestamp: string;
+  }>;
+}
 
-const mockRecentProjects = [
-  {
-    id: "1",
-    title: "Luxury Apartment Renovation",
-    description: "Complete interior renovation of a 3-bedroom luxury apartment in Lekki Phase 1",
-    status: "in_progress",
-    progress: 75,
-    priority: "high",
-    client: "Mrs. Adebayo",
-    manager: "John Doe",
-    dueDate: "Dec 15, 2024",
-    createdAt: new Date("2024-10-01"),
-  },
-  {
-    id: "2", 
-    title: "Office Space Design",
-    description: "Modern office interior design for a tech startup in Victoria Island",
-    status: "planning",
-    progress: 25,
-    priority: "medium",
-    client: "TechCorp Ltd",
-    manager: "Jane Smith",
-    dueDate: "Jan 20, 2025",
-    createdAt: new Date("2024-11-15"),
-  },
-  {
-    id: "3",
-    title: "Restaurant Interior",
-    description: "Complete restaurant interior design and decoration in Ikeja",
-    status: "completed",
-    progress: 100,
-    priority: "urgent",
-    client: "Chef's Table",
-    manager: "Mike Johnson",
-    dueDate: "Nov 30, 2024",
-    createdAt: new Date("2024-09-20"),
-  },
-];
-
-const mockRecentActivities = [
-  {
-    id: "1",
-    type: "project_created",
-    message: "New project &apos;Villa Renovation&apos; created",
-    user: "Admin",
-    timestamp: new Date("2024-12-01T10:30:00"),
-  },
-  {
-    id: "2",
-    type: "task_completed",
-    message: "Task &apos;Kitchen Design&apos; completed by John Doe",
-    user: "John Doe",
-    timestamp: new Date("2024-12-01T09:15:00"),
-  },
-  {
-    id: "3",
-    type: "user_joined",
-    message: "New client &apos;Sarah Wilson&apos; joined the platform",
-    user: "Sarah Wilson",
-    timestamp: new Date("2024-11-30T16:45:00"),
-  },
-  {
-    id: "4",
-    type: "deadline_approaching",
-    message: "Project &apos;Office Design&apos; deadline approaching in 3 days",
-    user: "System",
-    timestamp: new Date("2024-11-30T14:20:00"),
-  },
-];
+interface Project {
+  _id: string;
+  title: string;
+  description: string;
+  status: string;
+  progress: number;
+  priority: string;
+  client: {
+    name: string;
+  };
+  manager: {
+    name: string;
+  };
+  endDate: string;
+  createdAt: string;
+}
 
 export default function AdminDashboard() {
   const { data: session } = useSession();
-  const stats = mockStats;
-  const recentProjects = mockRecentProjects;
-  const recentActivities = mockRecentActivities;
+  const { toast } = useToast();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [recentProjects, setRecentProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch analytics data and recent projects in parallel
+      const [analyticsRes, projectsRes] = await Promise.all([
+        fetch('/api/analytics/dashboard'),
+        fetch('/api/projects?limit=3&page=1')
+      ]);
+
+      if (!analyticsRes.ok) {
+        throw new Error('Failed to fetch analytics data');
+      }
+
+      if (!projectsRes.ok) {
+        throw new Error('Failed to fetch projects data');
+      }
+
+      const analyticsData = await analyticsRes.json();
+      const projectsData = await projectsRes.json();
+
+      if (analyticsData.success) {
+        setStats(analyticsData.data);
+      } else {
+        throw new Error(analyticsData.error || 'Failed to load analytics');
+      }
+
+      if (projectsData.success) {
+        setRecentProjects(projectsData.data.projects);
+      } else {
+        throw new Error(projectsData.error || 'Failed to load projects');
+      }
+
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard data';
+      setError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
-    return () => clearTimeout(timer);
-  }, []);
+  const handleProjectCreated = () => {
+    // Refresh dashboard data after project creation
+    fetchDashboardData();
+    toast({
+      title: "Success",
+      description: "Project created successfully",
+    });
+  };
 
   if (loading) {
     return (
@@ -133,6 +169,32 @@ export default function AdminDashboard() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Failed to Load Dashboard</h3>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <Button onClick={fetchDashboardData}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
@@ -141,7 +203,7 @@ export default function AdminDashboard() {
             Welcome back {session?.user?.name?.split(' ')[0] || 'User'}!
           </h1>
           <p className="text-neutral-600 mt-1">
-            Heres whats happening with your projects today.
+            Here&apos;s what&apos;s happening with your projects today.
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-3">
@@ -149,7 +211,7 @@ export default function AdminDashboard() {
             <Calendar className="h-4 w-4" />
             Schedule Meeting
           </Button>
-          <Button className="flex items-center gap-2">
+          <Button className="flex items-center gap-2" onClick={() => setShowCreateProject(true)}>
             <Plus className="h-4 w-4" />
             New Project
           </Button>
@@ -159,31 +221,31 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatsCard
           title="Total Projects"
-          value={stats.totalProjects}
-          description={`${stats.activeProjects} active`}
+          value={stats.projects.total}
+          description={`${stats.projects.active} active`}
           icon={<FolderOpen className="h-6 w-6" />}
-          trend={{ value: 12, isPositive: true }}
+          trend={{ value: stats.projects.trend, isPositive: stats.projects.trend > 0 }}
         />
         <StatsCard
           title="Total Tasks"
-          value={stats.totalTasks}
-          description={`${calculatePercentage(stats.completedTasks, stats.totalTasks)}% completed`}
+          value={stats.tasks.total}
+          description={`${stats.tasks.completionRate}% completed`}
           icon={<CheckSquare className="h-6 w-6" />}
-          trend={{ value: 8, isPositive: true }}
+          trend={{ value: stats.tasks.trend, isPositive: stats.tasks.trend > 0 }}
         />
         <StatsCard
           title="Active Users"
-          value={stats.activeUsers}
-          description={`${stats.totalUsers} total users`}
+          value={stats.users.active}
+          description={`${stats.users.total} total users`}
           icon={<Users className="h-6 w-6" />}
-          trend={{ value: 5, isPositive: true }}
+          trend={{ value: stats.users.trend, isPositive: stats.users.trend > 0 }}
         />
         <StatsCard
           title="Overdue Tasks"
-          value={stats.overdueTasks}
+          value={stats.tasks.overdue}
           description="Need attention"
           icon={<AlertTriangle className="h-6 w-6" />}
-          trend={{ value: 3, isPositive: false }}
+          trend={{ value: stats.performance.overdueTasksTrend, isPositive: stats.performance.overdueTasksTrend <= 0 }}
         />
       </div>
 
@@ -201,39 +263,45 @@ export default function AdminDashboard() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-4">
-              {recentProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="flex items-center justify-between p-4 border border-neutral-200 rounded-lg hover:border-primary-200 transition-colors cursor-pointer"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h4 className="font-medium text-gray-900">{project.title}</h4>
-                      <StatusBadge status={project.status} />
-                      <PriorityBadge priority={project.priority} />
+              {recentProjects.length > 0 ? (
+                recentProjects.map((project) => (
+                  <div
+                    key={project._id}
+                    className="flex items-center justify-between p-4 border border-neutral-200 rounded-lg hover:border-primary-200 transition-colors cursor-pointer"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h4 className="font-medium text-gray-900">{project.title}</h4>
+                        <StatusBadge status={project.status} />
+                        <PriorityBadge priority={project.priority} />
+                      </div>
+                      <p className="text-sm text-neutral-600 mb-2 line-clamp-1">
+                        {project.description}
+                      </p>
+                      <div className="flex items-center gap-4 text-xs text-neutral-500">
+                        <span><strong>Client:</strong> {project.client.name}</span>
+                        <span><strong>Manager:</strong> {project.manager.name}</span>
+                        <span><strong>Due:</strong> {formatDate(project.endDate)}</span>
+                      </div>
                     </div>
-                    <p className="text-sm text-neutral-600 mb-2 line-clamp-1">
-                      {project.description}
-                    </p>
-                    <div className="flex items-center gap-4 text-xs text-neutral-500">
-                      <span><strong>Client:</strong> {project.client}</span>
-                      <span><strong>Manager:</strong> {project.manager}</span>
-                      <span><strong>Due:</strong> {project.dueDate}</span>
+                    <div className="ml-4 text-right">
+                      <div className="text-sm font-medium text-gray-900 mb-1">
+                        {project.progress}%
+                      </div>
+                      <div className="w-16 bg-neutral-200 rounded-full h-2">
+                        <div
+                          className="bg-primary-500 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${project.progress}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div className="ml-4 text-right">
-                    <div className="text-sm font-medium text-gray-900 mb-1">
-                      {project.progress}%
-                    </div>
-                    <div className="w-16 bg-neutral-200 rounded-full h-2">
-                      <div
-                        className="bg-primary-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${project.progress}%` }}
-                      />
-                    </div>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-neutral-500">
+                  No projects available
                 </div>
-              ))}
+              )}
             </CardContent>
           </Card>
         </div>
@@ -247,25 +315,34 @@ export default function AdminDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {recentActivities.map((activity) => (
-                <div key={activity.id} className="flex gap-3">
-                  <div className="flex-shrink-0 w-2 h-2 bg-primary-500 rounded-full mt-2"></div>
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-900 font-medium">
-                      {activity.message}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-neutral-500">
-                        by {activity.user}
-                      </span>
-                      <span className="text-xs text-neutral-400">•</span>
-                      <span className="text-xs text-neutral-500">
-                        {formatTimeAgo(activity.timestamp)}
-                      </span>
+              {stats.recentActivity.length > 0 ? (
+                stats.recentActivity.map((activity) => (
+                  <div key={activity.id} className="flex gap-3">
+                    <div className="flex-shrink-0 w-2 h-2 bg-primary-500 rounded-full mt-2"></div>
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-900 font-medium">
+                        {activity.type === 'project_updated' ? 'Project Updated' : activity.type.replace('_', ' ')}
+                      </p>
+                      <p className="text-sm text-neutral-600">
+                        {activity.title} - {activity.progress}% complete
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-neutral-500">
+                          by {activity.manager}
+                        </span>
+                        <span className="text-xs text-neutral-400">•</span>
+                        <span className="text-xs text-neutral-500">
+                          {formatTimeAgo(new Date(activity.timestamp))}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="text-center py-4 text-neutral-500">
+                  No recent activity
                 </div>
-              ))}
+              )}
               <Button variant="ghost" size="sm" className="w-full mt-4 text-primary-600">
                 View All Activity
               </Button>
@@ -283,22 +360,28 @@ export default function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4">
-            <Button variant="outline" className="h-20 flex-col gap-2">
-              <Users className="h-6 w-6" />
-              <span className="text-sm">Add User</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2">
+            <Link href="/admin/users">
+              <Button variant="outline" className="h-20 flex-col gap-2 w-full">
+                <Users className="h-6 w-6" />
+                <span className="text-sm">Add User</span>
+              </Button>
+            </Link>
+            <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => setShowCreateProject(true)}>
               <FolderOpen className="h-6 w-6" />
               <span className="text-sm">New Project</span>
             </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2">
-              <CheckSquare className="h-6 w-6" />
-              <span className="text-sm">Assign Task</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2">
-              <TrendingUp className="h-6 w-6" />
-              <span className="text-sm">View Reports</span>
-            </Button>
+            <Link href="/admin/tasks">
+              <Button variant="outline" className="h-20 flex-col gap-2 w-full">
+                <CheckSquare className="h-6 w-6" />
+                <span className="text-sm">Assign Task</span>
+              </Button>
+            </Link>
+            <Link href="/admin/analytics">
+              <Button variant="outline" className="h-20 flex-col gap-2 w-full">
+                <TrendingUp className="h-6 w-6" />
+                <span className="text-sm">View Reports</span>
+              </Button>
+            </Link>
           </CardContent>
         </Card>
 
@@ -314,14 +397,14 @@ export default function AdminDashboard() {
               <div className="flex justify-between text-sm mb-2">
                 <span className="font-medium">Project Completion Rate</span>
                 <span className="text-primary-600 font-semibold">
-                  {calculatePercentage(stats.completedProjects, stats.totalProjects)}%
+                  {stats.projects.total > 0 ? Math.round((stats.projects.completed / stats.projects.total) * 100) : 0}%
                 </span>
               </div>
               <div className="w-full bg-neutral-200 rounded-full h-3">
                 <div
                   className="bg-gradient-to-r from-primary-500 to-secondary-500 h-3 rounded-full transition-all duration-500"
                   style={{ 
-                    width: `${calculatePercentage(stats.completedProjects, stats.totalProjects)}%` 
+                    width: `${stats.projects.total > 0 ? Math.round((stats.projects.completed / stats.projects.total) * 100) : 0}%` 
                   }}
                 />
               </div>
@@ -331,38 +414,50 @@ export default function AdminDashboard() {
               <div className="flex justify-between text-sm mb-2">
                 <span className="font-medium">Task Completion Rate</span>
                 <span className="text-green-600 font-semibold">
-                  {calculatePercentage(stats.completedTasks, stats.totalTasks)}%
+                  {stats.tasks.completionRate}%
                 </span>
               </div>
               <div className="w-full bg-neutral-200 rounded-full h-3">
                 <div
                   className="bg-gradient-to-r from-green-500 to-emerald-500 h-3 rounded-full transition-all duration-500"
-                  style={{ 
-                    width: `${calculatePercentage(stats.completedTasks, stats.totalTasks)}%` 
-                  }}
+                  style={{ width: `${stats.tasks.completionRate}%` }}
                 />
               </div>
             </div>
 
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium">User Activity Rate</span>
+                <span className="font-medium">On-Time Delivery</span>
                 <span className="text-blue-600 font-semibold">
-                  {calculatePercentage(stats.activeUsers, stats.totalUsers)}%
+                  {stats.performance.onTimePercentage}%
                 </span>
               </div>
               <div className="w-full bg-neutral-200 rounded-full h-3">
                 <div
                   className="bg-gradient-to-r from-blue-500 to-indigo-500 h-3 rounded-full transition-all duration-500"
-                  style={{ 
-                    width: `${calculatePercentage(stats.activeUsers, stats.totalUsers)}%` 
-                  }}
+                  style={{ width: `${stats.performance.onTimePercentage}%` }}
                 />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-neutral-200">
+              <div className="flex justify-between items-center text-sm">
+                <span className="font-medium">Average Completion Time</span>
+                <span className="text-neutral-600">
+                  {stats.performance.averageCompletionTime} days
+                </span>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Create Project Modal */}
+      <CreateProjectModal
+        isOpen={showCreateProject}
+        onClose={() => setShowCreateProject(false)}
+        onProjectCreated={handleProjectCreated}
+      />
     </div>
   );
 }

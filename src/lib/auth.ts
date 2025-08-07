@@ -2,7 +2,7 @@
 import { NextAuthOptions, Session } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import { connectToDatabase } from './db';
+import { connectToDatabase, withRetry } from './db';
 import { UserRole } from '@/types';
 import { ObjectId } from 'mongodb';
 
@@ -48,45 +48,61 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const { db } = await connectToDatabase();
-          
-          const user = await db.collection('users').findOne({
-            email: credentials.email.toLowerCase(),
-          });
+          // Use retry mechanism for database operations
+          return await withRetry(async () => {
+            const { db } = await connectToDatabase();
+            
+            const user = await db.collection('users').findOne({
+              email: credentials.email.toLowerCase(),
+            });
 
-          if (!user) {
-            throw new Error('No user found with this email');
-          }
-
-          if (!user.isActive) {
-            throw new Error('Your account has been deactivated. Please contact support.');
-          }
-
-          const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-
-          if (!isPasswordValid) {
-            throw new Error('Invalid password');
-          }
-
-          await db.collection('users').updateOne(
-            { _id: user._id },
-            { 
-              $set: { 
-                lastLogin: new Date(),
-                updatedAt: new Date(),
-              } 
+            if (!user) {
+              throw new Error('No user found with this email');
             }
-          );
 
-          return {
-            id: user._id.toString(),
-            email: user.email,
-            name: user.name,
-            role: user.role,
-            avatar: user.avatar,
-          };
+            if (!user.isActive) {
+              throw new Error('Your account has been deactivated. Please contact support.');
+            }
+
+            const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
+
+            if (!isPasswordValid) {
+              throw new Error('Invalid password');
+            }
+
+            // Update last login with retry
+            await db.collection('users').updateOne(
+              { _id: user._id },
+              { 
+                $set: { 
+                  lastLogin: new Date(),
+                  updatedAt: new Date(),
+                } 
+              }
+            );
+
+            return {
+              id: user._id.toString(),
+              email: user.email,
+              name: user.name,
+              role: user.role,
+              avatar: user.avatar,
+            };
+          }, 3, 2000); // 3 retries with 2 second delay
+          
         } catch (error: unknown) {
           console.error('Authentication error:', error);
+          
+          // Provide user-friendly error messages
+          if (error instanceof Error) {
+            if (error.message.includes('Server selection timed out')) {
+              throw new Error('Database connection temporarily unavailable. Please try again.');
+            }
+            if (error.message.includes('MongoServerSelectionError')) {
+              throw new Error('Unable to connect to database. Please try again in a moment.');
+            }
+          }
+          
           throw error;
         }
       },
@@ -94,10 +110,10 @@ export const authOptions: NextAuthOptions = {
   ],
   session: {
     strategy: 'jwt',
-    maxAge: 7 * 24 * 60 * 60,
+    maxAge: 7 * 24 * 60 * 60, // 7 days
   },
   jwt: {
-    maxAge: 7 * 24 * 60 * 60,
+    maxAge: 7 * 24 * 60 * 60, // 7 days
   },
   callbacks: {
     async jwt({ token, user }) {
@@ -139,40 +155,42 @@ export async function createUser(userData: {
   phone?: string;
 }) {
   try {
-    const { db } = await connectToDatabase();
+    return await withRetry(async () => {
+      const { db } = await connectToDatabase();
 
-    const existingUser = await db.collection('users').findOne({
-      email: userData.email.toLowerCase(),
+      const existingUser = await db.collection('users').findOne({
+        email: userData.email.toLowerCase(),
+      });
+
+      if (existingUser) {
+        throw new Error('User with this email already exists');
+      }
+
+      const hashedPassword = await hashPassword(userData.password);
+
+      const newUser = {
+        email: userData.email.toLowerCase(),
+        name: userData.name.trim(),
+        password: hashedPassword,
+        role: userData.role,
+        phone: userData.phone?.trim(),
+        avatar: null,
+        isActive: true,
+        lastLogin: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const result = await db.collection('users').insertOne(newUser);
+
+      return {
+        id: result.insertedId.toString(),
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role,
+        phone: newUser.phone,
+      };
     });
-
-    if (existingUser) {
-      throw new Error('User with this email already exists');
-    }
-
-    const hashedPassword = await hashPassword(userData.password);
-
-    const newUser = {
-      email: userData.email.toLowerCase(),
-      name: userData.name.trim(),
-      password: hashedPassword,
-      role: userData.role,
-      phone: userData.phone?.trim(),
-      avatar: null,
-      isActive: true,
-      lastLogin: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    const result = await db.collection('users').insertOne(newUser);
-
-    return {
-      id: result.insertedId.toString(),
-      email: newUser.email,
-      name: newUser.name,
-      role: newUser.role,
-      phone: newUser.phone,
-    };
   } catch (error: unknown) {
     console.error('Error creating user:', error);
     throw error;
@@ -181,14 +199,16 @@ export async function createUser(userData: {
 
 export async function getUserById(userId: string) {
   try {
-    const { db } = await connectToDatabase();
+    return await withRetry(async () => {
+      const { db } = await connectToDatabase();
 
-    const user = await db.collection('users').findOne(
-      { _id: new ObjectId(userId) },
-      { projection: { password: 0 } }
-    );
+      const user = await db.collection('users').findOne(
+        { _id: new ObjectId(userId) },
+        { projection: { password: 0 } }
+      );
 
-    return user;
+      return user;
+    });
   } catch (error: unknown) {
     console.error('Error getting user by ID:', error);
     throw error;
@@ -202,27 +222,29 @@ export async function updateUserProfile(userId: string, updates: {
   avatar?: string;
 }) {
   try {
-    const { db } = await connectToDatabase();
+    return await withRetry(async () => {
+      const { db } = await connectToDatabase();
 
-    const updateData: Record<string, unknown> = {
-      updatedAt: new Date(),
-    };
+      const updateData: Record<string, unknown> = {
+        updatedAt: new Date(),
+      };
 
-    if (updates.name) updateData.name = updates.name.trim();
-    if (updates.email) updateData.email = updates.email.toLowerCase();
-    if (updates.phone) updateData.phone = updates.phone.trim();
-    if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
+      if (updates.name) updateData.name = updates.name.trim();
+      if (updates.email) updateData.email = updates.email.toLowerCase();
+      if (updates.phone) updateData.phone = updates.phone.trim();
+      if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
 
-    const result = await db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: updateData }
-    );
+      const result = await db.collection('users').updateOne(
+        { _id: new ObjectId(userId) },
+        { $set: updateData }
+      );
 
-    if (result.matchedCount === 0) {
-      throw new Error('User not found');
-    }
+      if (result.matchedCount === 0) {
+        throw new Error('User not found');
+      }
 
-    return result;
+      return result;
+    });
   } catch (error: unknown) {
     console.error('Error updating user profile:', error);
     throw error;
@@ -235,34 +257,36 @@ export async function changeUserPassword(
   newPassword: string
 ) {
   try {
-    const { db } = await connectToDatabase();
+    return await withRetry(async () => {
+      const { db } = await connectToDatabase();
 
-    const user = await db.collection('users').findOne({
-      _id: new ObjectId(userId),
-    });
+      const user = await db.collection('users').findOne({
+        _id: new ObjectId(userId),
+      });
 
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const isCurrentPasswordValid = await verifyPassword(currentPassword, user.password);
-    if (!isCurrentPasswordValid) {
-      throw new Error('Current password is incorrect');
-    }
-
-    const hashedNewPassword = await hashPassword(newPassword);
-
-    const result = await db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      {
-        $set: {
-          password: hashedNewPassword,
-          updatedAt: new Date(),
-        },
+      if (!user) {
+        throw new Error('User not found');
       }
-    );
 
-    return result;
+      const isCurrentPasswordValid = await verifyPassword(currentPassword, user.password);
+      if (!isCurrentPasswordValid) {
+        throw new Error('Current password is incorrect');
+      }
+
+      const hashedNewPassword = await hashPassword(newPassword);
+
+      const result = await db.collection('users').updateOne(
+        { _id: new ObjectId(userId) },
+        {
+          $set: {
+            password: hashedNewPassword,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      return result;
+    });
   } catch (error: unknown) {
     console.error('Error changing password:', error);
     throw error;
@@ -271,19 +295,21 @@ export async function changeUserPassword(
 
 export async function deactivateUser(userId: string) {
   try {
-    const { db } = await connectToDatabase();
+    return await withRetry(async () => {
+      const { db } = await connectToDatabase();
 
-    const result = await db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      {
-        $set: {
-          isActive: false,
-          updatedAt: new Date(),
-        },
-      }
-    );
+      const result = await db.collection('users').updateOne(
+        { _id: new ObjectId(userId) },
+        {
+          $set: {
+            isActive: false,
+            updatedAt: new Date(),
+          },
+        }
+      );
 
-    return result;
+      return result;
+    });
   } catch (error: unknown) {
     console.error('Error deactivating user:', error);
     throw error;
@@ -292,19 +318,21 @@ export async function deactivateUser(userId: string) {
 
 export async function reactivateUser(userId: string) {
   try {
-    const { db } = await connectToDatabase();
+    return await withRetry(async () => {
+      const { db } = await connectToDatabase();
 
-    const result = await db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      {
-        $set: {
-          isActive: true,
-          updatedAt: new Date(),
-        },
-      }
-    );
+      const result = await db.collection('users').updateOne(
+        { _id: new ObjectId(userId) },
+        {
+          $set: {
+            isActive: true,
+            updatedAt: new Date(),
+          },
+        }
+      );
 
-    return result;
+      return result;
+    });
   } catch (error: unknown) {
     console.error('Error reactivating user:', error);
     throw error;
@@ -319,50 +347,52 @@ export async function getUsers(options: {
   isActive?: boolean;
 } = {}) {
   try {
-    const { db } = await connectToDatabase();
-    
-    const {
-      page = 1,
-      limit = 10,
-      role,
-      search,
-      isActive,
-    } = options;
+    return await withRetry(async () => {
+      const { db } = await connectToDatabase();
+      
+      const {
+        page = 1,
+        limit = 10,
+        role,
+        search,
+        isActive,
+      } = options;
 
-    const filter: Record<string, unknown> = {};
-    
-    if (role) filter.role = role;
-    if (isActive !== undefined) filter.isActive = isActive;
-    
-    if (search) {
-      filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-      ];
-    }
+      const filter: Record<string, unknown> = {};
+      
+      if (role) filter.role = role;
+      if (isActive !== undefined) filter.isActive = isActive;
+      
+      if (search) {
+        filter.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+        ];
+      }
 
-    const total = await db.collection('users').countDocuments(filter);
-    
-    const users = await db.collection('users')
-      .find(filter, { projection: { password: 0 } })
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .toArray();
+      const total = await db.collection('users').countDocuments(filter);
+      
+      const users = await db.collection('users')
+        .find(filter, { projection: { password: 0 } })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .toArray();
 
-    const totalPages = Math.ceil(total / limit);
+      const totalPages = Math.ceil(total / limit);
 
-    return {
-      users,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1,
-      },
-    };
+      return {
+        users,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    });
   } catch (error: unknown) {
     console.error('Error getting users:', error);
     throw error;

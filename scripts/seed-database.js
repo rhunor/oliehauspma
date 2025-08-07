@@ -1,3 +1,5 @@
+//sripts/seed-database.js
+
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');

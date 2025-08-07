@@ -2,13 +2,16 @@
   "name": "olivehaus-ppma",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "seed": "node scripts/seed-database.js"
-  },
+"scripts": {
+  "dev": "next dev --turbopack",
+  "build": "next build",
+  "start": "next start",
+  "lint": "next lint",
+  "seed": "node scripts/seed-database.js",
+  "db:init": "node scripts/init-database.js",
+  "db:seed": "node scripts/init-database.js",
+  "db:test": "node scripts/test-connection.js"
+},
   "dependencies": {
     "@auth/mongodb-adapter": "^3.10.0",
     "@hookform/resolvers": "^5.2.1",

@@ -1,10 +1,11 @@
 // src/lib/db.ts
-import { MongoClient, Db, MongoClientOptions, Document, ClientSession } from 'mongodb';
+import { MongoClient, Db, MongoClientOptions, Document, ClientSession, Sort } from 'mongodb';
 import mongoose from 'mongoose';
+import type { AnyBulkWriteOperation } from 'mongodb';
 
+// Global connection caching for serverless
 let client: MongoClient | null = null;
 let db: Db | null = null;
-
 let isConnected = false;
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -14,52 +15,145 @@ if (!MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
 }
 
+// Optimized options for Next.js serverless environment
 const options: MongoClientOptions = {
-  maxPoolSize: 10,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-  family: 4,
+  // Connection Pool Settings - Optimized for serverless
+  maxPoolSize: 5, // Reduced from 10 for serverless
+  minPoolSize: 1, // Ensure at least 1 connection stays warm
+  
+  // Timeout Settings - Increased for Atlas reliability
+  serverSelectionTimeoutMS: 30000, // Increased from 5000
+  socketTimeoutMS: 60000, // Increased from 45000
+  connectTimeoutMS: 30000, // Added explicit connect timeout
+  
+  // Serverless Optimizations
+  maxIdleTimeMS: 270000, // 4.5 min - keep connections alive longer
+  heartbeatFrequencyMS: 30000, // 30 sec heartbeat
+  
+  // Atlas Specific Settings
+  retryWrites: true,
+  retryReads: true,
+  w: 'majority',
+  
+  // Network Settings
+  family: 4, // IPv4
+  
+  // Compression for better performance
+  compressors: ['zlib'],
 };
 
 export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db }> {
   try {
+    // Return existing connection if available and connected
     if (client && db) {
-      return { client, db };
+      try {
+        // Test if connection is still alive with a quick ping
+        await db.admin().ping();
+        return { client, db };
+      } catch {
+        console.warn('⚠️ Existing connection is stale, creating new one');
+        // Connection is stale, continue to create new one
+      }
     }
 
-    console.log('Connecting to MongoDB...');
+    console.log('🔄 Connecting to MongoDB Atlas...');
+    
+    // Close any existing stale connections
+    if (client) {
+      try {
+        await client.close();
+      } catch (closeError) {
+        console.warn('Warning: Error closing stale connection:', closeError);
+      }
+      client = null;
+      db = null;
+    }
+
+    // Create new connection with retry logic
     client = new MongoClient(MONGODB_URI!, options);
-    await client.connect();
+    
+    // Add connection event listeners for debugging
+    client.on('serverHeartbeatStarted', () => console.log('🔄 MongoDB heartbeat started'));
+    client.on('serverHeartbeatSucceeded', () => console.log('💓 MongoDB heartbeat succeeded'));
+    client.on('serverHeartbeatFailed', (event) => console.log('💔 MongoDB heartbeat failed:', event.failure));
+    client.on('connectionPoolCreated', () => console.log('🏊 MongoDB connection pool created'));
+    client.on('connectionCreated', () => console.log('🔗 MongoDB connection created'));
+    client.on('error', (connectionError) => console.error('❌ MongoDB client error:', connectionError));
+    
+    // Connect with timeout
+    await Promise.race([
+      client.connect(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout after 30 seconds')), 30000)
+      )
+    ]);
     
     db = client.db(MONGODB_DB);
     
-    console.log('Connected to MongoDB successfully');
+    // Test connection
+    await db.admin().ping();
+    
+    console.log('✅ Connected to MongoDB Atlas successfully');
     return { client, db };
+    
   } catch (error: unknown) {
-    console.error('Failed to connect to MongoDB:', error);
+    console.error('❌ Failed to connect to MongoDB Atlas:', error);
+    
+    // Clean up on failure
+    if (client) {
+      try {
+        await client.close();
+      } catch (closeError) {
+        console.warn('Warning: Error closing failed connection:', closeError);
+      }
+      client = null;
+      db = null;
+    }
+    
     throw error;
   }
 }
 
+// Mongoose connection with similar optimizations
 export async function connectToMongoose(): Promise<typeof mongoose> {
   try {
-    if (isConnected) {
+    if (isConnected && mongoose.connection.readyState === 1) {
       return mongoose;
     }
 
-    console.log('Connecting to MongoDB via Mongoose...');
+    console.log('🔄 Connecting to MongoDB via Mongoose...');
     
+    // Close existing connection if stale
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+      isConnected = false;
+    }
+
     const conn = await mongoose.connect(MONGODB_URI!, {
-      bufferCommands: false,
+      // Mongoose-specific optimizations
+      bufferCommands: false, // Disable mongoose buffering
+      maxPoolSize: 5,
+      minPoolSize: 1,
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 60000,
+      connectTimeoutMS: 30000,
+      maxIdleTimeMS: 270000,
+      heartbeatFrequencyMS: 30000,
+      
+      // Atlas specific
+      retryWrites: true,
+      retryReads: true,
     });
 
     isConnected = conn.connection.readyState === 1;
     
-    console.log('Connected to MongoDB via Mongoose successfully');
+    console.log('✅ Connected to MongoDB via Mongoose successfully');
     return mongoose;
-  } catch (error: unknown) {
-    console.error('Failed to connect to MongoDB via Mongoose:', error);
-    throw error;
+    
+  } catch (mongooseError: unknown) {
+    console.error('❌ Failed to connect to MongoDB via Mongoose:', mongooseError);
+    isConnected = false;
+    throw mongooseError;
   }
 }
 
@@ -69,37 +163,77 @@ export async function disconnectFromDatabase(): Promise<void> {
       await client.close();
       client = null;
       db = null;
-      console.log('Disconnected from MongoDB');
+      console.log('🔌 Disconnected from MongoDB');
     }
 
     if (mongoose.connection.readyState !== 0) {
       await mongoose.disconnect();
       isConnected = false;
-      console.log('Disconnected from Mongoose');
+      console.log('🔌 Disconnected from Mongoose');
     }
-  } catch (error: unknown) {
-    console.error('Error disconnecting from database:', error);
-    throw error;
+  } catch (disconnectError: unknown) {
+    console.error('❌ Error disconnecting from database:', disconnectError);
+    // Don't throw here, just log the error
   }
 }
 
 export async function getDatabase(): Promise<Db> {
-  if (!db) {
+  if (!db || !client) {
     const { db: database } = await connectToDatabase();
     return database;
   }
-  return db;
+  
+  try {
+    // Test if connection is still alive
+    await db.admin().ping();
+    return db;
+  } catch {
+    console.warn('⚠️ Database connection is stale, reconnecting...');
+    const { db: database } = await connectToDatabase();
+    return database;
+  }
 }
 
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {
     const database = await getDatabase();
-    await database.admin().ping();
+    await Promise.race([
+      database.admin().ping(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Health check timeout')), 10000)
+      )
+    ]);
     return true;
-  } catch (error: unknown) {
-    console.error('Database health check failed:', error);
+  } catch (healthError: unknown) {
+    console.error('❌ Database health check failed:', healthError);
     return false;
   }
+}
+
+// Connection retry helper for critical operations
+export async function withRetry<T>(
+  operation: () => Promise<T>, 
+  maxRetries: number = 3,
+  delayMs: number = 1000
+): Promise<T> {
+  let lastError: unknown;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (retryError: unknown) {
+      lastError = retryError;
+      console.warn(`❌ Operation failed (attempt ${attempt}/${maxRetries}):`, retryError);
+      
+      if (attempt < maxRetries) {
+        console.log(`⏳ Retrying in ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        delayMs *= 2; // Exponential backoff
+      }
+    }
+  }
+  
+  throw lastError;
 }
 
 export async function createIndexes(): Promise<void> {
@@ -158,10 +292,10 @@ export async function createIndexes(): Promise<void> {
       { key: { uploadedAt: -1 } },
     ]);
 
-    console.log('Database indexes created successfully');
-  } catch (error: unknown) {
-    console.error('Error creating database indexes:', error);
-    throw error;
+    console.log('✅ Database indexes created successfully');
+  } catch (indexError: unknown) {
+    console.error('❌ Error creating database indexes:', indexError);
+    throw indexError;
   }
 }
 
@@ -173,12 +307,12 @@ export async function withTransaction<T>(
 
   try {
     session.startTransaction();
-    const result = await callback(session);
+    const transactionResult = await callback(session);
     await session.commitTransaction();
-    return result;
-  } catch (error: unknown) {
+    return transactionResult;
+  } catch (transactionError: unknown) {
     await session.abortTransaction();
-    throw error;
+    throw transactionError;
   } finally {
     await session.endSession();
   }
@@ -191,15 +325,13 @@ export async function aggregateCollection<T extends Document = Document>(
   try {
     const database = await getDatabase();
     const collection = database.collection(collectionName);
-    const result = await collection.aggregate<T>(pipeline).toArray();
-    return result;
-  } catch (error: unknown) {
-    console.error(`Error aggregating collection ${collectionName}:`, error);
-    throw error;
+    const aggregationResult = await collection.aggregate<T>(pipeline).toArray();
+    return aggregationResult;
+  } catch (aggregateError: unknown) {
+    console.error(`❌ Error aggregating collection ${collectionName}:`, aggregateError);
+    throw aggregateError;
   }
 }
-
-import type { AnyBulkWriteOperation } from 'mongodb';
 
 export async function bulkWrite(
   collectionName: string,
@@ -209,9 +341,9 @@ export async function bulkWrite(
     const database = await getDatabase();
     const collection = database.collection(collectionName);
     return await collection.bulkWrite(operations);
-  } catch (error: unknown) {
-    console.error(`Error performing bulk write on ${collectionName}:`, error);
-    throw error;
+  } catch (bulkError: unknown) {
+    console.error(`❌ Error performing bulk write on ${collectionName}:`, bulkError);
+    throw bulkError;
   }
 }
 
@@ -226,10 +358,10 @@ export async function cleanupExpiredData(): Promise<void> {
       isRead: true,
     });
 
-    console.log('Expired data cleanup completed');
-  } catch (error: unknown) {
-    console.error('Error during data cleanup:', error);
-    throw error;
+    console.log('✅ Expired data cleanup completed');
+  } catch (cleanupError: unknown) {
+    console.error('❌ Error during data cleanup:', cleanupError);
+    throw cleanupError;
   }
 }
 
@@ -251,8 +383,8 @@ export async function getDatabaseStats(): Promise<Document> {
             count,
             indexes: indexInfo.length,
           };
-        } catch (error: unknown) {
-          console.warn(`Error getting stats for collection ${col.name}:`, error);
+        } catch (collectionError: unknown) {
+          console.warn(`⚠️ Error getting stats for collection ${col.name}:`, collectionError);
           return {
             name: col.name,
             count: 0,
@@ -273,9 +405,9 @@ export async function getDatabaseStats(): Promise<Document> {
       },
       collections: collectionStats,
     };
-  } catch (error: unknown) {
-    console.error('Error getting database stats:', error);
-    throw error;
+  } catch (statsError: unknown) {
+    console.error('❌ Error getting database stats:', statsError);
+    throw statsError;
   }
 }
 
@@ -312,9 +444,9 @@ export async function createBackup(collectionName?: string): Promise<Document> {
         totalDocuments: backup.reduce((sum, col) => sum + col.count, 0),
       };
     }
-  } catch (error: unknown) {
-    console.error('Error creating backup:', error);
-    throw error;
+  } catch (backupError: unknown) {
+    console.error('❌ Error creating backup:', backupError);
+    throw backupError;
   }
 }
 
@@ -344,7 +476,7 @@ export async function textSearch<T extends Document = Document>(
     if (options.sort) {
       cursor = cursor.sort(options.sort as Sort);
     } else {
-      cursor = cursor.sort({ score: { $meta: 'textScore' } });
+      cursor = cursor.sort({ score: { $meta: 'textScore' } } as Sort);
     }
 
     if (options.skip) {
@@ -356,13 +488,11 @@ export async function textSearch<T extends Document = Document>(
     }
 
     return await cursor.toArray() as T[];
-  } catch (error: unknown) {
-    console.error(`Error performing text search on ${collectionName}:`, error);
-    throw error;
+  } catch (searchError: unknown) {
+    console.error(`❌ Error performing text search on ${collectionName}:`, searchError);
+    throw searchError;
   }
 }
-
-import type { Sort } from 'mongodb';
 
 export async function paginateCollection<T extends Document = Document>(
   collectionName: string,
@@ -413,19 +543,22 @@ export async function paginateCollection<T extends Document = Document>(
         hasPrev: page > 1,
       },
     };
-  } catch (error: unknown) {
-    console.error(`Error paginating collection ${collectionName}:`, error);
-    throw error;
+  } catch (paginateError: unknown) {
+    console.error(`❌ Error paginating collection ${collectionName}:`, paginateError);
+    throw paginateError;
   }
 }
 
+// Graceful shutdown handling
 if (typeof window === 'undefined') {
   process.on('SIGINT', async () => {
+    console.log('🔄 Gracefully shutting down database connections...');
     await disconnectFromDatabase();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
+    console.log('🔄 Gracefully shutting down database connections...');
     await disconnectFromDatabase();
     process.exit(0);
   });
@@ -439,6 +572,7 @@ const dbExports = {
   checkDatabaseHealth,
   createIndexes,
   withTransaction,
+  withRetry,
   aggregateCollection,
   bulkWrite,
   cleanupExpiredData,
