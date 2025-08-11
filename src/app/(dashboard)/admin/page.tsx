@@ -3,132 +3,96 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { 
-  Users, 
   FolderOpen, 
-  CheckSquare, 
-  Calendar,
-  TrendingUp,
+  ClipboardList,
+  Users, 
   AlertTriangle,
-  Clock,
-  Award,
   Plus,
-  ArrowRight
+  ArrowRight,
+  Clock,
+  Activity,
+  CalendarCheck
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, StatsCard } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { StatusBadge, PriorityBadge } from "@/components/ui/badge";
-import { formatTimeAgo, formatDate } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { StatusBadge } from "@/components/ui/badge";
+import { formatTimeAgo } from "@/lib/utils";
 import CreateProjectModal from "@/components/projects/create-project-modal";
-import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
 
+// Define proper interfaces for dashboard data
 interface DashboardStats {
   projects: {
     total: number;
     active: number;
-    completed: number;
-    onHold: number;
-    averageProgress: number;
-    totalBudget: number;
     trend: number;
+    averageProgress: number;
   };
   tasks: {
     total: number;
-    completed: number;
-    pending: number;
-    inProgress: number;
-    overdue: number;
     completionRate: number;
     trend: number;
+    overdue: number;
   };
   users: {
-    total: number;
     active: number;
-    superAdmins: number;
-    projectManagers: number;
-    clients: number;
+    total: number;
     trend: number;
   };
   performance: {
-    averageCompletionTime: number;
     onTimePercentage: number;
+    averageCompletionTime: number;
     overdueTasksTrend: number;
   };
-  recentActivity: Array<{
-    id: string;
-    type: string;
-    title: string;
-    status: string;
-    progress: number;
-    client: string;
-    manager: string;
-    timestamp: string;
-  }>;
+  recentActivity: ProjectActivity[];
 }
 
-interface Project {
-  _id: string;
+interface ProjectActivity {
+  id: string;
   title: string;
-  description: string;
-  status: string;
+  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   progress: number;
-  priority: string;
-  client: {
-    name: string;
-  };
-  manager: {
-    name: string;
-  };
-  endDate: string;
-  createdAt: string;
+  timestamp: string;
+}
+
+interface DashboardApiResponse {
+  success: boolean;
+  data: DashboardStats;
+  error?: string;
 }
 
 export default function AdminDashboard() {
   const { data: session } = useSession();
   const { toast } = useToast();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [recentProjects, setRecentProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [recentProjects, setRecentProjects] = useState<ProjectActivity[]>([]);
   const [showCreateProject, setShowCreateProject] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-
-      // Fetch analytics data and recent projects in parallel
-      const [analyticsRes, projectsRes] = await Promise.all([
-        fetch('/api/analytics/dashboard'),
-        fetch('/api/projects?limit=3&page=1')
-      ]);
-
-      if (!analyticsRes.ok) {
-        throw new Error('Failed to fetch analytics data');
+      
+      const response = await fetch('/api/analytics/dashboard');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch dashboard data: ${response.statusText}`);
       }
-
-      if (!projectsRes.ok) {
-        throw new Error('Failed to fetch projects data');
-      }
-
-      const analyticsData = await analyticsRes.json();
-      const projectsData = await projectsRes.json();
-
-      if (analyticsData.success) {
-        setStats(analyticsData.data);
+      
+      const data: DashboardApiResponse = await response.json();
+      
+      if (data.success) {
+        setStats(data.data);
+        setRecentProjects(data.data.recentActivity || []);
       } else {
-        throw new Error(analyticsData.error || 'Failed to load analytics');
+        throw new Error(data.error || 'Failed to load dashboard data');
       }
-
-      if (projectsData.success) {
-        setRecentProjects(projectsData.data.projects);
-      } else {
-        throw new Error(projectsData.error || 'Failed to load projects');
-      }
-
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+    } catch (error: unknown) {
+      console.error('Dashboard fetch error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard data';
       setError(errorMessage);
       toast({
@@ -146,7 +110,6 @@ export default function AdminDashboard() {
   }, [fetchDashboardData]);
 
   const handleProjectCreated = () => {
-    // Refresh dashboard data after project creation
     fetchDashboardData();
     toast({
       title: "Success",
@@ -207,10 +170,12 @@ export default function AdminDashboard() {
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-3">
-          <Button variant="outline" className="flex items-center gap-2">
-            <Calendar className="h-4 w-4" />
-            Schedule Meeting
-          </Button>
+          <Link href="/admin/site-schedule">
+            <Button variant="outline" className="flex items-center gap-2">
+              <CalendarCheck className="h-4 w-4" />
+              Site Schedule
+            </Button>
+          </Link>
           <Button className="flex items-center gap-2" onClick={() => setShowCreateProject(true)}>
             <Plus className="h-4 w-4" />
             New Project
@@ -227,10 +192,10 @@ export default function AdminDashboard() {
           trend={{ value: stats.projects.trend, isPositive: stats.projects.trend > 0 }}
         />
         <StatsCard
-          title="Total Tasks"
+          title="Site Activities"
           value={stats.tasks.total}
           description={`${stats.tasks.completionRate}% completed`}
-          icon={<CheckSquare className="h-6 w-6" />}
+          icon={<ClipboardList className="h-6 w-6" />}
           trend={{ value: stats.tasks.trend, isPositive: stats.tasks.trend > 0 }}
         />
         <StatsCard
@@ -241,13 +206,46 @@ export default function AdminDashboard() {
           trend={{ value: stats.users.trend, isPositive: stats.users.trend > 0 }}
         />
         <StatsCard
-          title="Overdue Tasks"
+          title="Delayed Activities"
           value={stats.tasks.overdue}
           description="Need attention"
           icon={<AlertTriangle className="h-6 w-6" />}
           trend={{ value: stats.performance.overdueTasksTrend, isPositive: stats.performance.overdueTasksTrend <= 0 }}
         />
       </div>
+
+      {/* Quick Access Card for Site Schedule */}
+      <Card variant="elegant" className="bg-gradient-to-r from-primary-50 to-primary-100 border-primary-200">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-primary-900 mb-2">
+                View Complete Site Schedule
+              </h3>
+              <p className="text-primary-700 text-sm mb-4">
+                Access detailed project schedules, daily progress tracking, and contractor assignments all in one place.
+              </p>
+              <div className="flex gap-3">
+                <Link href="/admin/site-schedule">
+                  <Button className="flex items-center gap-2">
+                    <CalendarCheck className="h-4 w-4" />
+                    View Full Schedule
+                  </Button>
+                </Link>
+                <Link href="/admin/site-schedule/daily">
+                  <Button variant="outline" className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Today&apos;s Activities
+                  </Button>
+                </Link>
+              </div>
+            </div>
+            <div className="hidden md:block">
+              <ClipboardList className="h-24 w-24 text-primary-300" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
@@ -257,207 +255,133 @@ export default function AdminDashboard() {
                 <FolderOpen className="h-5 w-5 text-primary-600" />
                 Recent Projects
               </CardTitle>
-              <Button variant="ghost" size="sm" className="text-primary-600">
-                View All
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
+              <Link href="/admin/projects">
+                <Button variant="ghost" size="sm" className="text-primary-600">
+                  View All
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </Link>
             </CardHeader>
             <CardContent className="space-y-4">
               {recentProjects.length > 0 ? (
-                recentProjects.map((project) => (
+                recentProjects.slice(0, 5).map((project) => (
                   <div
-                    key={project._id}
-                    className="flex items-center justify-between p-4 border border-neutral-200 rounded-lg hover:border-primary-200 transition-colors cursor-pointer"
+                    key={project.id}
+                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h4 className="font-medium text-gray-900">{project.title}</h4>
+                      <h4 className="font-medium text-gray-900">{project.title}</h4>
+                      <div className="flex items-center gap-3 mt-1">
                         <StatusBadge status={project.status} />
-                        <PriorityBadge priority={project.priority} />
-                      </div>
-                      <p className="text-sm text-neutral-600 mb-2 line-clamp-1">
-                        {project.description}
-                      </p>
-                      <div className="flex items-center gap-4 text-xs text-neutral-500">
-                        <span><strong>Client:</strong> {project.client.name}</span>
-                        <span><strong>Manager:</strong> {project.manager.name}</span>
-                        <span><strong>Due:</strong> {formatDate(project.endDate)}</span>
+                        <span className="text-sm text-neutral-600">
+                          {project.progress}% complete
+                        </span>
                       </div>
                     </div>
-                    <div className="ml-4 text-right">
-                      <div className="text-sm font-medium text-gray-900 mb-1">
-                        {project.progress}%
-                      </div>
-                      <div className="w-16 bg-neutral-200 rounded-full h-2">
-                        <div
-                          className="bg-primary-500 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${project.progress}%` }}
-                        />
-                      </div>
+                    <div className="text-right">
+                      <p className="text-sm text-neutral-600">
+                        {formatTimeAgo(new Date(project.timestamp))}
+                      </p>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8 text-neutral-500">
-                  No projects available
+                <div className="text-center py-8">
+                  <p className="text-neutral-500">No recent projects</p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => setShowCreateProject(true)}
+                  >
+                    Create First Project
+                  </Button>
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        <div>
+        <div className="space-y-6">
           <Card variant="elegant">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-primary-600" />
-                Recent Activity
+                <Activity className="h-5 w-5 text-green-600" />
+                Performance Metrics
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {stats.recentActivity.length > 0 ? (
-                stats.recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex gap-3">
-                    <div className="flex-shrink-0 w-2 h-2 bg-primary-500 rounded-full mt-2"></div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900 font-medium">
-                        {activity.type === 'project_updated' ? 'Project Updated' : activity.type.replace('_', ' ')}
-                      </p>
-                      <p className="text-sm text-neutral-600">
-                        {activity.title} - {activity.progress}% complete
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-neutral-500">
-                          by {activity.manager}
-                        </span>
-                        <span className="text-xs text-neutral-400">•</span>
-                        <span className="text-xs text-neutral-500">
-                          {formatTimeAgo(new Date(activity.timestamp))}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-4 text-neutral-500">
-                  No recent activity
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-neutral-600">On-Time Completion</span>
+                  <span className="text-sm font-medium">
+                    {stats.performance.onTimePercentage}%
+                  </span>
                 </div>
-              )}
-              <Button variant="ghost" size="sm" className="w-full mt-4 text-primary-600">
-                View All Activity
-              </Button>
+                <div className="w-full bg-neutral-200 rounded-full h-2">
+                  <div
+                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${stats.performance.onTimePercentage}%` }}
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-neutral-600">Average Project Progress</span>
+                  <span className="text-sm font-medium">
+                    {stats.projects.averageProgress}%
+                  </span>
+                </div>
+                <div className="w-full bg-neutral-200 rounded-full h-2">
+                  <div
+                    className="bg-primary-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${stats.projects.averageProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-neutral-600">Avg. Completion Time</span>
+                  <span className="text-sm font-medium">
+                    {stats.performance.averageCompletionTime} days
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card variant="elegant">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-orange-600" />
+                Today&apos;s Site Activities
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="text-center py-4">
+                  <p className="text-3xl font-bold text-primary-600">12</p>
+                  <p className="text-sm text-neutral-600 mt-1">Activities Scheduled</p>
+                </div>
+                <Link href="/admin/site-schedule/daily">
+                  <Button className="w-full" variant="outline">
+                    View Today&apos;s Schedule
+                  </Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card variant="elegant">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-primary-600" />
-              Quick Actions
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4">
-            <Link href="/admin/users">
-              <Button variant="outline" className="h-20 flex-col gap-2 w-full">
-                <Users className="h-6 w-6" />
-                <span className="text-sm">Add User</span>
-              </Button>
-            </Link>
-            <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => setShowCreateProject(true)}>
-              <FolderOpen className="h-6 w-6" />
-              <span className="text-sm">New Project</span>
-            </Button>
-            <Link href="/admin/tasks">
-              <Button variant="outline" className="h-20 flex-col gap-2 w-full">
-                <CheckSquare className="h-6 w-6" />
-                <span className="text-sm">Assign Task</span>
-              </Button>
-            </Link>
-            <Link href="/admin/analytics">
-              <Button variant="outline" className="h-20 flex-col gap-2 w-full">
-                <TrendingUp className="h-6 w-6" />
-                <span className="text-sm">View Reports</span>
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-
-        <Card variant="elegant">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-primary-600" />
-              Performance Overview
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium">Project Completion Rate</span>
-                <span className="text-primary-600 font-semibold">
-                  {stats.projects.total > 0 ? Math.round((stats.projects.completed / stats.projects.total) * 100) : 0}%
-                </span>
-              </div>
-              <div className="w-full bg-neutral-200 rounded-full h-3">
-                <div
-                  className="bg-gradient-to-r from-primary-500 to-secondary-500 h-3 rounded-full transition-all duration-500"
-                  style={{ 
-                    width: `${stats.projects.total > 0 ? Math.round((stats.projects.completed / stats.projects.total) * 100) : 0}%` 
-                  }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium">Task Completion Rate</span>
-                <span className="text-green-600 font-semibold">
-                  {stats.tasks.completionRate}%
-                </span>
-              </div>
-              <div className="w-full bg-neutral-200 rounded-full h-3">
-                <div
-                  className="bg-gradient-to-r from-green-500 to-emerald-500 h-3 rounded-full transition-all duration-500"
-                  style={{ width: `${stats.tasks.completionRate}%` }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium">On-Time Delivery</span>
-                <span className="text-blue-600 font-semibold">
-                  {stats.performance.onTimePercentage}%
-                </span>
-              </div>
-              <div className="w-full bg-neutral-200 rounded-full h-3">
-                <div
-                  className="bg-gradient-to-r from-blue-500 to-indigo-500 h-3 rounded-full transition-all duration-500"
-                  style={{ width: `${stats.performance.onTimePercentage}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-neutral-200">
-              <div className="flex justify-between items-center text-sm">
-                <span className="font-medium">Average Completion Time</span>
-                <span className="text-neutral-600">
-                  {stats.performance.averageCompletionTime} days
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Create Project Modal */}
-      <CreateProjectModal
-        isOpen={showCreateProject}
-        onClose={() => setShowCreateProject(false)}
-        onProjectCreated={handleProjectCreated}
-      />
+      {showCreateProject && (
+        <CreateProjectModal
+          open={showCreateProject}
+          onClose={() => setShowCreateProject(false)}
+          onSuccess={handleProjectCreated}
+        />
+      )}
     </div>
   );
 }

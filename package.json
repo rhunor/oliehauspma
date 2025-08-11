@@ -2,21 +2,23 @@
   "name": "olivehaus-ppma",
   "version": "0.1.0",
   "private": true,
-"scripts": {
-  "dev": "next dev --turbopack",
-  "build": "next build",
-  "start": "next start",
-  "lint": "next lint",
-  "seed": "node scripts/seed-database.js",
-  "db:init": "node scripts/init-database.js",
-  "db:seed": "node scripts/init-database.js",
-  "db:test": "node scripts/test-connection.js"
-},
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "seed": "node scripts/seed-database.js",
+    "db:init": "node scripts/init-database.js",
+    "db:seed": "node scripts/init-database.js",
+    "db:test": "node scripts/test-connection.js"
+  },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.10.0",
     "@hookform/resolvers": "^5.2.1",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-dropdown-menu": "^2.1.15",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-select": "^2.2.5",
     "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/react-toast": "^1.2.14",
     "@types/bcryptjs": "^2.4.6",

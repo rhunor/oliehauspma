@@ -2,20 +2,41 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useForm, SubmitHandler } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { X, Users } from "lucide-react";
+import { X, Users, Calendar, DollarSign, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  createProjectSchema, 
-  type CreateProjectData,
-  transformTagsToArray,
-  transformBudget 
-} from "@/lib/validation";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { z } from "zod";
 
+// Define the validation schema inline to avoid import issues
+const createProjectSchema = z.object({
+  title: z.string().min(3, "Title must be at least 3 characters"),
+  description: z.string().min(10, "Description must be at least 10 characters"),
+  clientId: z.string().min(1, "Please select a client"),
+  managerId: z.string().min(1, "Please select a project manager"),
+  startDate: z.string().min(1, "Start date is required"),
+  endDate: z.string().min(1, "End date is required"),
+  priority: z.enum(["low", "medium", "high", "urgent"]),
+  tags: z.array(z.string()).optional(),
+  budget: z.number().optional(),
+  notes: z.string().optional(),
+});
+
+type CreateProjectData = z.infer<typeof createProjectSchema>;
+
+// User interface
 interface User {
   _id: string;
   name: string;
@@ -23,30 +44,17 @@ interface User {
   role: string;
 }
 
-interface Project {
-  _id: string;
-  title: string;
-  description: string;
-  clientId: string;
-  managerId: string;
-  startDate: string;
-  endDate: string;
-  priority: "low" | "medium" | "high" | "urgent";
-  tags: string[];
-  budget?: number;
-  notes?: string;
-}
-
+// Props interface with updated names
 interface CreateProjectModalProps {
-  isOpen: boolean;
+  open: boolean;  // Changed from isOpen to open
   onClose: () => void;
-  onProjectCreated?: (project: Project) => void;
+  onSuccess?: () => void;  // Changed from onProjectCreated
 }
 
 export default function CreateProjectModal({ 
-  isOpen, 
+  open, 
   onClose, 
-  onProjectCreated 
+  onSuccess 
 }: CreateProjectModalProps) {
   const [loading, setLoading] = useState(false);
   const [clients, setClients] = useState<User[]>([]);
@@ -76,23 +84,22 @@ export default function CreateProjectModal({
     },
   });
 
-  interface UserApiResponse {
-    success: boolean;
-    data: {
-      users: User[];
-    };
-  }
-
+  // Fetch users from API
   const fetchUsers = useCallback(async () => {
     try {
       setLoadingUsers(true);
       const response = await fetch('/api/users?limit=100');
-      const data: UserApiResponse = await response.json();
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch users');
+      }
+      
+      const data = await response.json();
 
-      if (data.success) {
+      if (data.success && data.data?.users) {
         const users = data.data.users;
-        setClients(users.filter((user) => user.role === 'client'));
-        setManagers(users.filter((user) => user.role === 'project_manager'));
+        setClients(users.filter((user: User) => user.role === 'client'));
+        setManagers(users.filter((user: User) => user.role === 'project_manager'));
       }
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -107,20 +114,20 @@ export default function CreateProjectModal({
   }, [toast]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (open) {
       fetchUsers();
     }
-  }, [isOpen, fetchUsers]);
+  }, [open, fetchUsers]);
 
-  const onSubmit: SubmitHandler<CreateProjectData> = async (data) => {
+  // Handle form submission
+  const onSubmit = async (data: CreateProjectData) => {
     try {
       setLoading(true);
 
-      // Transform the data before sending to API
+      // Transform tags string to array if needed
       const transformedData = {
         ...data,
-        // Ensure data is in the correct format for the API
-        tags: Array.isArray(data.tags) ? data.tags : [],
+        tags: data.tags || [],
         budget: data.budget || undefined,
         notes: data.notes || undefined,
       };
@@ -136,242 +143,301 @@ export default function CreateProjectModal({
       const result = await response.json();
 
       if (!response.ok) {
-        if (result.details) {
-          // Handle validation errors
-          result.details.forEach((detail: { field: string; message: string }) => {
-            console.error(`Validation error on ${detail.field}: ${detail.message}`);
-          });
-        }
         throw new Error(result.error || 'Failed to create project');
       }
 
       toast({
         title: "Success",
         description: "Project created successfully",
-        variant: "default",
       });
 
-      onProjectCreated?.(result.data as Project);
-      handleClose();
-    } catch (error: unknown) {
+      reset();
+      onSuccess?.();
+      onClose();
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to create project";
       toast({
+        variant: "destructive",
         title: "Error",
         description: errorMessage,
-        variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
   };
 
+  // Handle close
   const handleClose = () => {
     reset();
     onClose();
   };
 
-  // Handle tags input change
-  const handleTagsChange = (value: string) => {
-    const tagsArray = transformTagsToArray(value);
+  // Handle tags input
+  const handleTagsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const tagsArray = value.split(',').map(tag => tag.trim()).filter(Boolean);
     setValue('tags', tagsArray);
   };
 
-  // Handle budget input change
-  const handleBudgetChange = (value: string) => {
-    const budgetValue = transformBudget(value);
-    setValue('budget', budgetValue);
+  // Handle budget input
+  const handleBudgetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+    if (!isNaN(value)) {
+      setValue('budget', value);
+    } else {
+      setValue('budget', undefined);
+    }
   };
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Create New Project
-          </CardTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClose}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-            <Input
-              {...register("title")}
-              label="Project Title"
-              placeholder="Enter project title"
-              error={errors.title?.message}
-              required
-            />
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                {...register("description")}
-                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                rows={4}
-                placeholder="Enter project description"
-              />
-              {errors.description && (
-                <p className="text-sm text-red-600 mt-1">{errors.description.message}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Client <span className="text-red-500">*</span>
-                </label>
-                <select
-                  {...register("clientId")}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  disabled={loadingUsers}
-                >
-                  <option value="">Select Client</option>
-                  {clients.map((client) => (
-                    <option key={client._id} value={client._id}>
-                      {client.name} ({client.email})
-                    </option>
-                  ))}
-                </select>
-                {errors.clientId && (
-                  <p className="text-sm text-red-600 mt-1">{errors.clientId.message}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Project Manager <span className="text-red-500">*</span>
-                </label>
-                <select
-                  {...register("managerId")}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  disabled={loadingUsers}
-                >
-                  <option value="">Select Manager</option>
-                  {managers.map((manager) => (
-                    <option key={manager._id} value={manager._id}>
-                      {manager.name} ({manager.email})
-                    </option>
-                  ))}
-                </select>
-                {errors.managerId && (
-                  <p className="text-sm text-red-600 mt-1">{errors.managerId.message}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Input
-                {...register("startDate")}
-                type="date"
-                label="Start Date"
-                error={errors.startDate?.message}
-                required
-              />
-
-              <Input
-                {...register("endDate")}
-                type="date"
-                label="End Date"
-                error={errors.endDate?.message}
-                required
-              />
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Budget (₦)
-                </label>
-                <input
-                  type="number"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="0"
-                  onChange={(e) => handleBudgetChange(e.target.value)}
-                />
-                {errors.budget && (
-                  <p className="text-sm text-red-600 mt-1">{errors.budget.message}</p>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Priority
-              </label>
-              <select
-                {...register("priority")}
-                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-              {errors.priority && (
-                <p className="text-sm text-red-600 mt-1">{errors.priority.message}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tags (comma-separated)
-              </label>
-              <input
-                type="text"
-                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="residential, luxury, modern"
-                onChange={(e) => handleTagsChange(e.target.value)}
-              />
-              <p className="text-xs text-gray-500 mt-1">Enter tags separated by commas</p>
-              {errors.tags && (
-                <p className="text-sm text-red-600 mt-1">{errors.tags.message}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Notes
-              </label>
-              <textarea
-                {...register("notes")}
-                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                rows={3}
-                placeholder="Additional notes or requirements"
-              />
-              {errors.notes && (
-                <p className="text-sm text-red-600 mt-1">{errors.notes.message}</p>
-              )}
-            </div>
-
-            <div className="flex gap-3 pt-4">
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/50 z-50"
+        onClick={handleClose}
+        aria-hidden="true"
+      />
+      
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <Card className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white">
+          <CardHeader className="sticky top-0 bg-white border-b z-10">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Create New Project
+              </CardTitle>
               <Button
                 type="button"
-                variant="outline"
-                className="flex-1"
+                variant="ghost"
+                size="icon"
                 onClick={handleClose}
+                className="h-8 w-8"
               >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                className="flex-1"
-                disabled={loading || loadingUsers}
-                loading={loading}
-              >
-                Create Project
+                <X className="h-4 w-4" />
               </Button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          </CardHeader>
+          
+          <CardContent className="p-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+              {/* Title */}
+              <div className="space-y-2">
+                <Label htmlFor="title">
+                  Project Title <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="title"
+                  placeholder="Enter project title"
+                  {...register("title")}
+                />
+                {errors.title && (
+                  <p className="text-sm text-red-500">{errors.title.message}</p>
+                )}
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <Label htmlFor="description">
+                  Description <span className="text-red-500">*</span>
+                </Label>
+                <Textarea
+                  id="description"
+                  placeholder="Enter project description"
+                  rows={4}
+                  {...register("description")}
+                />
+                {errors.description && (
+                  <p className="text-sm text-red-500">{errors.description.message}</p>
+                )}
+              </div>
+
+              {/* Client and Manager */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="client">
+                    Client <span className="text-red-500">*</span>
+                  </Label>
+                  <Select 
+                    onValueChange={(value) => setValue("clientId", value)}
+                    disabled={loadingUsers}
+                  >
+                    <SelectTrigger id="client">
+                      <SelectValue placeholder="Select Client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((client) => (
+                        <SelectItem key={client._id} value={client._id}>
+                          {client.name} ({client.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.clientId && (
+                    <p className="text-sm text-red-500">{errors.clientId.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="manager">
+                    Project Manager <span className="text-red-500">*</span>
+                  </Label>
+                  <Select 
+                    onValueChange={(value) => setValue("managerId", value)}
+                    disabled={loadingUsers}
+                  >
+                    <SelectTrigger id="manager">
+                      <SelectValue placeholder="Select Manager" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {managers.map((manager) => (
+                        <SelectItem key={manager._id} value={manager._id}>
+                          {manager.name} ({manager.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.managerId && (
+                    <p className="text-sm text-red-500">{errors.managerId.message}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Dates and Budget */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="startDate">
+                    Start Date <span className="text-red-500">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="startDate"
+                      type="date"
+                      className="pl-10"
+                      {...register("startDate")}
+                    />
+                  </div>
+                  {errors.startDate && (
+                    <p className="text-sm text-red-500">{errors.startDate.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">
+                    End Date <span className="text-red-500">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="endDate"
+                      type="date"
+                      className="pl-10"
+                      {...register("endDate")}
+                    />
+                  </div>
+                  {errors.endDate && (
+                    <p className="text-sm text-red-500">{errors.endDate.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="budget">Budget (₦)</Label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="budget"
+                      type="number"
+                      placeholder="0"
+                      className="pl-10"
+                      onChange={handleBudgetChange}
+                    />
+                  </div>
+                  {errors.budget && (
+                    <p className="text-sm text-red-500">{errors.budget.message}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Priority */}
+              <div className="space-y-2">
+                <Label htmlFor="priority">Priority</Label>
+                <Select 
+                  defaultValue="medium"
+                  onValueChange={(value) => setValue("priority", value as CreateProjectData["priority"])}
+                >
+                  <SelectTrigger id="priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+                {errors.priority && (
+                  <p className="text-sm text-red-500">{errors.priority.message}</p>
+                )}
+              </div>
+
+              {/* Tags */}
+              <div className="space-y-2">
+                <Label htmlFor="tags">Tags (comma-separated)</Label>
+                <Input
+                  id="tags"
+                  type="text"
+                  placeholder="residential, luxury, modern"
+                  onChange={handleTagsChange}
+                />
+                <p className="text-xs text-gray-500">Enter tags separated by commas</p>
+                {errors.tags && (
+                  <p className="text-sm text-red-500">{errors.tags.message}</p>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="notes">
+                  <FileText className="inline-block h-4 w-4 mr-1" />
+                  Notes
+                </Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Additional notes or requirements"
+                  rows={3}
+                  {...register("notes")}
+                />
+                {errors.notes && (
+                  <p className="text-sm text-red-500">{errors.notes.message}</p>
+                )}
+              </div>
+
+              {/* Form Actions */}
+              <div className="flex gap-3 pt-4 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={handleClose}
+                  disabled={loading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1"
+                  disabled={loading || loadingUsers}
+                >
+                  {loading ? "Creating..." : "Create Project"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </>
   );
 }

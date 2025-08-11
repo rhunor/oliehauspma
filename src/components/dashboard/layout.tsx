@@ -1,7 +1,7 @@
 // src/components/dashboard/layout.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
@@ -17,17 +17,16 @@ import {
   Home,
   Users,
   FolderOpen,
-  CheckSquare,
+  ClipboardList,
   MessageSquare,
   BarChart,
   FileText,
   Calendar,
-  HelpCircle
+  CalendarCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Badge, CountBadge } from "@/components/ui/badge";
+import { CountBadge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface DashboardLayoutProps {
@@ -56,9 +55,9 @@ const navigation: NavItem[] = [
     roles: ["super_admin", "project_manager", "client"],
   },
   {
-    name: "Tasks",
-    href: "/admin/tasks",
-    icon: CheckSquare,
+    name: "Site Schedule",
+    href: "/admin/site-schedule",
+    icon: ClipboardList,
     roles: ["super_admin", "project_manager", "client"],
   },
   {
@@ -95,23 +94,16 @@ const navigation: NavItem[] = [
 ];
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
-  const [notifications] = useState(5);
   const { data: session } = useSession();
   const pathname = usePathname();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [notifications] = useState(5); 
 
-  // Close mobile sidebar and search on route change
-  useEffect(() => {
-    setIsMobileSidebarOpen(false);
-    setIsMobileSearchOpen(false);
-    setIsProfileMenuOpen(false);
-  }, [pathname]);
-
-  // Filter navigation based on user role
-  const filteredNavigation = navigation.filter(item =>
-    item.roles.includes(session?.user?.role || "")
+  const userRole = session?.user?.role || "client";
+  const filteredNavigation = navigation.filter(item => 
+    item.roles.includes(userRole)
   );
 
   const handleSignOut = async () => {
@@ -119,335 +111,37 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50">
-      {/* Desktop Top Navigation Bar */}
-      <nav className="hidden lg:block bg-white shadow-sm border-b border-neutral-200 sticky top-0 z-40">
-        <div className="px-6">
-          <div className="flex justify-between items-center h-16">
-            {/* Logo */}
-            <Link href="/" className="flex items-center gap-3 flex-shrink-0">
-              <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">O</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-serif font-bold text-gray-900">OliveHaus</h1>
-                <p className="text-xs text-neutral-500">PPMA</p>
-              </div>
-            </Link>
-
-            {/* Desktop Navigation Links - Compact */}
-            <div className="flex items-center space-x-1 flex-1 justify-center max-w-4xl">
-              {filteredNavigation.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-2 rounded-md text-sm font-medium transition-colors relative",
-                      isActive
-                        ? "bg-primary-50 text-primary-700"
-                        : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
-                    )}
-                  >
-                    <item.icon className={cn(
-                      "h-4 w-4",
-                      isActive ? "text-primary-600" : "text-neutral-400"
-                    )} />
-                    <span className="hidden xl:inline">{item.name}</span>
-                    {item.badge && (
-                      <CountBadge count={item.badge} className="ml-1" />
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-
-            {/* Right side actions - Fixed width */}
-            <div className="flex items-center gap-3 flex-shrink-0">
-              {/* Search */}
-              <div className="relative hidden xl:block">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-neutral-400" />
-                <Input
-                  type="search"
-                  placeholder="Search..."
-                  className="pl-10 pr-4 w-48"
-                  inputSize="sm"
-                />
-              </div>
-
-              {/* Search Icon for smaller desktop screens */}
-              <Button variant="ghost" size="icon" className="xl:hidden">
-                <Search className="h-4 w-4" />
-              </Button>
-
-              {/* Notifications */}
-              <div className="relative">
-                <Button variant="ghost" size="icon">
-                  <Bell className="h-5 w-5" />
-                </Button>
-                {notifications > 0 && (
-                  <CountBadge
-                    count={notifications}
-                    className="absolute -top-1 -right-1"
-                  />
-                )}
-              </div>
-
-              {/* Profile dropdown - Always visible */}
-              <div className="relative">
-                <Button
-                  variant="ghost"
-                  className="flex items-center gap-2 px-2"
-                  onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                >
-                  <div className="w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center">
-                    <span className="text-white font-medium text-sm">
-                      {session?.user?.name?.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="text-left hidden 2xl:block">
-                    <p className="text-sm font-medium text-gray-900 truncate max-w-24">
-                      {session?.user?.name?.split(' ')[0]}
-                    </p>
-                    <p className="text-xs text-neutral-500">
-                      {session?.user?.role?.replace("_", " ")}
-                    </p>
-                  </div>
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-
-                {/* Desktop Profile dropdown menu */}
-                {isProfileMenuOpen && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setIsProfileMenuOpen(false)}
-                    />
-                    <Card className="absolute right-0 mt-2 w-56 py-2 shadow-lg z-50">
-                      <div className="px-4 py-2 border-b border-neutral-200">
-                        <p className="text-sm font-medium text-gray-900">
-                          {session?.user?.name}
-                        </p>
-                        <p className="text-xs text-neutral-500">
-                          {session?.user?.email}
-                        </p>
-                        <Badge variant="outline" size="sm" className="mt-1">
-                          {session?.user?.role?.replace("_", " ")}
-                        </Badge>
-                      </div>
-                      <div className="py-1">
-                        <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-neutral-50">
-                          <User className="h-4 w-4" />
-                          Profile
-                        </button>
-                        <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-neutral-50">
-                          <Settings className="h-4 w-4" />
-                          Settings
-                        </button>
-                        <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-neutral-50">
-                          <HelpCircle className="h-4 w-4" />
-                          Help & Support
-                        </button>
-                        <div className="border-t border-neutral-200 my-1" />
-                        <button
-                          onClick={handleSignOut}
-                          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                        >
-                          <LogOut className="h-4 w-4" />
-                          Sign out
-                        </button>
-                      </div>
-                    </Card>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      {/* Mobile Header */}
-      <header className="lg:hidden bg-white shadow-sm border-b border-neutral-200 sticky top-0 z-40">
-        <div className="px-4">
-          <div className="flex justify-between items-center h-16">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsMobileSidebarOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">O</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-serif font-bold text-gray-900">OliveHaus</h1>
-              </div>
-            </Link>
-
-            <div className="flex items-center gap-3">
-              {/* Mobile Search - Conditional */}
-              {isMobileSearchOpen ? (
-                <div className="flex items-center gap-2 flex-1">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-neutral-400" />
-                    <Input
-                      type="search"
-                      placeholder="Search..."
-                      className="pl-10 pr-4"
-                      inputSize="sm"
-                      autoFocus
-                    />
-                  </div>
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    onClick={() => setIsMobileSearchOpen(false)}
-                  >
-                    <X className="h-5 w-5" />
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  {/* Mobile Search Button */}
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    onClick={() => setIsMobileSearchOpen(true)}
-                  >
-                    <Search className="h-5 w-5" />
-                  </Button>
-                  
-                  {/* Mobile Notifications */}
-                  <div className="relative">
-                    <Button variant="ghost" size="icon">
-                      <Bell className="h-5 w-5" />
-                    </Button>
-                    {notifications > 0 && (
-                      <CountBadge
-                        count={notifications}
-                        className="absolute -top-1 -right-1"
-                      />
-                    )}
-                  </div>
-                  
-                  {/* Mobile Profile */}
-                  <div className="relative">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                    >
-                      <div className="w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center">
-                        <span className="text-white font-medium text-sm">
-                          {session?.user?.name?.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                    </Button>
-
-                    {/* Mobile Profile dropdown menu */}
-                    {isProfileMenuOpen && (
-                      <>
-                        <div 
-                          className="fixed inset-0 z-40" 
-                          onClick={() => setIsProfileMenuOpen(false)}
-                        />
-                        <Card className="absolute right-0 mt-2 w-56 py-2 shadow-lg z-50">
-                          <div className="px-4 py-2 border-b border-neutral-200">
-                            <p className="text-sm font-medium text-gray-900">
-                              {session?.user?.name}
-                            </p>
-                            <p className="text-xs text-neutral-500">
-                              {session?.user?.email}
-                            </p>
-                            <Badge variant="outline" size="sm" className="mt-1">
-                              {session?.user?.role?.replace("_", " ")}
-                            </Badge>
-                          </div>
-                          <div className="py-1">
-                            <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-neutral-50">
-                              <User className="h-4 w-4" />
-                              Profile
-                            </button>
-                            <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-neutral-50">
-                              <Settings className="h-4 w-4" />
-                              Settings
-                            </button>
-                            <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-neutral-50">
-                              <HelpCircle className="h-4 w-4" />
-                              Help & Support
-                            </button>
-                            <div className="border-t border-neutral-200 my-1" />
-                            <button
-                              onClick={handleSignOut}
-                              className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                            >
-                              <LogOut className="h-4 w-4" />
-                              Sign out
-                            </button>
-                          </div>
-                        </Card>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Mobile Sidebar */}
+    <div className="min-h-screen bg-gray-50">
+      {/* Mobile sidebar */}
       <div className={cn(
-        "lg:hidden fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out",
-        isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        "fixed inset-0 z-50 lg:hidden",
+        sidebarOpen ? "block" : "hidden"
       )}>
-        <div className="flex flex-col h-full">
-          {/* Mobile Sidebar Header */}
-          <div className="flex items-center justify-between h-16 px-4 border-b border-neutral-200">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">O</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-serif font-bold text-gray-900">OliveHaus</h1>
-                <p className="text-xs text-neutral-500">PPMA</p>
-              </div>
-            </Link>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsMobileSidebarOpen(false)}
-            >
-              <X className="h-5 w-5" />
-            </Button>
+        <div className="fixed inset-0 bg-gray-900/50" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-y-0 left-0 flex w-72 flex-col bg-white">
+          <div className="flex h-16 items-center justify-between px-6 border-b">
+            <h2 className="text-xl font-serif font-bold text-primary-900">OliveHaus</h2>
+            <button onClick={() => setSidebarOpen(false)}>
+              <X className="h-6 w-6 text-gray-400" />
+            </button>
           </div>
-
-          {/* Mobile Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+          <nav className="flex-1 space-y-1 px-3 py-4">
             {filteredNavigation.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const isActive = pathname === item.href;
               return (
                 <Link
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "flex items-center justify-between px-3 py-3 rounded-lg text-sm font-medium transition-colors",
+                    "flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-primary-50 text-primary-700 border-r-2 border-primary-600"
-                      : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
+                      ? "bg-primary-50 text-primary-700"
+                      : "text-gray-700 hover:bg-gray-50"
                   )}
-                  onClick={() => setIsMobileSidebarOpen(false)}
                 >
                   <div className="flex items-center gap-3">
-                    <item.icon className={cn(
-                      "h-5 w-5",
-                      isActive ? "text-primary-600" : "text-neutral-400"
-                    )} />
-                    {item.name}
+                    <item.icon className="h-5 w-5" />
+                    <span>{item.name}</span>
                   </div>
                   {item.badge && (
                     <CountBadge count={item.badge} />
@@ -456,46 +150,148 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               );
             })}
           </nav>
+        </div>
+      </div>
 
-          {/* Mobile User Profile */}
-          <div className="p-4 border-t border-neutral-200">
-            <button
+      {/* Desktop sidebar */}
+      <div className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
+        <div className="flex flex-1 flex-col bg-white border-r">
+          <div className="flex h-16 items-center px-6 border-b">
+            <h2 className="text-xl font-serif font-bold text-primary-900">OliveHaus PPMA</h2>
+          </div>
+          <nav className="flex-1 space-y-1 px-3 py-4">
+            {filteredNavigation.map((item) => {
+              const isActive = pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary-50 text-primary-700"
+                      : "text-gray-700 hover:bg-gray-50"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <item.icon className="h-5 w-5" />
+                    <span>{item.name}</span>
+                  </div>
+                  {item.badge && (
+                    <CountBadge count={item.badge} />
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="border-t p-4">
+            <Button 
+              variant="outline" 
+              className="w-full justify-start text-red-600 hover:bg-red-50"
               onClick={handleSignOut}
-              className="flex items-center gap-3 w-full p-3 rounded-lg bg-neutral-50 hover:bg-neutral-100 transition-colors"
             >
-              <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center">
-                <span className="text-white font-medium text-sm">
-                  {session?.user?.name?.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <div className="flex-1 text-left">
-                <p className="text-sm font-medium text-gray-900">
-                  {session?.user?.name}
-                </p>
-                <p className="text-xs text-neutral-500">
-                  {session?.user?.role?.replace("_", " ")}
-                </p>
-              </div>
-              <LogOut className="h-4 w-4 text-neutral-400" />
-            </button>
+              <LogOut className="h-4 w-4 mr-2" />
+              Sign Out
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Mobile Sidebar Overlay */}
-      {isMobileSidebarOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-40 bg-black bg-opacity-50"
-          onClick={() => setIsMobileSidebarOpen(false)}
-        />
-      )}
+      {/* Main content */}
+      <div className="lg:pl-64">
+        {/* Top header */}
+        <header className="sticky top-0 z-40 bg-white border-b">
+          <div className="flex h-16 items-center justify-between px-4 sm:px-6">
+            <div className="flex items-center gap-4 flex-1">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden"
+              >
+                <Menu className="h-6 w-6 text-gray-600" />
+              </button>
+              
+              <div className="flex-1 max-w-md">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="search"
+                    placeholder="Search projects, schedules..."
+                    className="pl-10 w-full"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
 
-      {/* Main Content */}
-      <main className="w-full">
-        <div className="px-4 sm:px-6 lg:px-8 py-8">
+            <div className="flex items-center gap-3">
+              <Link href="/admin/site-schedule">
+                <Button variant="outline" className="hidden sm:flex items-center gap-2">
+                  <CalendarCheck className="h-4 w-4" />
+                  Site Schedule
+                </Button>
+              </Link>
+
+              <Button variant="ghost" size="icon" className="relative">
+                <Bell className="h-5 w-5" />
+                {notifications > 0 && (
+                  <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                    {notifications}
+                  </span>
+                )}
+              </Button>
+
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  className="flex items-center gap-2"
+                  onClick={() => setShowProfileMenu(!showProfileMenu)}
+                >
+                  <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center">
+                    <User className="h-4 w-4 text-primary-700" />
+                  </div>
+                  <span className="hidden sm:block text-sm font-medium">
+                    {session?.user?.name}
+                  </span>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+
+                {showProfileMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border py-1">
+                    <Link
+                      href="/admin/profile"
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <User className="h-4 w-4" />
+                      Profile
+                    </Link>
+                    <Link
+                      href="/admin/settings"
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <Settings className="h-4 w-4" />
+                      Settings
+                    </Link>
+                    <hr className="my-1" />
+                    <button
+                      onClick={handleSignOut}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Page content */}
+        <main className="p-4 sm:p-6 lg:p-8">
           {children}
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
