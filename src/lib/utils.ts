@@ -1,4 +1,4 @@
-// src/lib/utils.ts
+// src/lib/utils.ts - Complete utility functions
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { format, formatDistance, parseISO, isValid } from "date-fns";
