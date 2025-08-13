@@ -1,15 +1,15 @@
-// src/app/api/notifications/mark-all-read/route.ts
-import { NextResponse } from 'next/server';
+// src/app/api/notifications/mark-all-read/route.ts - MARK ALL NOTIFICATIONS AS READ
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
-export async function PUT() {
+export async function PATCH(_request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -28,14 +28,14 @@ export async function PUT() {
         $set: { 
           isRead: true,
           readAt: new Date()
-        } 
+        }
       }
     );
 
     return NextResponse.json({
       success: true,
       message: `${result.modifiedCount} notifications marked as read`,
-      modifiedCount: result.modifiedCount,
+      modifiedCount: result.modifiedCount
     });
 
   } catch (error: unknown) {

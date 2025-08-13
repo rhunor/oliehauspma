@@ -1,4 +1,4 @@
-// src/middleware.ts
+// src/middleware.ts - FIXED VERSION WITH PROPER ROLE-BASED ROUTING
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
@@ -8,7 +8,7 @@ export default withAuth(
     const { pathname } = request.nextUrl;
 
     // Public routes that don't require authentication
-    const publicRoutes = ["/login", "/api/auth"];
+    const publicRoutes = ["/login", "/api/auth", "/unauthorized"];
     const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 
     // If user is not authenticated and trying to access protected route
@@ -18,33 +18,50 @@ export default withAuth(
 
     // If user is authenticated and trying to access login page
     if (token && pathname === "/login") {
-      // Redirect based on user role
       const redirectPath = getRoleBasedRedirect(token.role as string);
       return NextResponse.redirect(new URL(redirectPath, request.url));
     }
 
-    // Role-based route protection
+    // Role-based route protection with proper role hierarchy
     if (token && !isPublicRoute) {
       const userRole = token.role as string;
       
-      // Super Admin routes
-      if (pathname.startsWith("/admin") && userRole !== "super_admin") {
+      // Route mappings based on role
+      const roleRoutes: Record<string, string[]> = {
+        super_admin: ["/admin", "/manager", "/client"], // Can access all
+        project_manager: ["/manager", "/admin/projects", "/admin/site-schedule", "/admin/messages", "/admin/analytics", "/admin/files", "/admin/calendar"],
+        client: ["/client", "/admin/projects", "/admin/site-schedule", "/admin/messages", "/admin/files", "/admin/calendar"]
+      };
+
+      // Check if user is trying to access a role-specific dashboard root
+      if (pathname === "/admin" && userRole !== "super_admin") {
+        return NextResponse.redirect(new URL(getRoleBasedRedirect(userRole), request.url));
+      }
+      
+      if (pathname === "/manager" && userRole !== "project_manager" && userRole !== "super_admin") {
+        return NextResponse.redirect(new URL(getRoleBasedRedirect(userRole), request.url));
+      }
+      
+      if (pathname === "/client" && userRole !== "client" && userRole !== "super_admin") {
+        return NextResponse.redirect(new URL(getRoleBasedRedirect(userRole), request.url));
+      }
+
+      // Special restrictions for admin-only routes
+      const adminOnlyRoutes = ["/admin/users"];
+      if (adminOnlyRoutes.some(route => pathname.startsWith(route)) && userRole !== "super_admin") {
         return NextResponse.redirect(new URL("/unauthorized", request.url));
       }
 
-      // Project Manager routes
-      if (pathname.startsWith("/manager") && userRole !== "project_manager" && userRole !== "super_admin") {
+      // For shared routes like /admin/projects, /admin/messages, etc., allow based on role
+      const allowedRoutes = roleRoutes[userRole] || [];
+      const hasAccess = allowedRoutes.some(route => pathname.startsWith(route));
+      
+      if (!hasAccess && !pathname.startsWith("/api/")) {
         return NextResponse.redirect(new URL("/unauthorized", request.url));
       }
 
-      // Client routes
-      if (pathname.startsWith("/client") && userRole !== "client" && userRole !== "super_admin") {
-        return NextResponse.redirect(new URL("/unauthorized", request.url));
-      }
-
-      // API route protection
+      // API route protection with role and user ID headers
       if (pathname.startsWith("/api/") && !pathname.startsWith("/api/auth")) {
-        // Add role-based API access control here if needed
         const response = NextResponse.next();
         response.headers.set("x-user-role", userRole);
         response.headers.set("x-user-id", token.id as string);

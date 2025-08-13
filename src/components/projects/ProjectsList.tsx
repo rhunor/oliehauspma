@@ -1,4 +1,4 @@
-// src/components/projects/ProjectsList.tsx
+// src/components/projects/ProjectsList.tsx - FIXED
 'use client';
 
 import { useState } from 'react';
@@ -13,7 +13,8 @@ import {
   Eye,
   Edit,
   Trash2,
-  MoreVertical
+  MoreVertical,
+  Plus
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -60,9 +61,16 @@ interface Project {
 interface ProjectsListProps {
   projects: Project[];
   userRole: string;
+  canCreate?: boolean;  // Made optional with default
+  canEdit?: boolean;    // Made optional with default
 }
 
-export default function ProjectsList({ projects, userRole }: ProjectsListProps) {
+export default function ProjectsList({ 
+  projects, 
+  userRole, 
+  canCreate = false,  // Default value
+  canEdit = true      // Default value
+}: ProjectsListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
@@ -146,6 +154,26 @@ export default function ProjectsList({ projects, userRole }: ProjectsListProps) 
 
   return (
     <div className="space-y-6">
+      {/* Header with Create Button */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Projects</h2>
+          <p className="text-muted-foreground">
+            Manage and track all your projects in one place.
+          </p>
+        </div>
+        
+        {/* ✅ Now using the canCreate prop */}
+        {canCreate && (
+          <Link href="/admin/projects/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Project
+            </Button>
+          </Link>
+        )}
+      </div>
+
       {/* Filters and Search */}
       <Card>
         <CardContent className="p-6">
@@ -215,11 +243,21 @@ export default function ProjectsList({ projects, userRole }: ProjectsListProps) 
               <Calendar className="h-12 w-12 mx-auto" />
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No projects found</h3>
-            <p className="text-gray-500">
+            <p className="text-gray-500 mb-4">
               {searchTerm || statusFilter !== 'all' || priorityFilter !== 'all'
                 ? 'Try adjusting your filters or search terms.'
                 : 'Create your first project to get started.'}
             </p>
+            
+            {/* ✅ Show create button in empty state if user can create */}
+            {canCreate && !searchTerm && statusFilter === 'all' && priorityFilter === 'all' && (
+              <Link href="/admin/projects/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Your First Project
+                </Button>
+              </Link>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -242,7 +280,7 @@ export default function ProjectsList({ projects, userRole }: ProjectsListProps) 
                       <AlertTriangle className="h-4 w-4 text-red-500" />
                     )}
                     
-                    {(userRole === 'super_admin' || userRole === 'project_manager') && (
+                    {((userRole === 'super_admin' || userRole === 'project_manager') && canEdit) && (
                       <div className="relative group">
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                           <MoreVertical className="h-3 w-3" />

@@ -2,7 +2,6 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import FileUpload from '@/components/files/FileUpload';
 import FilesList from '@/components/files/FilesList';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

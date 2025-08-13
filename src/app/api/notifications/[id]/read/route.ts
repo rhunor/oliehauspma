@@ -1,4 +1,4 @@
-// src/app/api/notifications/[id]/read/route.ts
+// src/app/api/notifications/[id]/read/route.ts - MARK SINGLE NOTIFICATION AS READ
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -11,11 +11,11 @@ interface RouteContext {
   }>;
 }
 
-export async function PUT(request: NextRequest, context: RouteContext) {
+export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -33,7 +33,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Update notification as read (only if it belongs to the current user)
+    // Update notification as read - only if it belongs to the current user
     const result = await db.collection('notifications').updateOne(
       { 
         _id: new ObjectId(notificationId),
@@ -43,7 +43,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         $set: { 
           isRead: true,
           readAt: new Date()
-        } 
+        }
       }
     );
 
@@ -56,7 +56,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({
       success: true,
-      message: 'Notification marked as read',
+      message: 'Notification marked as read'
     });
 
   } catch (error: unknown) {
@@ -68,3 +68,4 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     );
   }
 }
+

@@ -1,8 +1,9 @@
-// src/app/(dashboard)/manager/page.tsx
+// src/app/(dashboard)/manager/page.tsx - COMPLETE REAL DATA VERSION
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { 
   FolderOpen, 
   CheckSquare, 
@@ -10,175 +11,168 @@ import {
   AlertTriangle,
   Calendar,
   MessageSquare,
-  Plus,
   Search,
   TrendingUp,
   Users,
-  FileText
+  FileText,
+  Eye,
+  Edit,
+  ArrowRight
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, StatsCard } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { StatusBadge, PriorityBadge, DeadlineBadge } from "@/components/ui/badge";
-import { formatTimeAgo, calculatePercentage } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { formatTimeAgo, formatCurrency, formatDate } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
-// Mock data - replace with actual API calls
-const mockManagerStats = {
-  totalProjects: 8,
-  activeProjects: 6,
-  completedProjects: 2,
-  totalTasks: 47,
-  completedTasks: 31,
-  pendingTasks: 12,
-  overdueTasks: 4,
-  totalClients: 8,
+interface Project {
+  _id: string;
+  title: string;
+  description: string;
+  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  progress: number;
+  client: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  startDate?: string;
+  endDate?: string;
+  budget?: number;
+  updatedAt: string;
+  createdAt: string;
+}
+
+interface DashboardStats {
+  totalProjects: number;
+  activeProjects: number;
+  completedProjects: number;
+  overdueProjects: number;
+  totalTasks: number;
+  completedTasks: number;
+  pendingTasks: number;
+  overdueItems: number;
+}
+
+interface RecentActivity {
+  id: string;
+  type: 'project_update' | 'task_completed' | 'message' | 'file_upload';
+  message: string;
+  timestamp: string;
+  projectTitle?: string;
+}
+
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  error?: string;
+}
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'completed': return 'bg-green-100 text-green-800';
+    case 'in_progress': return 'bg-blue-100 text-blue-800';
+    case 'planning': return 'bg-yellow-100 text-yellow-800';
+    case 'on_hold': return 'bg-orange-100 text-orange-800';
+    case 'cancelled': return 'bg-red-100 text-red-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
 };
 
-const mockProjects = [
-  {
-    id: "1",
-    title: "Luxury Villa Interior Design",
-    description: "Complete interior design for a 5-bedroom luxury villa in Lekki Phase 1",
-    status: "in_progress",
-    progress: 75,
-    priority: "high",
-    client: "Mrs. Adebayo",
-    manager: "John Doe",
-    dueDate: "Dec 15, 2024",
-    tasksCompleted: 18,
-    totalTasks: 24,
-    createdAt: new Date("2024-10-01"),
-  },
-  {
-    id: "2", 
-    title: "Corporate Office Renovation",
-    description: "Modern office space renovation for tech startup in Victoria Island",
-    status: "in_progress",
-    progress: 45,
-    priority: "medium",
-    client: "TechCorp Ltd",
-    manager: "John Doe",
-    dueDate: "Jan 20, 2025",
-    tasksCompleted: 9,
-    totalTasks: 20,
-    createdAt: new Date("2024-11-15"),
-  },
-  {
-    id: "3",
-    title: "Boutique Hotel Lobby",
-    description: "Elegant lobby design for boutique hotel in Ikeja",
-    status: "planning",
-    progress: 20,
-    priority: "urgent",
-    client: "Grandeur Hotels",
-    manager: "John Doe",
-    dueDate: "Feb 28, 2025",
-    tasksCompleted: 2,
-    totalTasks: 15,
-    createdAt: new Date("2024-12-01"),
-  },
-];
-
-const mockTasks = [
-  {
-    id: "1",
-    title: "Complete Living Room Design",
-    description: "Finalize furniture selection and color scheme for the main living area",
-    status: "in_progress",
-    priority: "high",
-    deadline: "Dec 10, 2024",
-    assignee: "John Doe",
-    projectName: "Luxury Villa Interior Design",
-    client: "Mrs. Adebayo",
-  },
-  {
-    id: "2",
-    title: "Kitchen Cabinet Installation",
-    description: "Coordinate with contractors for custom kitchen cabinet installation",
-    status: "pending",
-    priority: "medium",
-    deadline: "Dec 12, 2024",
-    assignee: "John Doe",
-    projectName: "Luxury Villa Interior Design",
-    client: "Mrs. Adebayo",
-  },
-  {
-    id: "3",
-    title: "Client Presentation Prep",
-    description: "Prepare presentation materials for client review meeting",
-    status: "pending",
-    priority: "urgent",
-    deadline: "Dec 8, 2024",
-    assignee: "John Doe",
-    projectName: "Corporate Office Renovation",
-    client: "TechCorp Ltd",
-  },
-];
-
-const mockRecentActivity = [
-  {
-    id: "1",
-    type: "task_completed",
-    message: "Completed task: Master Bedroom Design",
-    project: "Luxury Villa Interior Design",
-    timestamp: new Date("2024-12-01T10:30:00"),
-  },
-  {
-    id: "2",
-    type: "client_message",
-    message: "New message from Mrs. Adebayo",
-    project: "Luxury Villa Interior Design",
-    timestamp: new Date("2024-12-01T09:15:00"),
-  },
-  {
-    id: "3",
-    type: "file_uploaded",
-    message: "Uploaded floor plan sketches",
-    project: "Corporate Office Renovation",
-    timestamp: new Date("2024-11-30T16:45:00"),
-  },
-];
+const getPriorityColor = (priority: string) => {
+  switch (priority) {
+    case 'urgent': return 'bg-red-100 text-red-800';
+    case 'high': return 'bg-orange-100 text-orange-800';
+    case 'medium': return 'bg-yellow-100 text-yellow-800';
+    case 'low': return 'bg-green-100 text-green-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+};
 
 export default function ManagerDashboard() {
   const { data: session } = useSession();
-  const stats = mockManagerStats;
-  const projects = mockProjects;
-  const tasks = mockTasks;
-  const recentActivity = mockRecentActivity;
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch manager-specific data
+      const [statsResponse, projectsResponse, activityResponse] = await Promise.all([
+        fetch('/api/analytics/manager/dashboard'),
+        fetch('/api/projects?limit=6'),
+        fetch('/api/analytics/manager/activity?limit=10')
+      ]);
+
+      if (!statsResponse.ok) {
+        throw new Error('Failed to fetch dashboard statistics');
+      }
+
+      if (!projectsResponse.ok) {
+        throw new Error('Failed to fetch projects');
+      }
+
+      const statsData: ApiResponse<DashboardStats> = await statsResponse.json();
+      const projectsData: ApiResponse<{ data: Project[] }> = await projectsResponse.json();
+
+      if (statsData.success) {
+        setStats(statsData.data);
+      }
+
+      if (projectsData.success) {
+        setProjects(projectsData.data.data || []);
+      }
+
+      // Handle activity response (might not exist yet)
+      if (activityResponse.ok) {
+        const activityData: ApiResponse<RecentActivity[]> = await activityResponse.json();
+        if (activityData.success) {
+          setRecentActivity(activityData.data);
+        }
+      }
+
+    } catch (error: unknown) {
+      console.error('Dashboard fetch error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard data';
+      setError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
+    if (session?.user?.id) {
+      fetchDashboardData();
+    }
+  }, [session?.user?.id, fetchDashboardData]);
 
-    return () => clearTimeout(timer);
-  }, []);
-
-  const filteredProjects = projects.filter(project => {
-    const matchesSearch = project.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         project.client.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter = filter === "all" || project.status === filter;
-    return matchesSearch && matchesFilter;
-  });
-
-  const upcomingDeadlines = tasks
-    .filter(task => {
-      const deadline = new Date(task.deadline);
-      const today = new Date();
-      const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      return daysUntil <= 7 && daysUntil >= 0;
-    })
-    .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      window.location.href = `/manager/projects?search=${encodeURIComponent(searchQuery)}`;
+    }
+  };
 
   if (loading) {
     return (
       <div className="space-y-8">
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-32 bg-gray-200 rounded-xl"></div>
             ))}
@@ -188,202 +182,298 @@ export default function ManagerDashboard() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Failed to Load Dashboard</h3>
+              <p className="text-gray-600 mb-4">{error}</p>
+              <Button onClick={fetchDashboardData}>
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-serif font-bold text-gray-900">
-            Project Manager Dashboard
+            Welcome back, {session?.user?.name?.split(' ')[0] || 'Manager'}!
           </h1>
           <p className="text-neutral-600 mt-1">
-            Welcome back, {session?.user?.name?.split(' ')[0] || 'User'}! Manage your projects and tasks.
+            Manage your projects and track progress effectively.
           </p>
         </div>
-        <div className="mt-4 sm:mt-0 flex gap-3">
-          <Button variant="outline" className="flex items-center gap-2">
-            <Calendar className="h-4 w-4" />
-            Schedule
-          </Button>
-          <Button className="flex items-center gap-2">
-            <Plus className="h-4 w-4" />
-            New Task
-          </Button>
+        <div className="flex items-center gap-3 mt-4 sm:mt-0">
+          <p className="text-sm text-gray-500">Note: Only super admins can create projects</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatsCard
-          title="My Projects"
-          value={stats.totalProjects}
-          description={`${stats.activeProjects} active`}
-          icon={<FolderOpen className="h-6 w-6" />}
-          trend={{ value: 8, isPositive: true }}
-        />
-        <StatsCard
-          title="Total Tasks"
-          value={stats.totalTasks}
-          description={`${calculatePercentage(stats.completedTasks, stats.totalTasks)}% completed`}
-          icon={<CheckSquare className="h-6 w-6" />}
-          trend={{ value: 12, isPositive: true }}
-        />
-        <StatsCard
-          title="Clients"
-          value={stats.totalClients}
-          description="Active clients"
-          icon={<Users className="h-6 w-6" />}
-          trend={{ value: 3, isPositive: true }}
-        />
-        <StatsCard
-          title="Overdue Tasks"
-          value={stats.overdueTasks}
-          description="Need attention"
-          icon={<AlertTriangle className="h-6 w-6" />}
-          trend={{ value: 2, isPositive: false }}
-        />
-      </div>
+      {/* Search */}
+      <Card>
+        <CardContent className="pt-6">
+          <form onSubmit={handleSearch} className="flex gap-3">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search projects, clients, or tasks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Button type="submit">Search</Button>
+          </form>
+        </CardContent>
+      </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <Button variant="outline" className="h-20 flex-col gap-2">
-          <Plus className="h-6 w-6" />
-          <span>New Task</span>
-        </Button>
-        <Button variant="outline" className="h-20 flex-col gap-2">
-          <MessageSquare className="h-6 w-6" />
-          <span>Client Chat</span>
-        </Button>
-        <Button variant="outline" className="h-20 flex-col gap-2">
-          <FileText className="h-6 w-6" />
-          <span>Upload Files</span>
-        </Button>
-        <Button variant="outline" className="h-20 flex-col gap-2">
-          <TrendingUp className="h-6 w-6" />
-          <span>Reports</span>
-        </Button>
-      </div>
+      {/* Stats Cards */}
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Projects</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.totalProjects}</p>
+                </div>
+                <FolderOpen className="h-8 w-8 text-blue-600" />
+              </div>
+              <div className="mt-4 flex items-center text-sm">
+                <span className="text-green-600 font-medium">{stats.activeProjects} active</span>
+                <span className="text-gray-500 ml-2">• {stats.completedProjects} completed</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Active Tasks</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.totalTasks}</p>
+                </div>
+                <CheckSquare className="h-8 w-8 text-green-600" />
+              </div>
+              <div className="mt-4 flex items-center text-sm">
+                <span className="text-green-600 font-medium">{stats.completedTasks} completed</span>
+                <span className="text-gray-500 ml-2">• {stats.pendingTasks} pending</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Completion Rate</p>
+                  <p className="text-3xl font-bold text-gray-900">
+                    {stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%
+                  </p>
+                </div>
+                <TrendingUp className="h-8 w-8 text-purple-600" />
+              </div>
+              <div className="mt-4">
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                    style={{ 
+                      width: `${stats.totalTasks > 0 ? (stats.completedTasks / stats.totalTasks) * 100 : 0}%` 
+                    }}
+                  ></div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Overdue Items</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.overdueItems}</p>
+                </div>
+                <AlertTriangle className={`h-8 w-8 ${stats.overdueItems > 0 ? 'text-red-600' : 'text-gray-400'}`} />
+              </div>
+              <div className="mt-4 flex items-center text-sm">
+                {stats.overdueItems > 0 ? (
+                  <span className="text-red-600 font-medium">Requires attention</span>
+                ) : (
+                  <span className="text-green-600 font-medium">All on track</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Recent Projects */}
         <div className="lg:col-span-2">
-          <Card variant="elegant">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <FolderOpen className="h-5 w-5 text-primary-600" />
-                My Projects
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-neutral-400" />
-                  <Input
-                    placeholder="Search projects..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 w-48"
-                    inputSize="sm"
-                  />
-                </div>
-                <select
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  className="px-3 py-1 border border-neutral-300 rounded-md text-sm"
-                >
-                  <option value="all">All Status</option>
-                  <option value="planning">Planning</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </div>
+              <CardTitle className="text-xl font-semibold">Your Projects</CardTitle>
+              <Link href="/manager/projects">
+                <Button variant="outline" size="sm" className="flex items-center gap-2">
+                  View All
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {filteredProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="flex items-center justify-between p-4 border border-neutral-200 rounded-lg hover:border-primary-200 transition-colors cursor-pointer"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h4 className="font-medium text-gray-900">{project.title}</h4>
-                      <StatusBadge status={project.status} />
-                      <PriorityBadge priority={project.priority} />
-                    </div>
-                    <p className="text-sm text-neutral-600 mb-2 line-clamp-1">
-                      {project.description}
-                    </p>
-                    <div className="flex items-center gap-4 text-xs text-neutral-500">
-                      <span><strong>Client:</strong> {project.client}</span>
-                      <span><strong>Tasks:</strong> {project.tasksCompleted}/{project.totalTasks}</span>
-                      <span><strong>Due:</strong> {project.dueDate}</span>
-                    </div>
-                  </div>
-                  <div className="ml-4 text-right">
-                    <div className="text-sm font-medium text-gray-900 mb-1">
-                      {project.progress}%
-                    </div>
-                    <div className="w-16 bg-neutral-200 rounded-full h-2">
-                      <div
-                        className="bg-primary-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${project.progress}%` }}
-                      />
-                    </div>
-                  </div>
+            <CardContent>
+              {projects.length === 0 ? (
+                <div className="text-center py-8">
+                  <FolderOpen className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Projects Yet</h3>
+                  <p className="text-gray-600 mb-4">You haven&apos;t been assigned to any projects yet.</p>
+                  <p className="text-sm text-gray-500">Contact your super admin to get started.</p>
                 </div>
-              ))}
+              ) : (
+                <div className="space-y-4">
+                  {projects.map((project) => (
+                    <div key={project._id} className="p-4 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="font-semibold text-gray-900">{project.title}</h3>
+                            <Badge className={getStatusColor(project.status)}>
+                              {project.status.replace('_', ' ')}
+                            </Badge>
+                            <Badge className={getPriorityColor(project.priority)}>
+                              {project.priority}
+                            </Badge>
+                          </div>
+                          <p className="text-gray-600 text-sm mb-3 line-clamp-2">{project.description}</p>
+                          <div className="flex items-center gap-4 text-sm text-gray-500">
+                            <div className="flex items-center gap-1">
+                              <Users className="h-4 w-4" />
+                              {project.client.name}
+                            </div>
+                            {project.endDate && (
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-4 w-4" />
+                                Due {formatDate(new Date(project.endDate))}
+                              </div>
+                            )}
+                            {project.budget && (
+                              <div className="flex items-center gap-1">
+                                <span>₦{formatCurrency(project.budget)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="text-right">
+                            <span className="text-sm font-medium text-gray-900">{project.progress}%</span>
+                            <div className="w-20 bg-gray-200 rounded-full h-2 mt-1">
+                              <div 
+                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${project.progress}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Link href={`/manager/projects/${project._id}`}>
+                              <Button variant="outline" size="sm">
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                            <Link href={`/manager/projects/${project._id}/edit`}>
+                              <Button variant="outline" size="sm">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-6">
-          <Card variant="elegant">
+        {/* Recent Activity */}
+        <div>
+          <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-orange-600" />
-                Upcoming Deadlines
-              </CardTitle>
+              <CardTitle className="text-xl font-semibold">Recent Activity</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {upcomingDeadlines.length > 0 ? (
-                upcomingDeadlines.map((task) => (
-                  <div key={task.id} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-                    <div className="flex-1">
-                      <p className="font-medium text-sm text-gray-900">{task.title}</p>
-                      <p className="text-xs text-neutral-600">{task.projectName}</p>
-                    </div>
-                    <DeadlineBadge deadline={task.deadline} />
-                  </div>
-                ))
+            <CardContent>
+              {recentActivity.length === 0 ? (
+                <div className="text-center py-8">
+                  <Clock className="h-8 w-8 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-600">No recent activity</p>
+                </div>
               ) : (
-                <p className="text-sm text-neutral-500 text-center py-4">
-                  No upcoming deadlines
-                </p>
+                <div className="space-y-4">
+                  {recentActivity.map((activity) => (
+                    <div key={activity.id} className="flex items-start gap-3">
+                      <div className="flex-shrink-0 mt-1">
+                        {activity.type === 'project_update' && <FolderOpen className="h-4 w-4 text-blue-500" />}
+                        {activity.type === 'task_completed' && <CheckSquare className="h-4 w-4 text-green-500" />}
+                        {activity.type === 'message' && <MessageSquare className="h-4 w-4 text-purple-500" />}
+                        {activity.type === 'file_upload' && <FileText className="h-4 w-4 text-orange-500" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">{activity.message}</p>
+                        {activity.projectTitle && (
+                          <p className="text-xs text-gray-500 mt-1">{activity.projectTitle}</p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                          {formatTimeAgo(new Date(activity.timestamp))}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
 
-          <Card variant="elegant">
+          {/* Quick Actions */}
+          <Card className="mt-6">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-primary-600" />
-                Recent Activity
-              </CardTitle>
+              <CardTitle className="text-xl font-semibold">Quick Actions</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div key={activity.id} className="flex gap-3">
-                  <div className="flex-shrink-0 w-2 h-2 bg-primary-500 rounded-full mt-2"></div>
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-900 font-medium">
-                      {activity.message}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-neutral-500">
-                        {activity.project}
-                      </span>
-                      <span className="text-xs text-neutral-400">•</span>
-                      <span className="text-xs text-neutral-500">
-                        {formatTimeAgo(activity.timestamp)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <CardContent>
+              <div className="space-y-3">
+                <Link href="/manager/site-schedule" className="block">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    View Site Schedule
+                  </Button>
+                </Link>
+                <Link href="/manager/messages" className="block">
+                  <Button variant="outline" className="w-full justify-start">
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Check Messages
+                  </Button>
+                </Link>
+                <Link href="/manager/files" className="block">
+                  <Button variant="outline" className="w-full justify-start">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Manage Files
+                  </Button>
+                </Link>
+                <Link href="/manager/analytics" className="block">
+                  <Button variant="outline" className="w-full justify-start">
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    View Analytics
+                  </Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </div>
