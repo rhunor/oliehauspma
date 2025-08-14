@@ -1,73 +1,113 @@
-// src/app/api/messages/route.ts
+// src/app/api/messages/route.ts - FIXED MESSAGES API WITH PROPER TYPES
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId } from 'mongodb';
-import { z } from 'zod';
+import { ObjectId, Filter } from 'mongodb';
 
-const createMessageSchema = z.object({
-  projectId: z.string().min(1, 'Project ID is required'),
-  senderId: z.string().min(1, 'Sender ID is required'),
-  recipient: z.string().optional(),
-  content: z.string().min(1, 'Message content is required').max(2000, 'Message too long'),
-  messageType: z.enum(['text', 'file', 'image', 'system']).default('text'),
-  attachments: z.array(z.object({
-    filename: z.string(),
-    originalName: z.string(),
-    size: z.number(),
-    mimeType: z.string(),
-    url: z.string()
-  })).optional()
-});
+// Define proper TypeScript interfaces
+interface MessageDocument {
+  _id: ObjectId;
+  content: string;
+  senderId: ObjectId;
+  recipientId: ObjectId;
+  projectId?: ObjectId;
+  messageType: 'text' | 'file' | 'system';
+  attachments?: Array<{
+    filename: string;
+    url: string;
+    type: string;
+  }>;
+  isRead: boolean;
+  isDeleted: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// GET /api/messages?projectId=xxx&page=1&limit=50
+// Use this for insertOne - MongoDB will auto-generate _id
+interface MessageInsertDocument {
+  content: string;
+  senderId: ObjectId;
+  recipientId: ObjectId;
+  projectId?: ObjectId;
+  messageType: 'text' | 'file' | 'system';
+  attachments?: Array<{
+    filename: string;
+    url: string;
+    type: string;
+  }>;
+  isRead: boolean;
+  isDeleted: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface UserDocument {
+  _id: ObjectId;
+  name: string;
+  email: string;
+  role: string;
+}
+
+interface ProjectDocument {
+  _id: ObjectId;
+  title: string;
+}
+
+interface MessageWithUsers extends Omit<MessageDocument, 'senderId' | 'recipientId' | 'projectId'> {
+  sender: UserDocument;
+  recipient: UserDocument;
+  project?: ProjectDocument;
+}
+
+interface CreateMessageData {
+  recipientId: string;
+  content: string;
+  messageType?: 'text' | 'file' | 'system';
+  projectId?: string;
+  attachments?: Array<{
+    filename: string;
+    url: string;
+    type: string;
+  }>;
+}
+
+// GET /api/messages - Get messages between current user and a participant
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
-    const projectId = searchParams.get('projectId');
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
-    const skip = (page - 1) * limit;
+    const participantId = searchParams.get('participantId');
 
-    if (!projectId) {
-      return NextResponse.json({ error: 'Project ID is required' }, { status: 400 });
+    if (!participantId) {
+      return NextResponse.json({ error: 'Participant ID is required' }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
+    const currentUserId = new ObjectId(session.user.id);
+    const participantObjectId = new ObjectId(participantId);
 
-    // Verify user has access to this project
-    const project = await db.collection('projects').findOne({
-      _id: new ObjectId(projectId),
+    // Build query to get messages between current user and participant
+    const messagesQuery: Filter<MessageDocument> = {
       $or: [
-        { client: new ObjectId(session.user.id) },
-        { manager: new ObjectId(session.user.id) },
-        ...(session.user.role === 'super_admin' ? [{}] : [])
-      ]
-    });
+        { senderId: currentUserId, recipientId: participantObjectId },
+        { senderId: participantObjectId, recipientId: currentUserId }
+      ],
+      isDeleted: false
+    };
 
-    if (!project) {
-      return NextResponse.json({ error: 'Project not found or access denied' }, { status: 404 });
-    }
-
-    // Get messages with pagination
-    const messages = await db.collection('messages')
-      .aggregate([
-        {
-          $match: {
-            projectId: new ObjectId(projectId),
-            isDeleted: { $ne: true }
-          }
-        },
+    // Get messages with user and project details
+    const messages = await db.collection<MessageDocument>('messages')
+      .aggregate<MessageWithUsers>([
+        { $match: messagesQuery },
         {
           $lookup: {
             from: 'users',
-            localField: 'sender',
+            localField: 'senderId',
             foreignField: '_id',
             as: 'senderData',
             pipeline: [{ $project: { password: 0 } }]
@@ -76,42 +116,61 @@ export async function GET(request: NextRequest) {
         {
           $lookup: {
             from: 'users',
-            localField: 'recipient',
+            localField: 'recipientId',
             foreignField: '_id',
             as: 'recipientData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
-          $addFields: {
-            sender: { $arrayElemAt: ['$senderData', 0] },
-            recipient: { $arrayElemAt: ['$recipientData', 0] }
+          $lookup: {
+            from: 'projects',
+            localField: 'projectId',
+            foreignField: '_id',
+            as: 'projectData',
+            pipeline: [{ $project: { title: 1 } }]
           }
         },
-        { $unset: ['senderData', 'recipientData'] },
-        { $sort: { createdAt: -1 } },
-        { $skip: skip },
-        { $limit: limit }
+        {
+          $addFields: {
+            sender: { $arrayElemAt: ['$senderData', 0] },
+            recipient: { $arrayElemAt: ['$recipientData', 0] },
+            project: { $arrayElemAt: ['$projectData', 0] }
+          }
+        },
+        { $unset: ['senderData', 'recipientData', 'projectData'] },
+        { $sort: { createdAt: 1 } },
+        { $limit: 100 }
       ])
       .toArray();
 
-    // Get total count for pagination
-    const totalCount = await db.collection('messages').countDocuments({
-      projectId: new ObjectId(projectId),
-      isDeleted: { $ne: true }
-    });
+    // Convert to client-compatible format
+    const clientMessages = messages.map(message => ({
+      _id: message._id.toString(),
+      content: message.content,
+      sender: {
+        _id: message.sender._id.toString(),
+        name: message.sender.name,
+        role: message.sender.role
+      },
+      recipient: {
+        _id: message.recipient._id.toString(),
+        name: message.recipient.name,
+        role: message.recipient.role
+      },
+      project: message.project ? {
+        _id: message.project._id.toString(),
+        title: message.project.title
+      } : undefined,
+      createdAt: message.createdAt.toISOString(),
+      isRead: message.isRead,
+      messageType: message.messageType,
+      attachments: message.attachments || []
+    }));
 
     return NextResponse.json({
       success: true,
-      data: messages.reverse(), // Reverse to show oldest first
-      pagination: {
-        page,
-        limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNext: page * limit < totalCount,
-        hasPrev: page > 1
-      }
+      messages: clientMessages
     });
 
   } catch (error: unknown) {
@@ -121,93 +180,85 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/messages
+// POST /api/messages - Send a new message
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const validation = createMessageSchema.safeParse(body);
+    const body = await request.json() as CreateMessageData;
+    const { recipientId, content, messageType = 'text', projectId, attachments } = body;
 
-    if (!validation.success) {
+    if (!recipientId || !content?.trim()) {
       return NextResponse.json(
-        { 
-          error: 'Invalid input',
-          details: validation.error.issues.map(issue => ({
-            field: issue.path.join('.'),
-            message: issue.message
-          }))
-        },
+        { error: 'Recipient ID and content are required' },
         { status: 400 }
       );
     }
 
-    const messageData = validation.data;
     const { db } = await connectToDatabase();
 
-    // Verify user has access to this project
-    const project = await db.collection('projects').findOne({
-      _id: new ObjectId(messageData.projectId),
-      $or: [
-        { client: new ObjectId(session.user.id) },
-        { manager: new ObjectId(session.user.id) },
-        ...(session.user.role === 'super_admin' ? [{}] : [])
-      ]
+    // Verify recipient exists
+    const recipient = await db.collection<UserDocument>('users').findOne({
+      _id: new ObjectId(recipientId),
+      isActive: true
     });
 
-    if (!project) {
-      return NextResponse.json({ error: 'Project not found or access denied' }, { status: 404 });
+    if (!recipient) {
+      return NextResponse.json(
+        { error: 'Recipient not found or inactive' },
+        { status: 404 }
+      );
     }
 
-    // Verify sender is the authenticated user
-    if (messageData.senderId !== session.user.id) {
-      return NextResponse.json({ error: 'Cannot send message as another user' }, { status: 403 });
+    // Check if users are allowed to message each other based on roles
+    const senderRole = session.user.role;
+    const recipientRole = recipient.role;
+    
+    const allowedCommunication = [
+      ['super_admin', 'project_manager'],
+      ['super_admin', 'client'],
+      ['project_manager', 'client']
+    ];
+
+    const canCommunicate = allowedCommunication.some(([role1, role2]) => 
+      (senderRole === role1 && recipientRole === role2) ||
+      (senderRole === role2 && recipientRole === role1)
+    );
+
+    if (!canCommunicate) {
+      return NextResponse.json(
+        { error: 'You are not allowed to message this user' },
+        { status: 403 }
+      );
     }
 
-    // If recipient is specified, verify they have access to the project
-    if (messageData.recipient) {
-      const recipientAccess = await db.collection('projects').findOne({
-        _id: new ObjectId(messageData.projectId),
-        $or: [
-          { client: new ObjectId(messageData.recipient) },
-          { manager: new ObjectId(messageData.recipient) }
-        ]
-      });
-
-      if (!recipientAccess) {
-        return NextResponse.json({ error: 'Recipient does not have access to this project' }, { status: 400 });
-      }
-    }
-
-    // Create message
-    const newMessage = {
-      projectId: new ObjectId(messageData.projectId),
-      sender: new ObjectId(messageData.senderId),
-      recipient: messageData.recipient ? new ObjectId(messageData.recipient) : null,
-      content: messageData.content,
-      messageType: messageData.messageType,
-      attachments: messageData.attachments || [],
+    // Create message document for insertion
+    const messageDoc: MessageInsertDocument = {
+      content: content.trim(),
+      senderId: new ObjectId(session.user.id),
+      recipientId: new ObjectId(recipientId),
+      projectId: projectId ? new ObjectId(projectId) : undefined,
+      messageType,
+      attachments: attachments || [],
       isRead: false,
-      readBy: [],
-      replyTo: null,
       isDeleted: false,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    const result = await db.collection('messages').insertOne(newMessage);
+    const result = await db.collection<MessageInsertDocument>('messages').insertOne(messageDoc);
 
-    // Get the created message with populated sender/recipient data
-    const createdMessage = await db.collection('messages')
-      .aggregate([
+    // Get the created message with user details
+    const newMessage = await db.collection<MessageDocument>('messages')
+      .aggregate<MessageWithUsers>([
         { $match: { _id: result.insertedId } },
         {
           $lookup: {
             from: 'users',
-            localField: 'sender',
+            localField: 'senderId',
             foreignField: '_id',
             as: 'senderData',
             pipeline: [{ $project: { password: 0 } }]
@@ -216,49 +267,65 @@ export async function POST(request: NextRequest) {
         {
           $lookup: {
             from: 'users',
-            localField: 'recipient',
+            localField: 'recipientId',
             foreignField: '_id',
             as: 'recipientData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
-          $addFields: {
-            sender: { $arrayElemAt: ['$senderData', 0] },
-            recipient: { $arrayElemAt: ['$recipientData', 0] }
+          $lookup: {
+            from: 'projects',
+            localField: 'projectId',
+            foreignField: '_id',
+            as: 'projectData',
+            pipeline: [{ $project: { title: 1 } }]
           }
         },
-        { $unset: ['senderData', 'recipientData'] }
+        {
+          $addFields: {
+            sender: { $arrayElemAt: ['$senderData', 0] },
+            recipient: { $arrayElemAt: ['$recipientData', 0] },
+            project: { $arrayElemAt: ['$projectData', 0] }
+          }
+        },
+        { $unset: ['senderData', 'recipientData', 'projectData'] }
       ])
       .toArray();
 
-    // Create notification for recipient (if it's a direct message)
-    if (messageData.recipient && messageData.recipient !== session.user.id) {
-      await db.collection('notifications').insertOne({
-        recipient: new ObjectId(messageData.recipient),
-        sender: new ObjectId(session.user.id),
-        type: 'message_received',
-        title: 'New Message',
-        message: `${session.user.name} sent you a message`,
-        data: {
-          projectId: new ObjectId(messageData.projectId),
-          messageId: result.insertedId
-        },
-        isRead: false,
-        priority: 'medium',
-        category: 'info',
-        createdAt: new Date()
-      });
+    const message = newMessage[0];
+    if (!message) {
+      throw new Error('Failed to retrieve created message');
     }
 
     return NextResponse.json({
       success: true,
-      data: createdMessage[0],
-      message: 'Message sent successfully'
-    }, { status: 201 });
+      message: {
+        _id: message._id.toString(),
+        content: message.content,
+        sender: {
+          _id: message.sender._id.toString(),
+          name: message.sender.name,
+          role: message.sender.role
+        },
+        recipient: {
+          _id: message.recipient._id.toString(),
+          name: message.recipient.name,
+          role: message.recipient.role
+        },
+        project: message.project ? {
+          _id: message.project._id.toString(),
+          title: message.project.title
+        } : undefined,
+        createdAt: message.createdAt.toISOString(),
+        isRead: message.isRead,
+        messageType: message.messageType,
+        attachments: message.attachments || []
+      }
+    });
 
   } catch (error: unknown) {
-    console.error('Error creating message:', error);
+    console.error('Error sending message:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }

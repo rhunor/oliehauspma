@@ -1,4 +1,4 @@
-// src/components/layout/NotificationBell.tsx - REAL DATABASE DRIVEN WITH POPUP
+// src/components/layout/NotificationBell.tsx - FIXED ALL useEffect DEPENDENCIES
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -66,9 +66,10 @@ export default function NotificationBell() {
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // ✅ Memoized fetch function with useCallback to prevent infinite loops
+  // ✅ Memoized fetch function with proper session dependency
   const fetchNotifications = useCallback(async (pageNum = 1, append = false) => {
-    if (!session?.user?.id) return;
+    const currentUserId = session?.user?.id;
+    if (!currentUserId) return;
     
     try {
       setLoading(true);
@@ -92,7 +93,7 @@ export default function NotificationBell() {
     } finally {
       setLoading(false);
     }
-  }, [session?.user?.id]); // ✅ Include session.user.id as dependency
+  }, [session?.user?.id]); // ✅ Include session?.user?.id as dependency
 
   // ✅ Memoized mark as read function
   const markAsRead = useCallback(async (notificationId: string) => {
@@ -177,14 +178,14 @@ export default function NotificationBell() {
     if (session?.user?.id) {
       fetchNotifications();
     }
-  }, [fetchNotifications]); // ✅ Include fetchNotifications dependency
+  }, [session?.user?.id, fetchNotifications]); // ✅ Include both dependencies
 
   // ✅ Fetch notifications when panel opens (only if no notifications exist)
   useEffect(() => {
-    if (showPanel && notifications.length === 0) {
+    if (showPanel && notifications.length === 0 && session?.user?.id) {
       fetchNotifications();
     }
-  }, [showPanel, notifications.length, fetchNotifications]); // ✅ Include all dependencies
+  }, [showPanel, notifications.length, session?.user?.id, fetchNotifications]); // ✅ Include all dependencies
 
   // ✅ Poll for new notifications every minute - optimized with ref to avoid dependency issues
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -209,7 +210,7 @@ export default function NotificationBell() {
         clearInterval(intervalRef.current);
       }
     };
-  }, [fetchNotifications]); // ✅ Include fetchNotifications dependency
+  }, [session?.user?.id, fetchNotifications]); // ✅ Include both dependencies
 
   if (!session?.user) {
     return null;

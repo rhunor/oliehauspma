@@ -1,9 +1,9 @@
-// src/app/(dashboard)/client/messages/page.tsx - FIXED WITH MANAGER COMMUNICATION
+// src/app/(dashboard)/client/settings/page.tsx - CLIENT SETTINGS PAGE
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import MessagesClient from '@/components/messaging/MessagesClient';
+import SettingsClient from '@/components/settings/SettingsClient';
 
-export default async function ClientMessagesPage() {
+export default async function ClientSettingsPage() {
   const session = await getServerSession(authOptions);
   
   if (!session?.user?.id || session.user.role !== 'client') {
@@ -18,10 +18,11 @@ export default async function ClientMessagesPage() {
   }
 
   return (
-    <MessagesClient 
+    <SettingsClient 
       userId={session.user.id}
       userRole={session.user.role}
       userName={session.user.name || 'Client'}
+      userEmail={session.user.email || ''}
     />
   );
 }

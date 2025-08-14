@@ -1,12 +1,12 @@
-// src/app/(dashboard)/client/messages/page.tsx - FIXED WITH MANAGER COMMUNICATION
+// src/app/(dashboard)/admin/settings/page.tsx - ADMIN SETTINGS PAGE
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import MessagesClient from '@/components/messaging/MessagesClient';
+import SettingsClient from '@/components/settings/SettingsClient';
 
-export default async function ClientMessagesPage() {
+export default async function AdminSettingsPage() {
   const session = await getServerSession(authOptions);
   
-  if (!session?.user?.id || session.user.role !== 'client') {
+  if (!session?.user?.id || session.user.role !== 'super_admin') {
     return (
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center">
@@ -18,10 +18,11 @@ export default async function ClientMessagesPage() {
   }
 
   return (
-    <MessagesClient 
+    <SettingsClient 
       userId={session.user.id}
       userRole={session.user.role}
-      userName={session.user.name || 'Client'}
+      userName={session.user.name || 'Admin'}
+      userEmail={session.user.email || ''}
     />
   );
 }
