@@ -1,4 +1,4 @@
-// src/components/layout/NotificationBell.tsx - FIXED ALL useEffect DEPENDENCIES
+// src/components/layout/NotificationBell.tsx - FIXED TYPESCRIPT AND MOBILE RESPONSIVE VERSION
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -23,91 +23,108 @@ interface Notification {
     url?: string;
   };
   sender?: {
+    _id: string;
     name: string;
-    email: string;
   };
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  category?: 'info' | 'success' | 'warning' | 'error';
 }
-
-interface NotificationResponse {
-  success: boolean;
-  data: Notification[];
-  unreadCount: number;
-  pagination: {
-    total: number;
-    page: number;
-    totalPages: number;
-  };
-}
-
-const getNotificationIcon = (type: string) => {
-  switch (type) {
-    case 'project_update':
-    case 'milestone':
-      return <CheckCircle className="h-4 w-4 text-green-500" />;
-    case 'task_completed':
-      return <CheckCircle className="h-4 w-4 text-blue-500" />;
-    case 'message':
-      return <MessageSquare className="h-4 w-4 text-purple-500" />;
-    case 'file_upload':
-      return <Clock className="h-4 w-4 text-orange-500" />;
-    default:
-      return <AlertTriangle className="h-4 w-4 text-gray-500" />;
-  }
-};
 
 export default function NotificationBell() {
   const { data: session } = useSession();
-  const [showPanel, setShowPanel] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(1);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // ✅ Memoized fetch function with proper session dependency
-  const fetchNotifications = useCallback(async (pageNum = 1, append = false) => {
-    const currentUserId = session?.user?.id;
-    if (!currentUserId) return;
+  // Enhanced mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState(0);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = window.innerWidth < 768;
+      const isTouch = 'ontouchstart' in window;
+      const viewHeight = window.innerHeight;
+      
+      setIsMobile(isMobileDevice || isTouch);
+      setViewportHeight(viewHeight);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Enhanced positioning calculation for mobile
+  const getDropdownPosition = useCallback(() => {
+    if (!buttonRef.current || !isMobile) return {};
+
+    const buttonRect = buttonRef.current.getBoundingClientRect();
+    const dropdownWidth = 320; // Fixed width for consistency
+    const dropdownHeight = Math.min(500, viewportHeight * 0.7); // Max 70% of viewport height
+
+    // Calculate position to ensure dropdown stays within viewport
+    let top = buttonRect.bottom + 8;
+    let left = buttonRect.right - dropdownWidth;
+
+    // Adjust if dropdown would go off-screen
+    if (left < 16) {
+      left = 16; // 16px margin from edge
+    }
     
+    if (top + dropdownHeight > viewportHeight - 16) {
+      top = buttonRect.top - dropdownHeight - 8; // Position above button
+    }
+
+    return {
+      position: 'fixed' as const,
+      top: `${top}px`,
+      left: `${left}px`,
+      right: 'auto',
+      maxHeight: `${dropdownHeight}px`,
+      width: `${Math.min(dropdownWidth, window.innerWidth - 32)}px`,
+      zIndex: 9999,
+    };
+  }, [isMobile, viewportHeight]);
+
+  const fetchNotifications = useCallback(async (pageNum = 1, append = false) => {
+    if (!session?.user?.id) return;
+
     try {
       setLoading(true);
       const response = await fetch(`/api/notifications?page=${pageNum}&limit=10`);
-      
-      if (response.ok) {
-        const data: NotificationResponse = await response.json();
-        
-        if (append) {
-          setNotifications(prev => [...prev, ...data.data]);
-        } else {
-          setNotifications(data.data);
-          setUnreadCount(data.unreadCount);
-        }
-        
-        setHasMore(data.pagination.page < data.pagination.totalPages);
-        setPage(pageNum);
+      const data = await response.json();
+
+      if (data.success) {
+        const newNotifications = data.data.notifications || [];
+        setNotifications(prev => append ? [...prev, ...newNotifications] : newNotifications);
+        setUnreadCount(data.data.unreadCount || 0);
+        setHasMore(newNotifications.length === 10);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
       setLoading(false);
     }
-  }, [session?.user?.id]); // ✅ Include session?.user?.id as dependency
+  }, [session?.user?.id]);
 
-  // ✅ Memoized mark as read function
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
       const response = await fetch(`/api/notifications/${notificationId}/read`, {
-        method: 'PATCH',
+        method: 'PUT',
       });
-      
+
       if (response.ok) {
-        setNotifications(prev => 
-          prev.map(notif => 
-            notif._id === notificationId 
-              ? { ...notif, isRead: true }
-              : notif
+        setNotifications(prev =>
+          prev.map(notification =>
+            notification._id === notificationId
+              ? { ...notification, isRead: true }
+              : notification
           )
         );
         setUnreadCount(prev => Math.max(0, prev - 1));
@@ -115,106 +132,108 @@ export default function NotificationBell() {
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
-  }, []); // ✅ No dependencies needed as it only uses stable functions
+  }, []);
 
-  // ✅ Memoized mark all as read function
   const markAllAsRead = useCallback(async () => {
     try {
       const response = await fetch('/api/notifications/mark-all-read', {
-        method: 'PATCH',
+        method: 'PUT',
       });
-      
+
       if (response.ok) {
-        setNotifications(prev => 
-          prev.map(notif => ({ ...notif, isRead: true }))
+        setNotifications(prev =>
+          prev.map(notification => ({ ...notification, isRead: true }))
         );
         setUnreadCount(0);
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
     }
-  }, []); // ✅ No dependencies needed as it only uses stable functions
+  }, []);
 
-  // ✅ Memoized notification click handler
-  const handleNotificationClick = useCallback(async (notification: Notification) => {
-    if (!notification.isRead) {
-      await markAsRead(notification._id);
+  // Load notifications when dropdown opens
+  useEffect(() => {
+    if (isOpen && notifications.length === 0) {
+      fetchNotifications();
     }
-    
-    // Navigate to relevant page if URL is provided
+  }, [isOpen, notifications.length, fetchNotifications]);
+
+  // Fixed TypeScript event handling for click outside
+  useEffect(() => {
+    const handleClickOutside = (event: Event) => {
+      const target = event.target as Node;
+      
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    // Fixed TypeScript for touch events
+    const handleTouchOutside = (event: TouchEvent) => {
+      const target = event.target as Node;
+      
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleTouchOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleTouchOutside);
+    };
+  }, [isOpen]);
+
+  const handleNotificationClick = (notification: Notification) => {
+    if (!notification.isRead) {
+      markAsRead(notification._id);
+    }
+
     if (notification.data?.url) {
       window.location.href = notification.data.url;
+    } else if (notification.data?.projectId) {
+      const role = session?.user?.role;
+      const basePath = role === 'super_admin' ? '/admin' : role === 'project_manager' ? '/manager' : '/client';
+      window.location.href = `${basePath}/projects/${notification.data.projectId}`;
     }
-  }, [markAsRead]); // ✅ Include markAsRead dependency
 
-  // ✅ Memoized load more function
-  const loadMore = useCallback(() => {
+    setIsOpen(false);
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'task_completed':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'message':
+        return <MessageSquare className="h-4 w-4 text-blue-500" />;
+      case 'milestone':
+        return <Clock className="h-4 w-4 text-purple-500" />;
+      default:
+        return <AlertTriangle className="h-4 w-4 text-orange-500" />;
+    }
+  };
+
+  const loadMore = () => {
     if (!loading && hasMore) {
-      fetchNotifications(page + 1, true);
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchNotifications(nextPage, true);
     }
-  }, [loading, hasMore, fetchNotifications, page]); // ✅ Include all dependencies
-
-  // Close panel when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        panelRef.current && 
-        buttonRef.current &&
-        !panelRef.current.contains(event.target as Node) &&
-        !buttonRef.current.contains(event.target as Node)
-      ) {
-        setShowPanel(false);
-      }
-    };
-
-    if (showPanel) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showPanel]); // ✅ Only showPanel dependency needed
-
-  // ✅ Fetch notifications on mount and when session changes
-  useEffect(() => {
-    if (session?.user?.id) {
-      fetchNotifications();
-    }
-  }, [session?.user?.id, fetchNotifications]); // ✅ Include both dependencies
-
-  // ✅ Fetch notifications when panel opens (only if no notifications exist)
-  useEffect(() => {
-    if (showPanel && notifications.length === 0 && session?.user?.id) {
-      fetchNotifications();
-    }
-  }, [showPanel, notifications.length, session?.user?.id, fetchNotifications]); // ✅ Include all dependencies
-
-  // ✅ Poll for new notifications every minute - optimized with ref to avoid dependency issues
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  
-  useEffect(() => {
-    if (!session?.user?.id) return;
-
-    const pollNotifications = () => {
-      fetchNotifications(1, false);
-    };
-
-    // Clear existing interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-
-    // Set new interval
-    intervalRef.current = setInterval(pollNotifications, 60000); // Poll every minute
-    
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [session?.user?.id, fetchNotifications]); // ✅ Include both dependencies
-
-  if (!session?.user) {
-    return null;
-  }
+  };
 
   return (
     <div className="relative">
@@ -222,125 +241,148 @@ export default function NotificationBell() {
         ref={buttonRef}
         variant="ghost"
         size="sm"
-        className="relative"
-        onClick={() => setShowPanel(!showPanel)}
+        className="relative p-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+        onClick={() => setIsOpen(!isOpen)}
+        aria-label="Notifications"
       >
-        <Bell className="h-5 w-5" />
+        <Bell className="h-5 w-5 text-gray-600" />
         {unreadCount > 0 && (
           <Badge 
-            variant="destructive" 
-            className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
+            className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs bg-red-500 text-white border-2 border-white rounded-full"
           >
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {unreadCount > 9 ? '9+' : unreadCount}
           </Badge>
         )}
       </Button>
 
-      {/* Notification Panel */}
-      {showPanel && (
-        <Card 
-          ref={panelRef}
-          className="absolute right-0 top-full mt-2 w-80 sm:w-96 max-h-96 shadow-lg border z-50 bg-white"
-        >
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Notifications</CardTitle>
-              <div className="flex items-center gap-2">
-                {unreadCount > 0 && (
+      {isOpen && (
+        <>
+          {/* Mobile overlay */}
+          {isMobile && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" />
+          )}
+          
+          <div
+            ref={dropdownRef}
+            className={`absolute bg-white rounded-lg shadow-lg border ${
+              isMobile 
+                ? 'fixed z-50' 
+                : 'right-0 mt-2 w-80 max-w-sm z-50'
+            }`}
+            style={isMobile ? getDropdownPosition() : {}}
+          >
+            <Card className="border-0 shadow-none">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 px-4 py-3 border-b">
+                <CardTitle className="text-base font-semibold">Notifications</CardTitle>
+                <div className="flex items-center gap-2">
+                  {unreadCount > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={markAllAsRead}
+                      className="text-xs text-blue-600 hover:text-blue-800 h-auto p-1"
+                    >
+                      Mark all read
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={markAllAsRead}
-                    className="text-xs"
+                    onClick={() => setIsOpen(false)}
+                    className="h-6 w-6 p-0"
                   >
-                    Mark all read
+                    <X className="h-4 w-4" />
                   </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowPanel(false)}
+                </div>
+              </CardHeader>
+              
+              <CardContent className="p-0">
+                <div 
+                  className={`${
+                    isMobile 
+                      ? 'max-h-[60vh] overflow-y-auto' 
+                      : 'max-h-96 overflow-y-auto'
+                  }`}
+                  onScroll={(e) => {
+                    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                    if (scrollHeight - scrollTop === clientHeight && hasMore && !loading) {
+                      loadMore();
+                    }
+                  }}
                 >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          
-          <CardContent className="p-0">
-            <div className="max-h-80 overflow-y-auto">
-              {loading && notifications.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                  Loading notifications...
-                </div>
-              ) : notifications.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  <Bell className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                  <p>No notifications yet</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {notifications.map((notification) => (
-                    <div
-                      key={notification._id}
-                      className={`p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition-colors ${
-                        !notification.isRead ? 'bg-blue-50' : ''
-                      }`}
-                      onClick={() => handleNotificationClick(notification)}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 mt-1">
-                          {getNotificationIcon(notification.type)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <p className={`text-sm font-medium ${
-                              !notification.isRead ? 'text-gray-900' : 'text-gray-700'
-                            }`}>
-                              {notification.title}
-                            </p>
-                            {!notification.isRead && (
-                              <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-600 mt-1">
-                            {notification.message}
-                          </p>
-                          <div className="flex items-center justify-between mt-2">
-                            {notification.sender && (
-                              <p className="text-xs text-gray-500">
-                                from {notification.sender.name}
+                  {loading && notifications.length === 0 ? (
+                    <div className="p-4 text-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
+                      <p className="text-sm text-gray-500">Loading notifications...</p>
+                    </div>
+                  ) : notifications.length === 0 ? (
+                    <div className="p-6 text-center">
+                      <Bell className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">No notifications yet</p>
+                    </div>
+                  ) : (
+                    <>
+                      {notifications.map((notification) => (
+                        <div
+                          key={notification._id}
+                          className={`p-4 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${
+                            !notification.isRead ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                          }`}
+                          onClick={() => handleNotificationClick(notification)}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 mt-0.5">
+                              {getNotificationIcon(notification.type)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 line-clamp-2">
+                                {notification.title}
                               </p>
-                            )}
-                            <p className="text-xs text-gray-400">
-                              {formatTimeAgo(new Date(notification.createdAt))}
-                            </p>
+                              <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                                {notification.message}
+                              </p>
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs text-gray-500">
+                                  {formatTimeAgo(new Date(notification.createdAt))}
+                                </span>
+                                {notification.priority === 'urgent' && (
+                                  <Badge variant="destructive" className="text-xs">
+                                    Urgent
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {/* Load More Button */}
-                  {hasMore && (
-                    <div className="p-3 text-center border-t">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={loadMore}
-                        disabled={loading}
-                        className="text-xs"
-                      >
-                        {loading ? 'Loading...' : 'Load more'}
-                      </Button>
-                    </div>
+                      ))}
+                      
+                      {hasMore && (
+                        <div className="p-3 text-center border-t">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={loadMore}
+                            disabled={loading}
+                            className="text-sm"
+                          >
+                            {loading ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                                Loading...
+                              </>
+                            ) : (
+                              'Load more'
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
     </div>
   );

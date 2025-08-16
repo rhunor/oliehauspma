@@ -1,11 +1,11 @@
-// src/middleware.ts - FIXED VERSION WITH PROPER ROLE-BASED ROUTING
+// src/middleware.ts - ENHANCED WITH SESSION PERSISTENCE AND SMART REDIRECTS
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
 export default withAuth(
   function middleware(request) {
     const token = request.nextauth.token;
-    const { pathname } = request.nextUrl;
+    const { pathname, search } = request.nextUrl;
 
     // Public routes that don't require authentication
     const publicRoutes = ["/login", "/api/auth", "/unauthorized"];
@@ -13,24 +13,58 @@ export default withAuth(
 
     // If user is not authenticated and trying to access protected route
     if (!token && !isPublicRoute) {
-      return NextResponse.redirect(new URL("/login", request.url));
+      // Store the intended destination for post-login redirect
+      const redirectUrl = new URL("/login", request.url);
+      if (pathname !== "/" && !pathname.startsWith("/api/")) {
+        redirectUrl.searchParams.set("callbackUrl", `${pathname}${search}`);
+      }
+      return NextResponse.redirect(redirectUrl);
     }
 
     // If user is authenticated and trying to access login page
     if (token && pathname === "/login") {
+      // Check for callback URL from query params
+      const callbackUrl = request.nextUrl.searchParams.get("callbackUrl");
+      
+      if (callbackUrl && callbackUrl.startsWith("/")) {
+        // Validate the callback URL is for this user's role
+        const userRole = token.role as string;
+        const allowedPaths = getAllowedPathsForRole(userRole);
+        
+        if (allowedPaths.some(path => callbackUrl.startsWith(path))) {
+          return NextResponse.redirect(new URL(callbackUrl, request.url));
+        }
+      }
+      
+      // Default redirect based on role
       const redirectPath = getRoleBasedRedirect(token.role as string);
       return NextResponse.redirect(new URL(redirectPath, request.url));
     }
 
-    // Role-based route protection with proper role hierarchy
+    // Role-based route protection with enhanced logic
     if (token && !isPublicRoute) {
       const userRole = token.role as string;
       
-      // Route mappings based on role
+      // Enhanced route mappings with hierarchical access
       const roleRoutes: Record<string, string[]> = {
         super_admin: ["/admin", "/manager", "/client"], // Can access all
-        project_manager: ["/manager", "/admin/projects", "/admin/site-schedule", "/admin/messages", "/admin/analytics", "/admin/files", "/admin/calendar"],
-        client: ["/client", "/admin/projects", "/admin/site-schedule", "/admin/messages", "/admin/files", "/admin/calendar"]
+        project_manager: [
+          "/manager", 
+          "/admin/projects", 
+          "/admin/site-schedule", 
+          "/admin/messages", 
+          "/admin/analytics", 
+          "/admin/files", 
+          "/admin/calendar"
+        ],
+        client: [
+          "/client", 
+          "/admin/projects", 
+          "/admin/site-schedule", 
+          "/admin/messages", 
+          "/admin/files", 
+          "/admin/calendar"
+        ]
       };
 
       // Check if user is trying to access a role-specific dashboard root
@@ -47,12 +81,12 @@ export default withAuth(
       }
 
       // Special restrictions for admin-only routes
-      const adminOnlyRoutes = ["/admin/users"];
+      const adminOnlyRoutes = ["/admin/users", "/admin/system", "/admin/settings"];
       if (adminOnlyRoutes.some(route => pathname.startsWith(route)) && userRole !== "super_admin") {
         return NextResponse.redirect(new URL("/unauthorized", request.url));
       }
 
-      // For shared routes like /admin/projects, /admin/messages, etc., allow based on role
+      // Check general route access
       const allowedRoutes = roleRoutes[userRole] || [];
       const hasAccess = allowedRoutes.some(route => pathname.startsWith(route));
       
@@ -60,11 +94,16 @@ export default withAuth(
         return NextResponse.redirect(new URL("/unauthorized", request.url));
       }
 
-      // API route protection with role and user ID headers
+      // API route protection with enhanced headers
       if (pathname.startsWith("/api/") && !pathname.startsWith("/api/auth")) {
         const response = NextResponse.next();
         response.headers.set("x-user-role", userRole);
         response.headers.set("x-user-id", token.id as string);
+        response.headers.set("x-user-email", token.email as string);
+        
+        // Add session timestamp for debugging
+        response.headers.set("x-session-timestamp", new Date().toISOString());
+        
         return response;
       }
     }
@@ -102,6 +141,19 @@ function getRoleBasedRedirect(role: string): string {
   }
 }
 
+function getAllowedPathsForRole(role: string): string[] {
+  switch (role) {
+    case "super_admin":
+      return ["/admin", "/manager", "/client"];
+    case "project_manager":
+      return ["/manager", "/admin/projects", "/admin/site-schedule", "/admin/messages", "/admin/files", "/admin/calendar"];
+    case "client":
+      return ["/client", "/admin/projects", "/admin/site-schedule", "/admin/messages", "/admin/files", "/admin/calendar"];
+    default:
+      return [];
+  }
+}
+
 export const config = {
   matcher: [
     /*
@@ -110,6 +162,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder
+     * - api/auth (NextAuth API routes)
      */
     "/((?!_next/static|_next/image|favicon.ico|public|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
