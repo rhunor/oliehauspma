@@ -10,7 +10,8 @@
     "seed": "node scripts/seed-database.js",
     "db:init": "node scripts/init-database.js",
     "db:seed": "node scripts/init-database.js",
-    "db:test": "node scripts/test-connection.js"
+    "db:test": "node scripts/test-connection.js",
+    "db:migrate": "node scripts/migrate-database.js"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.10.0",

@@ -1,4 +1,4 @@
-// src/app/api/messages/mark-read/route.ts - MARK MESSAGES AS READ
+// src/app/api/messages/mark-read/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -20,18 +20,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as MarkReadRequest;
     const { participantId } = body;
 
-    if (!participantId) {
-      return NextResponse.json(
-        { error: 'Participant ID is required' },
-        { status: 400 }
-      );
+    if (!participantId || !ObjectId.isValid(participantId)) {
+      return NextResponse.json({ error: 'Valid participant ID is required' }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
     const currentUserId = new ObjectId(session.user.id);
     const participantObjectId = new ObjectId(participantId);
 
-    // Mark all unread messages from this participant as read
+    // Mark all messages from the participant as read
     const result = await db.collection('messages').updateMany(
       {
         senderId: participantObjectId,

@@ -90,7 +90,7 @@ interface FilesData {
   userProjects: ClientUserProject[];
 }
 
-async function getFilesData(userId: string, userRole: string): Promise<FilesData> {
+async function getFilesData(userId: string, _userRole: string): Promise<FilesData> {
   const { db } = await connectToDatabase();
 
   // Clients can only see files from their projects

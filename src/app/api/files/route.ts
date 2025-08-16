@@ -1,25 +1,21 @@
-// src/app/api/files/route.ts
+// src/app/api/files/route.ts - COMPLETE WITH DASHBOARD COMPATIBILITY FIXES
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId, Filter, Collection } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
+import { 
+  validateFilePermission, 
+  getUserAccessibleFiles, 
+  validateFile, 
+  getFileCategory 
+} from '@/lib/file-permissions';
 
-// Define interfaces for MongoDB documents
-interface ProjectDocument {
-  _id: ObjectId;
-  files: ObjectId[];
-  client: ObjectId;
-  manager: ObjectId;
-  updatedAt: Date;
-  title?: string;
-}
-
+// Define proper TypeScript interfaces
 interface FileDocument {
-  _id?: ObjectId;
   filename: string;
   originalName: string;
   size: number;
@@ -28,207 +24,139 @@ interface FileDocument {
   path: string;
   projectId: ObjectId;
   uploadedBy: ObjectId;
-  category: string;
+  category: 'image' | 'video' | 'audio' | 'document' | 'other';
   tags: string[];
   description: string;
   isPublic: boolean;
   version: number;
+  parentFileId?: ObjectId;
   downloadCount: number;
-  metadata: Record<string, unknown>;
+  lastAccessedAt?: Date;
+  metadata?: {
+    width?: number;
+    height?: number;
+    duration?: number;
+    pages?: number;
+    compression?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
 
-interface UserDocument {
+interface ProjectDocument {
   _id: ObjectId;
-  name: string;
-  email: string;
-  password?: string;
-}
-
-interface NotificationDocument {
-  recipient: ObjectId;
-  sender: ObjectId;
-  type: string;
   title: string;
-  message: string;
-  data: {
-    projectId?: ObjectId;
-    fileId?: ObjectId;
-    url?: string;
-  };
-  isRead: boolean;
-  priority: string;
-  category: string;
-  createdAt: Date;
+  client: ObjectId;
+  manager: ObjectId;
 }
 
-// Define aggregation result types
-interface FileWithJoins extends Omit<FileDocument, 'uploadedBy' | 'projectId'> {
-  uploadedBy: Omit<UserDocument, 'password'>;
-  project: Pick<ProjectDocument, '_id' | 'title'>;
+interface CreateFileData {
+  projectId: string;
+  description?: string;
+  tags?: string;
+  isPublic?: boolean;
 }
 
-interface MatchQuery extends Filter<FileDocument> {
-  projectId?: ObjectId | { $in: ObjectId[] };
-  category?: string;
-}
-
-// Disable body parser for file uploads
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
-// Helper function to get file category based on MIME type
-function getFileCategory(mimeType: string): string {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('text')) return 'document';
-  return 'other';
-}
-
-// Helper function to validate file
-function validateFile(file: File): { valid: boolean; error?: string } {
-  const maxSize = 50 * 1024 * 1024; // 50MB
-  const allowedTypes = [
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-    'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'text/plain', 'text/csv',
-    'video/mp4', 'video/mpeg', 'video/quicktime',
-    'audio/mpeg', 'audio/wav', 'audio/ogg'
-  ];
-
-  if (file.size > maxSize) {
-    return { valid: false, error: 'File size must be less than 50MB' };
-  }
-
-  if (!allowedTypes.includes(file.type)) {
-    return { valid: false, error: 'File type not allowed' };
-  }
-
-  return { valid: true };
-}
-
-// GET /api/files?projectId=xxx&category=image&page=1&limit=20
+// GET /api/files - Get files with role-based access control
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session?.user?.id) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Unauthorized' 
+      }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('projectId');
     const category = searchParams.get('category');
+    const search = searchParams.get('search') || '';
+    const limit = parseInt(searchParams.get('limit') || '20');
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
-    const skip = (page - 1) * limit;
+    const recent = searchParams.get('recent') === 'true';
 
-    const { db } = await connectToDatabase();
+    // Get files user has access to
+    const allFiles = await getUserAccessibleFiles(
+      session.user.id, 
+      session.user.role, 
+      projectId || undefined
+    );
 
-    // Build query with proper typing
-    const matchQuery: MatchQuery = {};
-    
-    if (projectId) {
-      // Verify user has access to this project
-      const project = await db.collection<ProjectDocument>('projects').findOne({
-        _id: new ObjectId(projectId),
-        $or: [
-          { client: new ObjectId(session.user.id) },
-          { manager: new ObjectId(session.user.id) },
-          ...(session.user.role === 'super_admin' ? [{}] : [])
-        ]
-      });
+    // Apply additional filters
+    let filteredFiles = allFiles;
 
-      if (!project) {
-        return NextResponse.json({ error: 'Project not found or access denied' }, { status: 404 });
-      }
-
-      matchQuery.projectId = new ObjectId(projectId);
-    } else if (session.user.role !== 'super_admin') {
-      // Non-admin users can only see files from their projects
-      const userProjects = await db.collection<ProjectDocument>('projects').find({
-        $or: [
-          { client: new ObjectId(session.user.id) },
-          { manager: new ObjectId(session.user.id) }
-        ]
-      }).project({ _id: 1 }).toArray();
-
-      matchQuery.projectId = { $in: userProjects.map(p => p._id) };
+    if (category && category !== 'all') {
+      filteredFiles = allFiles.filter((file: typeof allFiles[0]) => file.category === category);
     }
 
-    if (category) {
-      matchQuery.category = category;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredFiles = allFiles.filter((file: typeof allFiles[0]) =>
+        file.originalName.toLowerCase().includes(searchLower) ||
+        file.description.toLowerCase().includes(searchLower) ||
+        file.tags.some((tag: string) => tag.toLowerCase().includes(searchLower))
+      );
     }
 
-    // Get files with pagination
-    const files = await db.collection<FileDocument>('files')
-      .aggregate<FileWithJoins>([
-        { $match: matchQuery },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'uploadedBy',
-            foreignField: '_id',
-            as: 'uploaderData',
-            pipeline: [{ $project: { password: 0 } }]
-          }
-        },
-        {
-          $lookup: {
-            from: 'projects',
-            localField: 'projectId',
-            foreignField: '_id',
-            as: 'projectData',
-            pipeline: [{ $project: { title: 1 } }]
-          }
-        },
-        {
-          $addFields: {
-            uploadedBy: { $arrayElemAt: ['$uploaderData', 0] },
-            project: { $arrayElemAt: ['$projectData', 0] }
-          }
-        },
-        { $unset: ['uploaderData', 'projectData'] },
-        { $sort: { createdAt: -1 } },
-        { $skip: skip },
-        { $limit: limit }
-      ])
-      .toArray();
+    // Sort by recent if requested
+    if (recent) {
+      filteredFiles.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
 
-    // Get total count
-    const totalCount = await db.collection<FileDocument>('files').countDocuments(matchQuery);
+    // Apply pagination
+    const startIndex = (page - 1) * limit;
+    const paginatedFiles = filteredFiles.slice(startIndex, startIndex + limit);
 
+    // Calculate stats
+   const stats = {
+  total: filteredFiles.length,
+  totalSize: filteredFiles.reduce((sum: number, file: typeof allFiles[0]) => sum + file.size, 0),
+  byCategory: filteredFiles.reduce((acc: Record<string, number>, file: typeof allFiles[0]) => {
+    const category = file.category ?? 'other'; // ✅ Default to 'other' if undefined
+    acc[category] = (acc[category] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>)
+};
+
+    // DASHBOARD COMPATIBILITY FIX: Return response in expected format
     return NextResponse.json({
       success: true,
-      data: files,
-      pagination: {
-        page,
-        limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNext: page * limit < totalCount,
-        hasPrev: page > 1
-      }
+      data: {
+        data: paginatedFiles, // Nested data structure for dashboard compatibility
+        pagination: {
+          page,
+          limit,
+          total: filteredFiles.length,
+          pages: Math.ceil(filteredFiles.length / limit),
+          hasNext: page < Math.ceil(filteredFiles.length / limit),
+          hasPrev: page > 1
+        }
+      },
+      // Also include the original structure for backward compatibility
+      files: paginatedFiles,
+      stats
     });
 
   } catch (error: unknown) {
     console.error('Error fetching files:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({ 
+      success: false,
+      error: errorMessage 
+    }, { status: 500 });
   }
 }
 
-// POST /api/files
+// POST /api/files - Upload files with security validation
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ 
+        success: false,
+        error: 'Unauthorized' 
+      }, { status: 401 });
     }
 
     const formData = await request.formData();
@@ -238,23 +166,55 @@ export async function POST(request: NextRequest) {
     const tags = formData.get('tags') as string;
     const isPublic = formData.get('isPublic') === 'true';
 
+    // Validate required fields
     if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+      return NextResponse.json({ 
+        success: false,
+        error: 'No file provided' 
+      }, { status: 400 });
     }
 
     if (!projectId) {
-      return NextResponse.json({ error: 'Project ID is required' }, { status: 400 });
+      return NextResponse.json({ 
+        success: false,
+        error: 'Project ID is required' 
+      }, { status: 400 });
+    }
+
+    if (!ObjectId.isValid(projectId)) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Invalid project ID' 
+      }, { status: 400 });
     }
 
     // Validate file
     const validation = validateFile(file);
     if (!validation.valid) {
-      return NextResponse.json({ error: validation.error }, { status: 400 });
+      return NextResponse.json({ 
+        success: false,
+        error: validation.error 
+      }, { status: 400 });
+    }
+
+    // Check upload permission
+    const canUpload = await validateFilePermission(
+      session.user.id,
+      session.user.role,
+      projectId,
+      'write'
+    );
+
+    if (!canUpload) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'You do not have permission to upload files to this project' 
+      }, { status: 403 });
     }
 
     const { db } = await connectToDatabase();
 
-    // Verify user has access to this project
+    // Verify project exists and user has access
     const project = await db.collection<ProjectDocument>('projects').findOne({
       _id: new ObjectId(projectId),
       $or: [
@@ -265,7 +225,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (!project) {
-      return NextResponse.json({ error: 'Project not found or access denied' }, { status: 404 });
+      return NextResponse.json({ 
+        success: false,
+        error: 'Project not found or access denied' 
+      }, { status: 404 });
     }
 
     // Generate unique filename
@@ -285,8 +248,13 @@ export async function POST(request: NextRequest) {
     // Get file category
     const category = getFileCategory(file.type);
 
-    // Create file record in database
-    const newFile: FileDocument = {
+    // Parse tags
+    const parsedTags = tags ? 
+      tags.split(',').map((tag: string) => tag.trim()).filter((tag: string) => tag.length > 0) : 
+      [];
+
+    // Create file record in database with proper Date objects
+    const newFile: Omit<FileDocument, '_id'> = {
       filename: uniqueFilename,
       originalName: file.name,
       size: file.size,
@@ -296,85 +264,178 @@ export async function POST(request: NextRequest) {
       projectId: new ObjectId(projectId),
       uploadedBy: new ObjectId(session.user.id),
       category,
-      tags: tags ? tags.split(',').map(tag => tag.trim()).filter(Boolean) : [],
+      tags: parsedTags,
       description: description || '',
-      isPublic,
+      isPublic: isPublic || false,
       version: 1,
       downloadCount: 0,
-      metadata: {},
-      createdAt: new Date(),
-      updatedAt: new Date()
+      createdAt: new Date(), // Ensure this is a Date object
+      updatedAt: new Date()  // Ensure this is a Date object
     };
 
-    const result = await db.collection<FileDocument>('files').insertOne(newFile);
-
-    // Add file to project (now with typed collection)
-    const projects: Collection<ProjectDocument> = db.collection<ProjectDocument>('projects');
-    await projects.updateOne(
-      { _id: new ObjectId(projectId) },
-      { 
-        $push: { files: result.insertedId },
-        $set: { updatedAt: new Date() }
-      }
-    );
-
-    // Create notification for project team (except uploader)
-    const projectTeam = [project.client, project.manager].filter(
-      userId => userId && userId.toString() !== session.user.id
-    );
-
-    const notifications: NotificationDocument[] = projectTeam.map(userId => ({
-      recipient: userId,
-      sender: new ObjectId(session.user.id),
-      type: 'file_uploaded',
-      title: 'New File Uploaded',
-      message: `${session.user.name} uploaded a new file: ${file.name}`,
-      data: {
-        projectId: new ObjectId(projectId),
-        fileId: result.insertedId,
-        url: `/uploads/${projectId}/${uniqueFilename}`
-      },
-      isRead: false,
-      priority: 'medium',
-      category: 'info',
-      createdAt: new Date()
-    }));
-
-    if (notifications.length > 0) {
-      await db.collection<NotificationDocument>('notifications').insertMany(notifications);
-    }
+    const result = await db.collection('files').insertOne(newFile);
 
     // Get the created file with populated data
-    const createdFile = await db.collection<FileDocument>('files')
-      .aggregate<FileWithJoins>([
+    const createdFile = await db.collection('files')
+      .aggregate([
         { $match: { _id: result.insertedId } },
+        {
+          $lookup: {
+            from: 'projects',
+            localField: 'projectId',
+            foreignField: '_id',
+            as: 'projectData',
+            pipeline: [{ $project: { title: 1 } }]
+          }
+        },
         {
           $lookup: {
             from: 'users',
             localField: 'uploadedBy',
             foreignField: '_id',
             as: 'uploaderData',
-            pipeline: [{ $project: { password: 0 } }]
+            pipeline: [{ $project: { name: 1, email: 1 } }]
           }
         },
         {
           $addFields: {
+            project: { $arrayElemAt: ['$projectData', 0] },
             uploadedBy: { $arrayElemAt: ['$uploaderData', 0] }
           }
         },
-        { $unset: ['uploaderData'] }
+        { $unset: ['projectData', 'uploaderData'] }
       ])
       .toArray();
 
+    if (createdFile.length === 0) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Failed to retrieve created file' 
+      }, { status: 500 });
+    }
+
+    const fileData = createdFile[0];
+
+    // Convert to client-compatible format with safe date conversion
+    const clientFile = {
+      _id: fileData._id.toString(),
+      filename: fileData.filename,
+      originalName: fileData.originalName,
+      size: fileData.size,
+      mimeType: fileData.mimeType,
+      url: fileData.url,
+      category: fileData.category,
+      tags: fileData.tags,
+      description: fileData.description,
+      isPublic: fileData.isPublic,
+      uploadedBy: {
+        _id: fileData.uploadedBy._id.toString(),
+        name: fileData.uploadedBy.name,
+        email: fileData.uploadedBy.email
+      },
+      project: {
+        _id: fileData.project._id.toString(),
+        title: fileData.project.title
+      },
+      // SAFE DATE CONVERSION: Handle both Date objects and strings
+      createdAt: fileData.createdAt instanceof Date 
+        ? fileData.createdAt.toISOString() 
+        : new Date(fileData.createdAt).toISOString(),
+      updatedAt: fileData.updatedAt instanceof Date 
+        ? fileData.updatedAt.toISOString() 
+        : new Date(fileData.updatedAt).toISOString(),
+      downloadCount: fileData.downloadCount
+    };
+
     return NextResponse.json({
       success: true,
-      data: createdFile[0],
+      data: clientFile,
       message: 'File uploaded successfully'
     }, { status: 201 });
 
   } catch (error: unknown) {
     console.error('Error uploading file:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({ 
+      success: false,
+      error: errorMessage 
+    }, { status: 500 });
+  }
+}
+
+// DELETE /api/files/[id] - Delete file with permission check
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Unauthorized' 
+      }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const fileId = searchParams.get('id');
+
+    if (!fileId || !ObjectId.isValid(fileId)) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Valid file ID is required' 
+      }, { status: 400 });
+    }
+
+    const { db } = await connectToDatabase();
+
+    // Get file details
+    const file = await db.collection('files').findOne({ _id: new ObjectId(fileId) });
+
+    if (!file) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'File not found' 
+      }, { status: 404 });
+    }
+
+    // Check delete permission
+    const canDelete = await validateFilePermission(
+      session.user.id,
+      session.user.role,
+      file.projectId.toString(),
+      'delete'
+    );
+
+    // Also allow file uploader to delete their own files
+    const isUploader = file.uploadedBy.equals(new ObjectId(session.user.id));
+
+    if (!canDelete && !isUploader) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'You do not have permission to delete this file' 
+      }, { status: 403 });
+    }
+
+    // Delete file from database
+    await db.collection('files').deleteOne({ _id: new ObjectId(fileId) });
+
+    // TODO: Delete physical file from disk
+    // const fs = require('fs').promises;
+    // try {
+    //   await fs.unlink(file.path);
+    // } catch (fsError) {
+    //   console.warn('Failed to delete physical file:', fsError);
+    // }
+
+    return NextResponse.json({
+      success: true,
+      message: 'File deleted successfully'
+    });
+
+  } catch (error: unknown) {
+    console.error('Error deleting file:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ 
+      success: false,
+      error: errorMessage 
+    }, { status: 500 });
   }
 }

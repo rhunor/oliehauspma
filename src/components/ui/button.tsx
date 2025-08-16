@@ -1,4 +1,4 @@
-// src/components/ui/button.tsx
+// src/components/ui/button.tsx - FIXED React.Children.only ERROR
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -52,6 +52,30 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading, children, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
     
+    // Fix: When using asChild with loading, wrap content properly to avoid React.Children.only error
+    const content = loading ? (
+      <>
+        <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        {children}
+      </>
+    ) : (
+      children
+    );
+
+    // Fix: When asChild is true and we have loading state, don't use Slot to avoid conflicts
+    if (asChild && loading) {
+      return (
+        <button
+          className={cn(buttonVariants({ variant, size, className }))}
+          ref={ref}
+          disabled={disabled || loading}
+          {...props}
+        >
+          {content}
+        </button>
+      );
+    }
+
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
@@ -59,10 +83,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={disabled || loading}
         {...props}
       >
-        {loading && (
-          <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        )}
-        {children}
+        {content}
       </Comp>
     );
   }

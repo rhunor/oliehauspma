@@ -1,4 +1,4 @@
-// src/app/(dashboard)/client/page.tsx - REAL DATA VERSION
+// src/app/(dashboard)/client/page.tsx - FIXED DATA STRUCTURE ERROR
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -95,10 +95,19 @@ interface ClientStats {
   recentFiles: number;
 }
 
+// Fix: Define proper API response structure
 interface ApiResponse<T> {
   success: boolean;
-  data: T;
+  data?: T;
   error?: string;
+}
+
+// Fix: Define proper data wrapper structure
+interface DataWrapper<T> {
+  data: T[];
+  total?: number;
+  page?: number;
+  limit?: number;
 }
 
 const getStatusColor = (status: string) => {
@@ -138,8 +147,8 @@ export default function ClientDashboard() {
       setLoading(true);
       setError(null);
 
-      // Fetch client-specific data
-      const [statsResponse, projectsResponse, filesResponse, updatesResponse, messagesResponse] = await Promise.all([
+      // Fetch client-specific data with proper error handling
+      const responses = await Promise.allSettled([
         fetch('/api/analytics/client/dashboard'),
         fetch('/api/projects?limit=3'),
         fetch('/api/files?limit=5&recent=true'),
@@ -147,44 +156,70 @@ export default function ClientDashboard() {
         fetch('/api/messages?limit=5&unreadFirst=true')
       ]);
 
-      if (!statsResponse.ok) {
-        throw new Error('Failed to fetch dashboard statistics');
-      }
-
-      if (!projectsResponse.ok) {
-        throw new Error('Failed to fetch projects');
-      }
-
-      const statsData: ApiResponse<ClientStats> = await statsResponse.json();
-      const projectsData: ApiResponse<{ data: Project[] }> = await projectsResponse.json();
-
-      if (statsData.success) {
-        setStats(statsData.data);
-      }
-
-      if (projectsData.success) {
-        setProjects(projectsData.data.data || []);
-      }
-
-      // Handle optional responses
-      if (filesResponse.ok) {
-        const filesData: ApiResponse<{ data: ProjectFile[] }> = await filesResponse.json();
-        if (filesData.success) {
-          setRecentFiles(filesData.data.data || []);
+      // Handle stats response
+      if (responses[0].status === 'fulfilled' && responses[0].value.ok) {
+        const statsData: ApiResponse<ClientStats> = await responses[0].value.json();
+        if (statsData.success && statsData.data) {
+          setStats(statsData.data);
         }
       }
 
-      if (updatesResponse.ok) {
-        const updatesData: ApiResponse<ProjectUpdate[]> = await updatesResponse.json();
-        if (updatesData.success) {
-          setRecentUpdates(updatesData.data);
+      // Handle projects response
+      if (responses[1].status === 'fulfilled' && responses[1].value.ok) {
+        const projectsData: ApiResponse<DataWrapper<Project>> = await responses[1].value.json();
+        if (projectsData.success && projectsData.data) {
+          // Fix: Handle both direct array and wrapped data structure
+          const projectArray = Array.isArray(projectsData.data) 
+            ? projectsData.data 
+            : projectsData.data.data || [];
+          setProjects(projectArray);
         }
       }
 
-      if (messagesResponse.ok) {
-        const messagesData: ApiResponse<{ data: Message[] }> = await messagesResponse.json();
-        if (messagesData.success) {
-          setRecentMessages(messagesData.data.data || []);
+      // Handle files response (optional)
+      if (responses[2].status === 'fulfilled' && responses[2].value.ok) {
+        try {
+          const filesData: ApiResponse<DataWrapper<ProjectFile>> = await responses[2].value.json();
+          if (filesData.success && filesData.data) {
+            // Fix: Handle nested data structure safely
+            const filesArray = Array.isArray(filesData.data)
+              ? filesData.data
+              : filesData.data.data || [];
+            setRecentFiles(filesArray);
+          }
+        } catch (error) {
+          console.warn('Failed to parse files data:', error);
+          // Continue without files data
+        }
+      }
+
+      // Handle updates response (optional)
+      if (responses[3].status === 'fulfilled' && responses[3].value.ok) {
+        try {
+          const updatesData: ApiResponse<ProjectUpdate[]> = await responses[3].value.json();
+          if (updatesData.success && updatesData.data) {
+            setRecentUpdates(Array.isArray(updatesData.data) ? updatesData.data : []);
+          }
+        } catch (error) {
+          console.warn('Failed to parse updates data:', error);
+          // Continue without updates data
+        }
+      }
+
+      // Handle messages response (optional)
+      if (responses[4].status === 'fulfilled' && responses[4].value.ok) {
+        try {
+          const messagesData: ApiResponse<DataWrapper<Message>> = await responses[4].value.json();
+          if (messagesData.success && messagesData.data) {
+            // Fix: Handle nested data structure safely
+            const messagesArray = Array.isArray(messagesData.data)
+              ? messagesData.data
+              : messagesData.data.data || [];
+            setRecentMessages(messagesArray);
+          }
+        } catch (error) {
+          console.warn('Failed to parse messages data:', error);
+          // Continue without messages data
         }
       }
 

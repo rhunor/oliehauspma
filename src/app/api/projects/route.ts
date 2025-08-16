@@ -1,4 +1,4 @@
-// src/app/api/projects/route.ts - FIXED WITH PROPER TYPES
+// src/app/api/projects/route.ts - COMPLETE WITH DASHBOARD COMPATIBILITY FIX
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -76,7 +76,10 @@ export async function GET(request: NextRequest) {
 
     if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { 
+          success: false,
+          error: 'Unauthorized' 
+        },
         { status: 401 }
       );
     }
@@ -156,10 +159,11 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.ceil(total / limit);
 
+    // DASHBOARD COMPATIBILITY FIX: Return both nested and direct structures
     return NextResponse.json({
       success: true,
       data: {
-        data: projects,
+        data: projects, // Nested structure for dashboard compatibility
         pagination: {
           page,
           limit,
@@ -168,14 +172,19 @@ export async function GET(request: NextRequest) {
           hasNext: page < totalPages,
           hasPrev: page > 1,
         }
-      }
+      },
+      // Also include direct access for backward compatibility
+      projects: projects
     });
 
   } catch (error: unknown) {
     console.error('Error fetching projects:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { error: errorMessage },
+      { 
+        success: false,
+        error: errorMessage 
+      },
       { status: 500 }
     );
   }
@@ -187,7 +196,10 @@ export async function POST(request: NextRequest) {
 
     if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { 
+          success: false,
+          error: 'Unauthorized' 
+        },
         { status: 401 }
       );
     }
@@ -195,7 +207,10 @@ export async function POST(request: NextRequest) {
     // Only super_admin can create projects
     if (session.user.role !== 'super_admin') {
       return NextResponse.json(
-        { error: 'Only super admins can create projects' },
+        { 
+          success: false,
+          error: 'Only super admins can create projects' 
+        },
         { status: 403 }
       );
     }
@@ -207,6 +222,7 @@ export async function POST(request: NextRequest) {
     if (!validation.success) {
       return NextResponse.json(
         { 
+          success: false,
           error: 'Validation failed',
           details: validation.error.issues.map(issue => ({
             field: issue.path.join('.'),
@@ -236,14 +252,20 @@ export async function POST(request: NextRequest) {
 
     if (!client) {
       return NextResponse.json(
-        { error: 'Client not found or inactive' },
+        { 
+          success: false,
+          error: 'Client not found or inactive' 
+        },
         { status: 400 }
       );
     }
 
     if (!manager) {
       return NextResponse.json(
-        { error: 'Project manager not found or inactive' },
+        { 
+          success: false,
+          error: 'Project manager not found or inactive' 
+        },
         { status: 400 }
       );
     }
@@ -335,7 +357,10 @@ export async function POST(request: NextRequest) {
     console.error('Error creating project:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { error: errorMessage },
+      { 
+        success: false,
+        error: errorMessage 
+      },
       { status: 500 }
     );
   }

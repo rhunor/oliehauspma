@@ -1,9 +1,10 @@
-// src/app/api/messages/route.ts - FIXED MESSAGES API WITH PROPER TYPES
+// src/app/api/messages/route.ts - FIXED WITH PROPER VALIDATION
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
+import { validateMessagePermission } from '@/lib/messaging-permissions';
 
 // Define proper TypeScript interfaces
 interface MessageDocument {
@@ -12,32 +13,14 @@ interface MessageDocument {
   senderId: ObjectId;
   recipientId: ObjectId;
   projectId?: ObjectId;
+  isRead: boolean;
+  isDeleted: boolean;
   messageType: 'text' | 'file' | 'system';
   attachments?: Array<{
     filename: string;
     url: string;
     type: string;
   }>;
-  isRead: boolean;
-  isDeleted: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// Use this for insertOne - MongoDB will auto-generate _id
-interface MessageInsertDocument {
-  content: string;
-  senderId: ObjectId;
-  recipientId: ObjectId;
-  projectId?: ObjectId;
-  messageType: 'text' | 'file' | 'system';
-  attachments?: Array<{
-    filename: string;
-    url: string;
-    type: string;
-  }>;
-  isRead: boolean;
-  isDeleted: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,6 +30,7 @@ interface UserDocument {
   name: string;
   email: string;
   role: string;
+  isActive: boolean;
 }
 
 interface ProjectDocument {
@@ -54,10 +38,20 @@ interface ProjectDocument {
   title: string;
 }
 
-interface MessageWithUsers extends Omit<MessageDocument, 'senderId' | 'recipientId' | 'projectId'> {
+interface MessageWithUsers {
+  _id: ObjectId;
+  content: string;
   sender: UserDocument;
   recipient: UserDocument;
   project?: ProjectDocument;
+  isRead: boolean;
+  messageType: 'text' | 'file' | 'system';
+  attachments?: Array<{
+    filename: string;
+    url: string;
+    type: string;
+  }>;
+  createdAt: Date;
 }
 
 interface CreateMessageData {
@@ -85,6 +79,22 @@ export async function GET(request: NextRequest) {
 
     if (!participantId) {
       return NextResponse.json({ error: 'Participant ID is required' }, { status: 400 });
+    }
+
+    // Validate ObjectId format
+    if (!ObjectId.isValid(participantId)) {
+      return NextResponse.json({ error: 'Invalid participant ID' }, { status: 400 });
+    }
+
+    // Validate if user can message this participant
+    const canMessage = await validateMessagePermission(
+      session.user.id,
+      session.user.role,
+      participantId
+    );
+
+    if (!canMessage) {
+      return NextResponse.json({ error: 'Not authorized to message this user' }, { status: 403 });
     }
 
     const { db } = await connectToDatabase();
@@ -165,7 +175,7 @@ export async function GET(request: NextRequest) {
       createdAt: message.createdAt.toISOString(),
       isRead: message.isRead,
       messageType: message.messageType,
-      attachments: message.attachments || []
+      attachments: message.attachments
     }));
 
     return NextResponse.json({
@@ -191,68 +201,63 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as CreateMessageData;
     const { recipientId, content, messageType = 'text', projectId, attachments } = body;
 
+    // Validate required fields
     if (!recipientId || !content?.trim()) {
-      return NextResponse.json(
-        { error: 'Recipient ID and content are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Recipient ID and content are required' }, { status: 400 });
+    }
+
+    // Validate ObjectId formats
+    if (!ObjectId.isValid(recipientId)) {
+      return NextResponse.json({ error: 'Invalid recipient ID' }, { status: 400 });
+    }
+
+    if (projectId && !ObjectId.isValid(projectId)) {
+      return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 });
+    }
+
+    // Validate message permission
+    const canMessage = await validateMessagePermission(
+      session.user.id,
+      session.user.role,
+      recipientId,
+      projectId
+    );
+
+    if (!canMessage) {
+      return NextResponse.json({ error: 'Not authorized to message this user' }, { status: 403 });
     }
 
     const { db } = await connectToDatabase();
 
-    // Verify recipient exists
-    const recipient = await db.collection<UserDocument>('users').findOne({
-      _id: new ObjectId(recipientId),
-      isActive: true
-    });
-
-    if (!recipient) {
-      return NextResponse.json(
-        { error: 'Recipient not found or inactive' },
-        { status: 404 }
-      );
-    }
-
-    // Check if users are allowed to message each other based on roles
-    const senderRole = session.user.role;
-    const recipientRole = recipient.role;
-    
-    const allowedCommunication = [
-      ['super_admin', 'project_manager'],
-      ['super_admin', 'client'],
-      ['project_manager', 'client']
-    ];
-
-    const canCommunicate = allowedCommunication.some(([role1, role2]) => 
-      (senderRole === role1 && recipientRole === role2) ||
-      (senderRole === role2 && recipientRole === role1)
+    // Verify recipient exists and is active
+    const recipient = await db.collection('users').findOne(
+      { _id: new ObjectId(recipientId) },
+      { projection: { isActive: 1 } }
     );
 
-    if (!canCommunicate) {
-      return NextResponse.json(
-        { error: 'You are not allowed to message this user' },
-        { status: 403 }
-      );
+    if (!recipient || !recipient.isActive) {
+      return NextResponse.json({ error: 'Recipient not found or inactive' }, { status: 404 });
     }
 
-    // Create message document for insertion
-    const messageDoc: MessageInsertDocument = {
+    // Create message document
+    const newMessage: Omit<MessageDocument, '_id'> = {
       content: content.trim(),
       senderId: new ObjectId(session.user.id),
       recipientId: new ObjectId(recipientId),
       projectId: projectId ? new ObjectId(projectId) : undefined,
-      messageType,
-      attachments: attachments || [],
       isRead: false,
       isDeleted: false,
+      messageType,
+      attachments: attachments || [],
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    const result = await db.collection<MessageInsertDocument>('messages').insertOne(messageDoc);
+    // Insert message
+    const result = await db.collection('messages').insertOne(newMessage);
 
     // Get the created message with user details
-    const newMessage = await db.collection<MessageDocument>('messages')
+    const createdMessage = await db.collection<MessageDocument>('messages')
       .aggregate<MessageWithUsers>([
         { $match: { _id: result.insertedId } },
         {
@@ -293,39 +298,43 @@ export async function POST(request: NextRequest) {
       ])
       .toArray();
 
-    const message = newMessage[0];
-    if (!message) {
-      throw new Error('Failed to retrieve created message');
+    if (createdMessage.length === 0) {
+      return NextResponse.json({ error: 'Failed to retrieve created message' }, { status: 500 });
     }
+
+    const message = createdMessage[0];
+
+    // Convert to client-compatible format
+    const clientMessage = {
+      _id: message._id.toString(),
+      content: message.content,
+      sender: {
+        _id: message.sender._id.toString(),
+        name: message.sender.name,
+        role: message.sender.role
+      },
+      recipient: {
+        _id: message.recipient._id.toString(),
+        name: message.recipient.name,
+        role: message.recipient.role
+      },
+      project: message.project ? {
+        _id: message.project._id.toString(),
+        title: message.project.title
+      } : undefined,
+      createdAt: message.createdAt.toISOString(),
+      isRead: message.isRead,
+      messageType: message.messageType,
+      attachments: message.attachments
+    };
 
     return NextResponse.json({
       success: true,
-      message: {
-        _id: message._id.toString(),
-        content: message.content,
-        sender: {
-          _id: message.sender._id.toString(),
-          name: message.sender.name,
-          role: message.sender.role
-        },
-        recipient: {
-          _id: message.recipient._id.toString(),
-          name: message.recipient.name,
-          role: message.recipient.role
-        },
-        project: message.project ? {
-          _id: message.project._id.toString(),
-          title: message.project.title
-        } : undefined,
-        createdAt: message.createdAt.toISOString(),
-        isRead: message.isRead,
-        messageType: message.messageType,
-        attachments: message.attachments || []
-      }
-    });
+      message: clientMessage
+    }, { status: 201 });
 
   } catch (error: unknown) {
-    console.error('Error sending message:', error);
+    console.error('Error creating message:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }

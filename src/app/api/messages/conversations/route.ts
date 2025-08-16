@@ -1,9 +1,10 @@
-// src/app/api/messages/conversations/route.ts - CONVERSATIONS API
+// src/app/api/messages/conversations/route.ts - FIXED WITH ROLE-BASED ACCESS
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId, Filter } from 'mongodb';
+import { ObjectId } from 'mongodb';
+import { getAvailableContacts } from '@/lib/messaging-permissions';
 
 // Define proper TypeScript interfaces
 interface MessageDocument {
@@ -40,6 +41,7 @@ interface ConversationResult {
   lastMessage: string;
   lastMessageTime: Date;
   unreadCount: number;
+  projectId?: ObjectId;
 }
 
 interface ClientConversation {
@@ -55,7 +57,7 @@ interface ClientConversation {
 }
 
 // GET /api/messages/conversations - Get all conversations for current user
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
@@ -145,6 +147,9 @@ export async function GET(request: NextRequest) {
       ])
       .toArray();
 
+    // Get available contacts for new conversations
+    const availableContacts = await getAvailableContacts(session.user.id, session.user.role);
+
     // Convert to client-compatible format
     const clientConversations: ClientConversation[] = conversations.map(conv => {
       const participant = conv.participantData[0];
@@ -152,8 +157,7 @@ export async function GET(request: NextRequest) {
       
       // Determine if user is online (last seen within 5 minutes)
       const isOnline = participant.lastSeen ? 
-        (new Date().getTime() - new Date(participant.lastSeen).getTime()) < 5 * 60 * 1000 :
-        false;
+        (Date.now() - new Date(participant.lastSeen).getTime()) < 5 * 60 * 1000 : false;
 
       return {
         participantId: participant._id.toString(),
@@ -168,13 +172,86 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Add contacts that don&apos;t have conversations yet
+    const existingParticipantIds = new Set(clientConversations.map(c => c.participantId));
+    const newContactConversations: ClientConversation[] = availableContacts
+      .filter(contact => !existingParticipantIds.has(contact._id))
+      .map(contact => ({
+        participantId: contact._id,
+        participantName: contact.name,
+        participantRole: contact.role,
+        lastMessage: '',
+        lastMessageTime: new Date().toISOString(),
+        unreadCount: 0,
+        isOnline: false
+      }));
+
+    const allConversations = [...clientConversations, ...newContactConversations];
+
     return NextResponse.json({
       success: true,
-      conversations: clientConversations
+      conversations: allConversations
     });
 
   } catch (error: unknown) {
     console.error('Error fetching conversations:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
+  }
+}
+
+// POST /api/messages/conversations - Start new conversation (validate permission)
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { participantId } = body;
+
+    if (!participantId || !ObjectId.isValid(participantId)) {
+      return NextResponse.json({ error: 'Valid participant ID is required' }, { status: 400 });
+    }
+
+    // Get available contacts to verify permission
+    const availableContacts = await getAvailableContacts(session.user.id, session.user.role);
+    const canStartConversation = availableContacts.some(contact => contact._id === participantId);
+
+    if (!canStartConversation) {
+      return NextResponse.json({ error: 'Not authorized to start conversation with this user' }, { status: 403 });
+    }
+
+    const { db } = await connectToDatabase();
+    
+    // Get participant details
+    const participant = await db.collection('users').findOne(
+      { _id: new ObjectId(participantId) },
+      { projection: { password: 0 } }
+    );
+
+    if (!participant) {
+      return NextResponse.json({ error: 'Participant not found' }, { status: 404 });
+    }
+
+    const conversation: ClientConversation = {
+      participantId: participant._id.toString(),
+      participantName: participant.name,
+      participantRole: participant.role,
+      lastMessage: '',
+      lastMessageTime: new Date().toISOString(),
+      unreadCount: 0,
+      isOnline: false
+    };
+
+    return NextResponse.json({
+      success: true,
+      conversation
+    });
+
+  } catch (error: unknown) {
+    console.error('Error starting conversation:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }

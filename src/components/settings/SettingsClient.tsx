@@ -76,17 +76,7 @@ interface UserProfile {
   lastLogin?: string;
 }
 
-interface UserPreferences {
-  emailNotifications: boolean;
-  pushNotifications: boolean;
-  projectUpdates: boolean;
-  taskReminders: boolean;
-  messageAlerts: boolean;
-  weeklyReports: boolean;
-  theme: 'light' | 'dark' | 'system';
-  timezone: string;
-  language: string;
-}
+
 
 export default function SettingsClient({ userId, userRole, userName, userEmail }: SettingsClientProps) {
   const { toast } = useToast();
