@@ -1,4 +1,4 @@
-// src/components/projects/ProjectsList.tsx - FIXED
+// src/components/projects/ProjectsList.tsx - FIXED WITH ROLE-BASED ROUTING
 'use client';
 
 import { useState } from 'react';
@@ -60,16 +60,45 @@ interface Project {
 
 interface ProjectsListProps {
   projects: Project[];
-  userRole: string;
-  canCreate?: boolean;  // Made optional with default
-  canEdit?: boolean;    // Made optional with default
+  userRole: 'super_admin' | 'project_manager' | 'client';
+  canCreate?: boolean;
+  canEdit?: boolean;
 }
+
+// ✅ FIXED: Role-based URL generation function
+const getRoleBasedProjectUrl = (userRole: string, projectId: string, action: 'view' | 'edit' = 'view'): string => {
+  const baseRoutes = {
+    super_admin: '/admin',
+    project_manager: '/manager',
+    client: '/client'
+  };
+  
+  const baseRoute = baseRoutes[userRole as keyof typeof baseRoutes] || '/admin';
+  
+  if (action === 'edit') {
+    return `${baseRoute}/projects/${projectId}/edit`;
+  }
+  
+  return `${baseRoute}/projects/${projectId}`;
+};
+
+// ✅ FIXED: Role-based create URL function
+const getRoleBasedCreateUrl = (userRole: string): string => {
+  const baseRoutes = {
+    super_admin: '/admin',
+    project_manager: '/manager',
+    client: '/client'
+  };
+  
+  const baseRoute = baseRoutes[userRole as keyof typeof baseRoutes] || '/admin';
+  return `${baseRoute}/projects/new`;
+};
 
 export default function ProjectsList({ 
   projects, 
   userRole, 
-  canCreate = false,  // Default value
-  canEdit = true      // Default value
+  canCreate = false,
+  canEdit = true
 }: ProjectsListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -94,44 +123,47 @@ export default function ProjectsList({
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         case 'oldest':
           return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        case 'title':
-          return a.title.localeCompare(b.title);
         case 'progress':
           return b.progress - a.progress;
-        case 'deadline':
-          return new Date(a.endDate).getTime() - new Date(b.endDate).getTime();
+        case 'priority':
+          const priorityOrder = { 'urgent': 4, 'high': 3, 'medium': 2, 'low': 1 };
+          return priorityOrder[b.priority] - priorityOrder[a.priority];
         default:
           return 0;
       }
     });
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'in_progress':
-        return <Clock className="h-4 w-4 text-blue-500" />;
-      case 'on_hold':
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
-      case 'cancelled':
-        return <AlertTriangle className="h-4 w-4 text-red-500" />;
-      default:
-        return <Calendar className="h-4 w-4 text-gray-500" />;
-    }
-  };
-
+  // ✅ Helper functions to avoid code duplication
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
       case 'completed':
         return 'default';
       case 'in_progress':
         return 'secondary';
-      case 'on_hold':
+      case 'planning':
         return 'outline';
+      case 'on_hold':
+        return 'destructive';
       case 'cancelled':
         return 'destructive';
       default:
-        return 'secondary';
+        return 'outline';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle className="h-3 w-3" />;
+      case 'in_progress':
+        return <Clock className="h-3 w-3" />;
+      case 'planning':
+        return <Calendar className="h-3 w-3" />;
+      case 'on_hold':
+      case 'cancelled':
+        return <AlertTriangle className="h-3 w-3" />;
+      default:
+        return <Calendar className="h-3 w-3" />;
     }
   };
 
@@ -143,29 +175,35 @@ export default function ProjectsList({
         return 'secondary';
       case 'medium':
         return 'outline';
+      case 'low':
+        return 'outline';
       default:
         return 'outline';
     }
   };
 
-  const isOverdue = (endDate: string, status: string) => {
-    return new Date(endDate) < new Date() && status !== 'completed';
+  const isOverdue = (endDate: string, status: string): boolean => {
+    if (status === 'completed' || !endDate) return false;
+    return new Date(endDate) < new Date();
   };
 
   return (
     <div className="space-y-6">
-      {/* Header with Create Button */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Projects</h2>
-          <p className="text-muted-foreground">
-            Manage and track all your projects in one place.
+          <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
+          <p className="text-gray-600 mt-1">
+            {userRole === 'client' 
+              ? 'View your project progress and updates'
+              : 'Manage and track all projects'
+            }
           </p>
         </div>
         
-        {/* ✅ Now using the canCreate prop */}
+        {/* ✅ FIXED: Now using role-based create URL */}
         {canCreate && (
-          <Link href="/admin/projects/new">
+          <Link href={getRoleBasedCreateUrl(userRole)}>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
               Create Project
@@ -220,14 +258,13 @@ export default function ProjectsList({
 
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="w-32">
-                  <SelectValue placeholder="Sort by" />
+                  <SelectValue placeholder="Sort" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="newest">Newest</SelectItem>
                   <SelectItem value="oldest">Oldest</SelectItem>
-                  <SelectItem value="title">Title</SelectItem>
                   <SelectItem value="progress">Progress</SelectItem>
-                  <SelectItem value="deadline">Deadline</SelectItem>
+                  <SelectItem value="priority">Priority</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -249,9 +286,9 @@ export default function ProjectsList({
                 : 'Create your first project to get started.'}
             </p>
             
-            {/* ✅ Show create button in empty state if user can create */}
+            {/* ✅ FIXED: Show create button with role-based URL in empty state */}
             {canCreate && !searchTerm && statusFilter === 'all' && priorityFilter === 'all' && (
-              <Link href="/admin/projects/new">
+              <Link href={getRoleBasedCreateUrl(userRole)}>
                 <Button>
                   <Plus className="h-4 w-4 mr-2" />
                   Create Your First Project
@@ -268,7 +305,13 @@ export default function ProjectsList({
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <CardTitle className="text-lg mb-2 line-clamp-2">
-                      {project.title}
+                      {/* ✅ FIXED: Main project title now uses role-based URL */}
+                      <Link 
+                        href={getRoleBasedProjectUrl(userRole, project._id)}
+                        className="hover:text-blue-600 transition-colors"
+                      >
+                        {project.title}
+                      </Link>
                     </CardTitle>
                     <p className="text-sm text-gray-600 line-clamp-2">
                       {project.description}
@@ -286,13 +329,15 @@ export default function ProjectsList({
                           <MoreVertical className="h-3 w-3" />
                         </Button>
                         <div className="absolute right-0 top-6 bg-white border rounded-md shadow-md opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                          <Link href={`/admin/projects/${project._id}`}>
+                          {/* ✅ FIXED: View link now uses role-based URL */}
+                          <Link href={getRoleBasedProjectUrl(userRole, project._id)}>
                             <Button variant="ghost" size="sm" className="w-full justify-start">
                               <Eye className="h-3 w-3 mr-2" />
                               View
                             </Button>
                           </Link>
-                          <Link href={`/admin/projects/${project._id}/edit`}>
+                          {/* ✅ FIXED: Edit link now uses role-based URL */}
+                          <Link href={getRoleBasedProjectUrl(userRole, project._id, 'edit')}>
                             <Button variant="ghost" size="sm" className="w-full justify-start">
                               <Edit className="h-3 w-3 mr-2" />
                               Edit
@@ -322,16 +367,16 @@ export default function ProjectsList({
                 </div>
               </CardHeader>
 
-              <CardContent className="space-y-4">
-                {/* Progress Bar */}
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
+              <CardContent className="pt-0">
+                {/* Progress */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between text-sm mb-1">
                     <span className="text-gray-600">Progress</span>
                     <span className="font-medium">{project.progress}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-primary h-2 rounded-full transition-all duration-300"
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all" 
                       style={{ width: `${project.progress}%` }}
                     />
                   </div>
@@ -339,59 +384,34 @@ export default function ProjectsList({
 
                 {/* Project Details */}
                 <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Client</span>
-                    <span className="font-medium">{project.client.name}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Manager</span>
-                    <span className="font-medium">{project.manager.name}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Deadline</span>
-                    <span className={`font-medium ${isOverdue(project.endDate, project.status) ? 'text-red-600' : ''}`}>
-                      {formatDate(new Date(project.endDate))}
-                    </span>
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Users className="h-4 w-4" />
+                    <span>{project.client.name}</span>
                   </div>
                   
                   {project.budget && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Budget</span>
-                      <span className="font-medium">{formatCurrency(project.budget)}</span>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <span className="text-green-600 font-medium">
+                        {formatCurrency(project.budget)}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {project.endDate && (
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Calendar className="h-4 w-4" />
+                      <span>Due {formatDate(project.endDate)}</span>
                     </div>
                   )}
                 </div>
 
-                {/* Tags */}
-                {project.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {project.tags.slice(0, 3).map((tag, index) => (
-                      <Badge key={index} variant="outline" className="text-xs">
-                        {tag}
-                      </Badge>
-                    ))}
-                    {project.tags.length > 3 && (
-                      <Badge variant="outline" className="text-xs">
-                        +{project.tags.length - 3} more
-                      </Badge>
-                    )}
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex gap-2 pt-2">
-                  <Link href={`/admin/projects/${project._id}`} className="flex-1">
-                    <Button variant="outline" size="sm" className="w-full">
-                      <Eye className="h-3 w-3 mr-2" />
+                {/* Action Button */}
+                <div className="mt-4">
+                  {/* ✅ FIXED: Action button now uses role-based URL */}
+                  <Link href={getRoleBasedProjectUrl(userRole, project._id)}>
+                    <Button variant="outline" className="w-full">
+                      <Eye className="h-4 w-4 mr-2" />
                       View Details
-                    </Button>
-                  </Link>
-                  
-                  <Link href={`/admin/messages?project=${project._id}`}>
-                    <Button variant="ghost" size="sm">
-                      <Users className="h-3 w-3" />
                     </Button>
                   </Link>
                 </div>
@@ -400,11 +420,6 @@ export default function ProjectsList({
           ))}
         </div>
       )}
-
-      {/* Results Summary */}
-      <div className="text-center text-sm text-gray-500">
-        Showing {filteredProjects.length} of {projects.length} projects
-      </div>
     </div>
   );
 }
