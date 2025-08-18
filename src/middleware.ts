@@ -1,4 +1,4 @@
-// src/middleware.ts - ENHANCED WITH SESSION PERSISTENCE AND SMART REDIRECTS
+// src/middleware.ts - EXACT FIX: Remove /admin/settings from adminOnlyRoutes
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
@@ -80,8 +80,9 @@ export default withAuth(
         return NextResponse.redirect(new URL(getRoleBasedRedirect(userRole), request.url));
       }
 
-      // Special restrictions for admin-only routes
-      const adminOnlyRoutes = ["/admin/users", "/admin/system", "/admin/settings"];
+      // CRITICAL FIX: Remove /admin/settings from admin-only routes
+      // Only these routes should be admin-only, NOT settings pages
+      const adminOnlyRoutes = ["/admin/users", "/admin/system"];
       if (adminOnlyRoutes.some(route => pathname.startsWith(route)) && userRole !== "super_admin") {
         return NextResponse.redirect(new URL("/unauthorized", request.url));
       }

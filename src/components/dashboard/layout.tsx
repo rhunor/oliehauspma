@@ -1,4 +1,4 @@
-// src/components/dashboard/layout.tsx - ENHANCED RESPONSIVE VERSION WITH BEST PRACTICES
+// src/components/dashboard/layout.tsx - COMPLETE FIXED VERSION
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -24,7 +24,6 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -167,49 +166,40 @@ const useViewport = () => {
   return viewport;
 };
 
-// Custom hook for message stats with proper error handling
-const useMessageStats = () => {
-  const [messageStats, setMessageStats] = useState<MessageStats>(DEFAULT_MESSAGE_STATS);
-  const [loading, setLoading] = useState(true);
+// Main Dashboard Layout Component
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  const { data: session } = useSession();
+  const pathname = usePathname();
+  const router = useRouter();
+  const viewport = useViewport();
 
+  // State management
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [messageStats, setMessageStats] = useState<MessageStats>(DEFAULT_MESSAGE_STATS);
+
+  // Fetch message stats
   useEffect(() => {
     const fetchMessageStats = async () => {
       try {
         const response = await fetch('/api/messages/stats');
         if (response.ok) {
           const data = await response.json();
-          setMessageStats(data || DEFAULT_MESSAGE_STATS);
-        } else {
-          setMessageStats(DEFAULT_MESSAGE_STATS);
+          setMessageStats(data);
         }
       } catch (error) {
-        console.error('Failed to fetch message stats:', error);
-        setMessageStats(DEFAULT_MESSAGE_STATS);
-      } finally {
-        setLoading(false);
+        console.error('Error fetching message stats:', error);
       }
     };
 
-    fetchMessageStats();
-  }, []);
+    if (session?.user) {
+      fetchMessageStats();
+    }
+  }, [session]);
 
-  return { messageStats, loading };
-};
-
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { data: session } = useSession();
-  const pathname = usePathname();
-  const router = useRouter();
-  const viewport = useViewport();
-  const { messageStats } = useMessageStats();
-
-  // Enhanced responsive state management
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Auto-manage sidebar state based on viewport
+  // Responsive sidebar management
   useEffect(() => {
     if (viewport.isMobile && sidebarOpen) {
       // Keep mobile sidebar behavior as overlay
@@ -240,7 +230,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const handleSignOut = useCallback(async () => {
     try {
       await signOut({ redirect: false });
-      router.push('/auth/signin');
+      router.push('/login');
     } catch (error) {
       console.error('Sign out error:', error);
     }
@@ -253,6 +243,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
     }
   }, [router, searchQuery]);
+
+  // CRITICAL FIX: Get role-specific settings route
+  const getSettingsRoute = useCallback((userRole: string) => {
+    switch (userRole) {
+      case "super_admin":
+        return "/admin/settings";
+      case "project_manager":
+        return "/manager/settings";
+      case "client":
+        return "/client/settings";
+      default:
+        return "/login";
+    }
+  }, []);
 
   if (!session?.user) {
     return (
@@ -293,7 +297,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 bg-white">
           {((!sidebarCollapsed && viewport.isDesktop) || viewport.isMobile) && (
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
                 <span className="text-white font-bold text-sm">OH</span>
               </div>
               <div className="min-w-0">
@@ -339,7 +343,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         {((!sidebarCollapsed && viewport.isDesktop) || viewport.isMobile) && (
           <div className="p-4 border-b border-gray-200 bg-gray-50">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                 <span className="text-white font-medium text-sm">
                   {session.user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
                 </span>
@@ -378,30 +382,36 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   "group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 relative",
                   "min-h-[44px] touch-manipulation", // Improved touch targets
                   isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
+                    ? "bg-blue-600 text-white shadow-lg"
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
-                  (sidebarCollapsed && viewport.isDesktop) && "justify-center px-2"
+                  sidebarCollapsed && viewport.isDesktop && "justify-center px-2"
                 )}
-                title={(sidebarCollapsed && viewport.isDesktop) ? item.name : undefined}
-                aria-label={item.name}
+                onClick={() => viewport.isMobile && setSidebarOpen(false)}
               >
                 <item.icon className={cn(
-                  "flex-shrink-0 h-5 w-5",
-                  (sidebarCollapsed && viewport.isDesktop) ? "mx-auto" : "mr-3"
+                  "flex-shrink-0 transition-colors duration-200",
+                  sidebarCollapsed && viewport.isDesktop ? "h-5 w-5" : "h-5 w-5 mr-3",
+                  isActive ? "text-white" : "text-gray-400 group-hover:text-gray-500"
                 )} />
                 
                 {((!sidebarCollapsed && viewport.isDesktop) || viewport.isMobile) && (
-                  <span className="truncate">{item.name}</span>
+                  <>
+                    <span className="flex-1 truncate">{item.name}</span>
+                    {item.badge && item.badge > 0 && (
+                      <Badge 
+                        variant={isActive ? "secondary" : "default"}
+                        className="ml-2 h-5 px-2 text-xs"
+                      >
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </Badge>
+                    )}
+                  </>
                 )}
                 
-                {/* Badge for unread messages */}
-                {item.badge && item.badge > 0 && (
+                {sidebarCollapsed && viewport.isDesktop && item.badge && item.badge > 0 && (
                   <Badge 
-                    variant="destructive" 
-                    className={cn(
-                      "ml-auto text-xs min-w-[20px] h-5 flex items-center justify-center",
-                      (sidebarCollapsed && viewport.isDesktop) && "absolute -top-1 -right-1 ml-0"
-                    )}
+                    variant="destructive"
+                    className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
                   >
                     {item.badge > 99 ? '99+' : item.badge}
                   </Badge>
@@ -419,7 +429,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 variant="ghost"
                 size="sm"
                 className="w-full justify-start text-gray-700 hover:bg-gray-100 min-h-[44px]"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                onClick={() => {
+                  const settingsRoute = getSettingsRoute(userRole);
+                  router.push(settingsRoute);
+                  if (viewport.isMobile) setSidebarOpen(false);
+                }}
               >
                 <Settings className="h-4 w-4 mr-3" />
                 <span>Settings</span>
@@ -440,7 +454,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 variant="ghost"
                 size="sm"
                 className="w-full p-2 text-gray-700 hover:bg-gray-100 min-h-[44px]"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                onClick={() => {
+                  const settingsRoute = getSettingsRoute(userRole);
+                  router.push(settingsRoute);
+                }}
                 aria-label="Settings"
               >
                 <Settings className="h-4 w-4" />
@@ -503,7 +520,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="flex items-center gap-2 sm:gap-4">
             <NotificationBell />
             
-            {/* Profile Menu with enhanced mobile support */}
+            {/* CRITICAL FIX: Profile Menu with enhanced mobile support */}
             <div className="relative">
               <Button
                 variant="ghost"
@@ -513,7 +530,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 aria-expanded={showProfileMenu}
                 aria-haspopup="true"
               >
-                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
                   <span className="text-white font-medium text-xs">
                     {session.user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
                   </span>
@@ -528,29 +545,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 )}
               </Button>
 
-              {/* Profile Dropdown with enhanced positioning */}
+              {/* CRITICAL FIX: Profile Dropdown with proper routing */}
               {showProfileMenu && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 z-50">
                   <div className="py-1">
                     <button
                       onClick={() => {
                         setShowProfileMenu(false);
-                        router.push('/profile');
+                        const settingsRoute = getSettingsRoute(userRole);
+                        router.push(settingsRoute);
                       }}
                       className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors min-h-[44px]"
                     >
                       <User className="h-4 w-4 mr-3" />
-                      Profile
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowProfileMenu(false);
-                        router.push('/settings');
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors min-h-[44px]"
-                    >
-                      <Settings className="h-4 w-4 mr-3" />
-                      Settings
+                      Profile & Settings
                     </button>
                     <div className="border-t border-gray-100 my-1" />
                     <button
