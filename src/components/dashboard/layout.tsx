@@ -1,10 +1,11 @@
-// src/components/dashboard/layout.tsx - FIXED VERSION WITH PROPER DEFENSIVE PROGRAMMING
+// src/components/dashboard/layout.tsx - ENHANCED RESPONSIVE VERSION WITH BEST PRACTICES
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+
 import { 
   Menu, 
   X,  
@@ -22,7 +23,8 @@ import {
   FileText,
   Calendar,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,20 +41,37 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   roles: string[];
+  badge?: number;
 }
 
-// ✅ FIXED: Define proper MessageStats interface with default values
 interface MessageStats {
   unreadCount: number;
 }
 
-// ✅ FIXED: Default message stats to prevent undefined errors
+interface ViewportState {
+  width: number;
+  height: number;
+  isMobile: boolean;
+  isTablet: boolean;
+  isDesktop: boolean;
+}
+
+// Default message stats to prevent undefined errors
 const DEFAULT_MESSAGE_STATS: MessageStats = {
   unreadCount: 0
 };
 
-// Enhanced navigation with proper role-based routing
-const getNavigationForRole = (userRole: string): NavItem[] => {
+// Enhanced breakpoint system following mobile-first approach
+const BREAKPOINTS = {
+  mobile: 640,
+  tablet: 768,
+  desktop: 1024,
+  xl: 1280,
+  xxl: 1536
+} as const;
+
+// Enhanced navigation with proper role-based routing and responsive considerations
+const getNavigationForRole = (userRole: string, messageStats: MessageStats): NavItem[] => {
   const baseRoute = userRole === "super_admin" ? "/admin" : userRole === "project_manager" ? "/manager" : "/client";
   
   const commonRoutes: NavItem[] = [
@@ -64,13 +83,13 @@ const getNavigationForRole = (userRole: string): NavItem[] => {
     },
     {
       name: "Projects",
-      href: `/admin/projects`,
+      href: `${baseRoute}/projects`,
       icon: FolderOpen,
       roles: ["super_admin", "project_manager", "client"],
     },
     {
       name: "Site Schedule",
-      href: `/admin/site-schedule`,
+      href: `${baseRoute}/site-schedule`,
       icon: ClipboardList,
       roles: ["super_admin", "project_manager", "client"],
     },
@@ -79,16 +98,17 @@ const getNavigationForRole = (userRole: string): NavItem[] => {
       href: `${baseRoute}/messages`,
       icon: MessageSquare,
       roles: ["super_admin", "project_manager", "client"],
+      badge: messageStats.unreadCount || 0,
     },
     {
       name: "Files",
-      href: `/admin/files`,
+      href: `${baseRoute}/files`,
       icon: FileText,
       roles: ["super_admin", "project_manager", "client"],
     },
     {
       name: "Calendar",
-      href: `/admin/calendar`,
+      href: `${baseRoute}/calendar`,
       icon: Calendar,
       roles: ["super_admin", "project_manager", "client"],
     },
@@ -115,191 +135,183 @@ const getNavigationForRole = (userRole: string): NavItem[] => {
   return commonRoutes;
 };
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { data: session } = useSession();
-  const pathname = usePathname();
-  const router = useRouter();
+// Custom hook for responsive viewport management
+const useViewport = () => {
+  const [viewport, setViewport] = useState<ViewportState>({
+    width: 0,
+    height: 0,
+    isMobile: false,
+    isTablet: false,
+    isDesktop: false
+  });
 
-  // Enhanced responsive state management
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  
-  // ✅ FIXED: Initialize with default values to prevent undefined errors
-  const [messageStats, setMessageStats] = useState<MessageStats>(DEFAULT_MESSAGE_STATS);
-  const [loading, setLoading] = useState(true);
-  
-  // Enhanced mobile detection and viewport management
-  const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
-  const [_viewportWidth, setViewportWidth] = useState(0);
+  const updateViewport = useCallback(() => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    
+    setViewport({
+      width,
+      height,
+      isMobile: width < BREAKPOINTS.tablet,
+      isTablet: width >= BREAKPOINTS.tablet && width < BREAKPOINTS.desktop,
+      isDesktop: width >= BREAKPOINTS.desktop
+    });
+  }, []);
 
-  // Enhanced viewport detection
   useEffect(() => {
-    const updateViewport = () => {
-      const width = window.innerWidth;
-      const mobile = width < 768;
-      const tablet = width >= 768 && width < 1024;
-      
-      setViewportWidth(width);
-      setIsMobile(mobile);
-      setIsTablet(tablet);
-      
-      // Auto-collapse sidebar on tablet when sidebar is open
-      if (tablet && sidebarOpen) {
-        setSidebarCollapsed(true);
-      }
-      
-      // Ensure sidebar is visible on desktop
-      if (width >= 1024) {
-        setSidebarCollapsed(false);
-      }
-      
-      // Close mobile sidebar on resize to desktop
-      if (width >= 768 && sidebarOpen) {
-        setSidebarOpen(false);
-      }
-    };
-
     updateViewport();
     window.addEventListener('resize', updateViewport);
     return () => window.removeEventListener('resize', updateViewport);
-  }, [sidebarOpen]);
+  }, [updateViewport]);
 
-  // Close sidebar on route change (mobile)
-  useEffect(() => {
-    if (isMobile) {
-      setSidebarOpen(false);
-    }
-  }, [pathname, isMobile]);
+  return viewport;
+};
 
-  // Close profile menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (showProfileMenu && !target.closest('[data-profile-menu]')) {
-        setShowProfileMenu(false);
-      }
-    };
+// Custom hook for message stats with proper error handling
+const useMessageStats = () => {
+  const [messageStats, setMessageStats] = useState<MessageStats>(DEFAULT_MESSAGE_STATS);
+  const [loading, setLoading] = useState(true);
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showProfileMenu]);
-
-  // ✅ FIXED: Enhanced message stats fetching with proper error handling and defensive programming
   useEffect(() => {
     const fetchMessageStats = async () => {
-      // ✅ Guard clause to prevent API calls when user is not available
-      if (!session?.user?.id) {
-        setLoading(false);
-        return;
-      }
-
       try {
         const response = await fetch('/api/messages/stats');
-        
         if (response.ok) {
           const data = await response.json();
-          
-          // ✅ FIXED: Defensive programming - validate response structure
-          if (data && typeof data === 'object') {
-            // ✅ Use optional chaining and nullish coalescing for safe access
-            const validatedStats: MessageStats = {
-              unreadCount: data.unreadCount ?? data.data?.unreadCount ?? 0
-            };
-            setMessageStats(validatedStats);
-          }
+          setMessageStats(data || DEFAULT_MESSAGE_STATS);
         } else {
-          // ✅ Handle API errors gracefully without breaking the UI
-          console.warn('Failed to fetch message stats:', response.status);
+          setMessageStats(DEFAULT_MESSAGE_STATS);
         }
       } catch (error) {
-        // ✅ Log error but don&apos;t break the UI
-        console.error('Error fetching message stats:', error);
+        console.error('Failed to fetch message stats:', error);
+        setMessageStats(DEFAULT_MESSAGE_STATS);
       } finally {
         setLoading(false);
       }
     };
 
     fetchMessageStats();
-    
-    // Poll for updates every 30 seconds
-    const interval = setInterval(fetchMessageStats, 30000);
-    return () => clearInterval(interval);
-  }, [session?.user?.id]);
+  }, []);
 
-  const handleSearch = (e: React.FormEvent) => {
+  return { messageStats, loading };
+};
+
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  const { data: session } = useSession();
+  const pathname = usePathname();
+  const router = useRouter();
+  const viewport = useViewport();
+  const { messageStats } = useMessageStats();
+
+  // Enhanced responsive state management
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Auto-manage sidebar state based on viewport
+  useEffect(() => {
+    if (viewport.isMobile && sidebarOpen) {
+      // Keep mobile sidebar behavior as overlay
+      return;
+    }
+    
+    if (viewport.isTablet) {
+      // Auto-collapse on tablet for more space
+      setSidebarCollapsed(true);
+      setSidebarOpen(false);
+    }
+    
+    if (viewport.isDesktop) {
+      // Expand sidebar on desktop
+      setSidebarCollapsed(false);
+      setSidebarOpen(false);
+    }
+  }, [viewport.isMobile, viewport.isTablet, viewport.isDesktop, sidebarOpen]);
+
+  // Close mobile menu when route changes
+  useEffect(() => {
+    if (viewport.isMobile) {
+      setSidebarOpen(false);
+    }
+  }, [pathname, viewport.isMobile]);
+
+  // Handle sign out
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOut({ redirect: false });
+      router.push('/auth/signin');
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  }, [router]);
+
+  // Handle search
+  const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
     }
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOut({ callbackUrl: '/login' });
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
+  }, [router, searchQuery]);
 
   if (!session?.user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
 
   const userRole = session.user.role as string;
-  const navigation = getNavigationForRole(userRole);
+  const navigation = getNavigationForRole(userRole, messageStats);
 
   return (
     <div className="h-screen flex overflow-hidden bg-gray-50">
-      {/* Enhanced Mobile sidebar overlay */}
-      {sidebarOpen && isMobile && (
+      {/* Mobile sidebar overlay with proper z-index */}
+      {sidebarOpen && viewport.isMobile && (
         <div 
-          className="fixed inset-0 z-40 bg-gray-600 bg-opacity-75 transition-opacity"
+          className="fixed inset-0 z-40 bg-gray-600 bg-opacity-75 transition-opacity duration-300"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
 
-      {/* Enhanced Sidebar */}
-      <div className={cn(
-        "fixed inset-y-0 left-0 z-50 flex flex-col transition-all duration-300 ease-in-out bg-white border-r border-gray-200",
-        // Mobile styles
-        isMobile && sidebarOpen && "w-80",
-        isMobile && !sidebarOpen && "-translate-x-full w-80",
-        // Desktop styles
-        !isMobile && !sidebarCollapsed && "w-64",
-        !isMobile && sidebarCollapsed && "w-16",
-        // Tablet styles
-        isTablet && "w-16"
+      {/* Enhanced Sidebar with responsive design */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 flex flex-col transition-all duration-300 ease-in-out bg-white border-r border-gray-200 shadow-lg",
+        // Mobile styles - full overlay
+        viewport.isMobile && sidebarOpen && "w-80 translate-x-0",
+        viewport.isMobile && !sidebarOpen && "w-80 -translate-x-full",
+        // Tablet styles - collapsed by default
+        viewport.isTablet && "w-16",
+        // Desktop styles - expandable
+        viewport.isDesktop && !sidebarCollapsed && "w-64",
+        viewport.isDesktop && sidebarCollapsed && "w-16"
       )}>
         
-        {/* Enhanced Sidebar Header */}
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
-          {(!sidebarCollapsed || isMobile) && (
+        {/* Enhanced Sidebar Header with responsive logo */}
+        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 bg-white">
+          {((!sidebarCollapsed && viewport.isDesktop) || viewport.isMobile) && (
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
                 <span className="text-white font-bold text-sm">OH</span>
               </div>
-              <div className="hidden sm:block">
-                <h1 className="text-lg font-semibold text-gray-900">OliveHaus</h1>
-                <p className="text-xs text-gray-500">PPMA System</p>
+              <div className="min-w-0">
+                <h1 className="text-lg font-semibold text-gray-900 truncate">OliveHaus</h1>
+                <p className="text-xs text-gray-500 truncate">PPMA System</p>
               </div>
             </div>
           )}
           
-          {/* Enhanced Sidebar Controls */}
+          {/* Sidebar Controls with improved touch targets */}
           <div className="flex items-center gap-2">
-            {!isMobile && (
+            {viewport.isDesktop && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="p-1.5"
+                className="p-2 hover:bg-gray-100 rounded-md"
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
                 {sidebarCollapsed ? (
                   <ChevronRight className="h-4 w-4" />
@@ -309,12 +321,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </Button>
             )}
             
-            {isMobile && (
+            {viewport.isMobile && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setSidebarOpen(false)}
-                className="p-1.5"
+                className="p-2 hover:bg-gray-100 rounded-md"
+                aria-label="Close sidebar"
               >
                 <X className="h-5 w-5" />
               </Button>
@@ -322,11 +335,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         </div>
 
-        {/* Enhanced User Info */}
-        {(!sidebarCollapsed || isMobile) && (
-          <div className="p-4 border-b border-gray-200">
+        {/* Enhanced User Info with responsive design */}
+        {((!sidebarCollapsed && viewport.isDesktop) || viewport.isMobile) && (
+          <div className="p-4 border-b border-gray-200 bg-gray-50">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
                 <span className="text-white font-medium text-sm">
                   {session.user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
                 </span>
@@ -349,8 +362,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         )}
 
-        {/* Enhanced Navigation */}
-        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+        {/* Enhanced Navigation with improved touch targets and accessibility */}
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto scrollbar-mobile">
           {navigation.map((item) => {
             if (!item.roles.includes(userRole)) return null;
 
@@ -362,37 +375,36 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200",
+                  "group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 relative",
+                  "min-h-[44px] touch-manipulation", // Improved touch targets
                   isActive
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
-                  sidebarCollapsed && !isMobile && "justify-center px-2"
+                  (sidebarCollapsed && viewport.isDesktop) && "justify-center px-2"
                 )}
-                title={sidebarCollapsed && !isMobile ? item.name : undefined}
+                title={(sidebarCollapsed && viewport.isDesktop) ? item.name : undefined}
+                aria-label={item.name}
               >
                 <item.icon className={cn(
                   "flex-shrink-0 h-5 w-5",
-                  sidebarCollapsed && !isMobile ? "mx-auto" : "mr-3"
+                  (sidebarCollapsed && viewport.isDesktop) ? "mx-auto" : "mr-3"
                 )} />
                 
-                {(!sidebarCollapsed || isMobile) && (
-                  <>
-                    <span className="flex-1">{item.name}</span>
-                    {/* ✅ FIXED: Safe navigation with optional chaining and defensive checks */}
-                    {item.name === "Messages" && !loading && messageStats?.unreadCount && messageStats.unreadCount > 0 && (
-                      <Badge 
-                        variant="destructive" 
-                        className="ml-auto h-5 w-5 flex items-center justify-center p-0 text-xs"
-                      >
-                        {messageStats.unreadCount > 99 ? '99+' : messageStats.unreadCount}
-                      </Badge>
-                    )}
-                  </>
+                {((!sidebarCollapsed && viewport.isDesktop) || viewport.isMobile) && (
+                  <span className="truncate">{item.name}</span>
                 )}
                 
-                {/* ✅ FIXED: Collapsed state indicator with safe navigation */}
-                {sidebarCollapsed && !isMobile && item.name === "Messages" && messageStats?.unreadCount && messageStats.unreadCount > 0 && (
-                  <div className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full"></div>
+                {/* Badge for unread messages */}
+                {item.badge && item.badge > 0 && (
+                  <Badge 
+                    variant="destructive" 
+                    className={cn(
+                      "ml-auto text-xs min-w-[20px] h-5 flex items-center justify-center",
+                      (sidebarCollapsed && viewport.isDesktop) && "absolute -top-1 -right-1 ml-0"
+                    )}
+                  >
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </Badge>
                 )}
               </Link>
             );
@@ -400,190 +412,180 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </nav>
 
         {/* Enhanced Sidebar Footer */}
-        {(!sidebarCollapsed || isMobile) && (
-          <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-gray-200 bg-white">
+          {((!sidebarCollapsed && viewport.isDesktop) || viewport.isMobile) ? (
             <div className="space-y-2">
-              <Link
-                href={`${userRole === "super_admin" ? "/admin" : userRole === "project_manager" ? "/manager" : "/client"}/settings`}
-                className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <Settings className="h-4 w-4" />
-                Settings
-              </Link>
-              
               <Button
                 variant="ghost"
-                onClick={handleSignOut}
-                className="w-full justify-start gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                size="sm"
+                className="w-full justify-start text-gray-700 hover:bg-gray-100 min-h-[44px]"
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
               >
-                <LogOut className="h-4 w-4" />
-                Sign Out
+                <Settings className="h-4 w-4 mr-3" />
+                <span>Settings</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-red-600 hover:bg-red-50 min-h-[44px]"
+                onClick={handleSignOut}
+              >
+                <LogOut className="h-4 w-4 mr-3" />
+                <span>Sign Out</span>
               </Button>
             </div>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="space-y-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full p-2 text-gray-700 hover:bg-gray-100 min-h-[44px]"
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                aria-label="Settings"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full p-2 text-red-600 hover:bg-red-50 min-h-[44px]"
+                onClick={handleSignOut}
+                aria-label="Sign Out"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      </aside>
 
-      {/* Enhanced Main Content */}
+      {/* Main Content Area with responsive margins */}
       <div className={cn(
-        "flex-1 flex flex-col transition-all duration-300 ease-in-out",
-        !isMobile && !sidebarCollapsed && "ml-64",
-        !isMobile && sidebarCollapsed && "ml-16",
-        isTablet && "ml-16"
+        "flex flex-col flex-1 overflow-hidden transition-all duration-300",
+        viewport.isMobile && "ml-0",
+        viewport.isTablet && "ml-16",
+        viewport.isDesktop && !sidebarCollapsed && "ml-64",
+        viewport.isDesktop && sidebarCollapsed && "ml-16"
       )}>
         
-        {/* Enhanced Top Navigation Bar */}
-        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between h-16 px-4 sm:px-6">
+        {/* Enhanced Header with responsive design */}
+        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between shadow-sm">
+          {/* Mobile menu button and search */}
+          <div className="flex items-center gap-4 flex-1">
+            {viewport.isMobile && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSidebarOpen(true)}
+                className="p-2 hover:bg-gray-100 rounded-md"
+                aria-label="Open sidebar"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+            )}
             
-            {/* Left Section */}
-            <div className="flex items-center gap-4">
-              {/* Mobile Menu Button */}
-              {isMobile && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSidebarOpen(true)}
-                  className="p-2"
-                >
-                  <Menu className="h-5 w-5" />
-                </Button>
-              )}
-              
-              {/* Enhanced Search */}
-              <form onSubmit={handleSearch} className="hidden md:block">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    type="text"
-                    placeholder="Search projects, users, files..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 w-64 lg:w-80 focus:w-80 transition-all duration-200"
-                  />
-                </div>
-              </form>
-              
-              {/* Mobile Search Button */}
-              {isMobile && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    const query = prompt("Search for:");
-                    if (query) {
-                      router.push(`/search?q=${encodeURIComponent(query)}`);
-                    }
-                  }}
-                  className="p-2"
-                >
-                  <Search className="h-5 w-5" />
-                </Button>
-              )}
-            </div>
-
-            {/* Right Section */}
-            <div className="flex items-center gap-2 sm:gap-4">
-              {/* Notifications */}
-              <NotificationBell />
-
-              {/* Enhanced Profile Menu */}
-              <div className="relative" data-profile-menu>
-                <Button
-                  variant="ghost"
-                  className="flex items-center gap-2 px-2 sm:px-3"
-                  onClick={() => setShowProfileMenu(!showProfileMenu)}
-                >
-                  <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-                    <span className="text-white font-medium text-sm">
-                      {session.user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
-                    </span>
-                  </div>
-                  
-                  {!isMobile && (
-                    <>
-                      <div className="hidden sm:block text-left">
-                        <div className="text-sm font-medium text-gray-900">
-                          {session.user.name}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {userRole === "super_admin" ? "Admin" : userRole === "project_manager" ? "Manager" : "Client"}
-                        </div>
-                      </div>
-                      <ChevronDown className="h-4 w-4 text-gray-400" />
-                    </>
-                  )}
-                </Button>
-
-                {/* Enhanced Profile Dropdown */}
-                {showProfileMenu && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border py-2 z-50">
-                    {/* User Info Header */}
-                    <div className="px-4 py-3 border-b border-gray-100">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-                          <span className="text-white font-medium">
-                            {session.user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-900 truncate">
-                            {session.user.name}
-                          </div>
-                          <div className="text-xs text-gray-500 truncate">
-                            {session.user.email}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Menu Items */}
-                    <div className="py-2">
-                      <Link
-                        href={`${userRole === "super_admin" ? "/admin" : userRole === "project_manager" ? "/manager" : "/client"}/profile`}
-                        className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                        onClick={() => setShowProfileMenu(false)}
-                      >
-                        <User className="h-4 w-4" />
-                        View Profile
-                      </Link>
-                      
-                      <Link
-                        href={`${userRole === "super_admin" ? "/admin" : userRole === "project_manager" ? "/manager" : "/client"}/settings`}
-                        className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                        onClick={() => setShowProfileMenu(false)}
-                      >
-                        <Settings className="h-4 w-4" />
-                        Settings
-                      </Link>
-                      
-                      <div className="border-t border-gray-100 my-2"></div>
-                      
-                      <button
-                        onClick={() => {
-                          setShowProfileMenu(false);
-                          handleSignOut();
-                        }}
-                        className="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors w-full text-left"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        Sign Out
-                      </button>
-                    </div>
-                  </div>
-                )}
+            {/* Enhanced Search with responsive width */}
+            <form onSubmit={handleSearch} className="flex-1 max-w-md">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="search"
+                  placeholder="Search projects, files..."
+                  className="pl-10 bg-gray-50 border-gray-200 focus:bg-white transition-colors min-h-[44px]"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
+            </form>
+          </div>
+
+          {/* Header Actions with improved spacing */}
+          <div className="flex items-center gap-2 sm:gap-4">
+            <NotificationBell />
+            
+            {/* Profile Menu with enhanced mobile support */}
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-md min-h-[44px]"
+                aria-expanded={showProfileMenu}
+                aria-haspopup="true"
+              >
+                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+                  <span className="text-white font-medium text-xs">
+                    {session.user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
+                  </span>
+                </div>
+                {!viewport.isMobile && (
+                  <>
+                    <span className="text-sm font-medium text-gray-700 hidden sm:block">
+                      {session.user.name}
+                    </span>
+                    <ChevronDown className="h-4 w-4 text-gray-400" />
+                  </>
+                )}
+              </Button>
+
+              {/* Profile Dropdown with enhanced positioning */}
+              {showProfileMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 z-50">
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        router.push('/profile');
+                      }}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors min-h-[44px]"
+                    >
+                      <User className="h-4 w-4 mr-3" />
+                      Profile
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        router.push('/settings');
+                      }}
+                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors min-h-[44px]"
+                    >
+                      <Settings className="h-4 w-4 mr-3" />
+                      Settings
+                    </button>
+                    <div className="border-t border-gray-100 my-1" />
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        handleSignOut();
+                      }}
+                      className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors min-h-[44px]"
+                    >
+                      <LogOut className="h-4 w-4 mr-3" />
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </header>
 
-        {/* Enhanced Main Content Area */}
-        <main className="flex-1 overflow-auto">
-          <div className="h-full">
+        {/* Main Content with proper responsive padding */}
+        <main className="flex-1 overflow-auto bg-gray-50 px-4 sm:px-6 lg:px-8 py-6 mobile-safe-bottom">
+          <div className="max-w-7xl mx-auto">
             {children}
           </div>
         </main>
       </div>
+
+      {/* Click outside handler for profile menu */}
+      {showProfileMenu && (
+        <div 
+          className="fixed inset-0 z-30" 
+          onClick={() => setShowProfileMenu(false)}
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }
