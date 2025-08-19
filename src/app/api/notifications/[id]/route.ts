@@ -1,53 +1,72 @@
-// src/app/api/notifications/[id]/route.ts
+// src/app/api/notifications/[id]/route.ts - Mark notification as read/unread
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
-// PATCH /api/notifications/[id] - Mark notification as read/unread
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+interface RouteContext {
+  params: Promise<{
+    id: string;
+  }>;
+}
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session?.user?.id) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Unauthorized' 
+      }, { status: 401 });
     }
 
-    // Await the params Promise in Next.js 15
-    const { id } = await params;
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ error: 'Invalid notification ID' }, { status: 400 });
+    const params = await context.params;
+    const notificationId = params.id;
+
+    if (!ObjectId.isValid(notificationId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid notification ID'
+      }, { status: 400 });
     }
 
     const body = await request.json();
     const { isRead } = body;
 
     if (typeof isRead !== 'boolean') {
-      return NextResponse.json({ error: 'isRead must be a boolean' }, { status: 400 });
+      return NextResponse.json({
+        success: false,
+        error: 'isRead must be a boolean'
+      }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
 
-    // Update notification only if it belongs to the authenticated user
+    const updateData: Record<string, unknown> = {
+      isRead,
+      updatedAt: new Date()
+    };
+
+    if (isRead) {
+      updateData.readAt = new Date();
+    } else {
+      updateData.$unset = { readAt: 1 };
+    }
+
     const result = await db.collection('notifications').updateOne(
-      { 
-        _id: new ObjectId(id),
-        recipient: new ObjectId(session.user.id)
+      {
+        _id: new ObjectId(notificationId),
+        recipientId: new ObjectId(session.user.id)
       },
-      { 
-        $set: { 
-          isRead,
-          ...(isRead && { readAt: new Date() })
-        }
-      }
+      { $set: updateData }
     );
 
     if (result.matchedCount === 0) {
-      return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
+      return NextResponse.json({
+        success: false,
+        error: 'Notification not found'
+      }, { status: 404 });
     }
 
     return NextResponse.json({
@@ -58,38 +77,45 @@ export async function PATCH(
   } catch (error: unknown) {
     console.error('Error updating notification:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
+    }, { status: 500 });
   }
 }
 
-// DELETE /api/notifications/[id]
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session?.user?.id) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Unauthorized' 
+      }, { status: 401 });
     }
 
-    // Await the params Promise in Next.js 15
-    const { id } = await params;
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ error: 'Invalid notification ID' }, { status: 400 });
+    const params = await context.params;
+    const notificationId = params.id;
+
+    if (!ObjectId.isValid(notificationId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid notification ID'
+      }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
 
-    // Delete notification only if it belongs to the authenticated user
     const result = await db.collection('notifications').deleteOne({
-      _id: new ObjectId(id),
-      recipient: new ObjectId(session.user.id)
+      _id: new ObjectId(notificationId),
+      recipientId: new ObjectId(session.user.id)
     });
 
     if (result.deletedCount === 0) {
-      return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
+      return NextResponse.json({
+        success: false,
+        error: 'Notification not found'
+      }, { status: 404 });
     }
 
     return NextResponse.json({
@@ -100,6 +126,10 @@ export async function DELETE(
   } catch (error: unknown) {
     console.error('Error deleting notification:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
+    }, { status: 500 });
   }
 }
+

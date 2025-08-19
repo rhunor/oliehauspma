@@ -1,10 +1,9 @@
-// src/app/api/tasks/[id]/route.ts
+// src/app/api/tasks/[id]/route.ts - Individual Task Management
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { updateTaskSchema } from '@/lib/validation';
-import { ObjectId, Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
 interface RouteContext {
   params: Promise<{
@@ -15,45 +14,36 @@ interface RouteContext {
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const session = await getServerSession(authOptions);
-
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!session?.user?.id) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Unauthorized' 
+      }, { status: 401 });
     }
 
-    const { db } = await connectToDatabase();
     const params = await context.params;
     const taskId = params.id;
 
     if (!ObjectId.isValid(taskId)) {
-      return NextResponse.json(
-        { error: 'Invalid task ID' },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid task ID'
+      }, { status: 400 });
     }
 
-    // Get task with populated data
+    const { db } = await connectToDatabase();
+
+    // Get task with all populated fields
     const tasks = await db.collection('tasks')
       .aggregate([
         { $match: { _id: new ObjectId(taskId) } },
         {
           $lookup: {
-            from: 'projects',
-            localField: 'projectId',
-            foreignField: '_id',
-            as: 'projectData',
-            pipeline: [{ $project: { title: 1, client: 1, manager: 1 } }]
-          }
-        },
-        {
-          $lookup: {
             from: 'users',
-            localField: 'assignee',
+            localField: 'assigneeId',
             foreignField: '_id',
-            as: 'assigneeData',
-            pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }]
+            as: 'assignee',
+            pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
@@ -61,82 +51,116 @@ export async function GET(request: NextRequest, context: RouteContext) {
             from: 'users',
             localField: 'createdBy',
             foreignField: '_id',
-            as: 'creatorData',
-            pipeline: [{ $project: { name: 1, email: 1 } }]
+            as: 'creator',
+            pipeline: [{ $project: { password: 0 } }]
+          }
+        },
+        {
+          $lookup: {
+            from: 'projects',
+            localField: 'projectId',
+            foreignField: '_id',
+            as: 'project'
+          }
+        },
+        {
+          $lookup: {
+            from: 'tasks',
+            localField: 'dependencies',
+            foreignField: '_id',
+            as: 'dependentTasks',
+            pipeline: [{ $project: { title: 1, status: 1 } }]
           }
         },
         {
           $addFields: {
-            project: { $arrayElemAt: ['$projectData', 0] },
-            assignee: { $arrayElemAt: ['$assigneeData', 0] },
-            createdBy: { $arrayElemAt: ['$creatorData', 0] }
+            assignee: { $arrayElemAt: ['$assignee', 0] },
+            creator: { $arrayElemAt: ['$creator', 0] },
+            project: { $arrayElemAt: ['$project', 0] }
           }
-        },
-        { $unset: ['projectData', 'assigneeData', 'creatorData'] }
+        }
       ])
       .toArray();
 
     if (tasks.length === 0) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: 'Task not found'
+      }, { status: 404 });
     }
 
     const task = tasks[0];
 
-    // Check permission
-    const canAccess = 
+    // Check access permission
+    const hasAccess = 
       session.user.role === 'super_admin' ||
-      (session.user.role === 'project_manager' && task.project.manager.toString() === session.user.id) ||
-      (session.user.role === 'client' && task.project.client.toString() === session.user.id) ||
-      (task.assignee._id.toString() === session.user.id);
+      (session.user.role === 'project_manager' && task.project.manager.equals(new ObjectId(session.user.id))) ||
+      (session.user.role === 'client' && task.project.client.equals(new ObjectId(session.user.id))) ||
+      task.assigneeId?.equals(new ObjectId(session.user.id)) ||
+      task.createdBy.equals(new ObjectId(session.user.id));
 
-    if (!canAccess) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      );
+    if (!hasAccess) {
+      return NextResponse.json({
+        success: false,
+        error: 'Access denied'
+      }, { status: 403 });
     }
 
     return NextResponse.json({
       success: true,
-      data: task,
+      data: task
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching task:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
+    }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest, context: RouteContext) {
   try {
     const session = await getServerSession(authOptions);
-
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!session?.user?.id) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Unauthorized' 
+      }, { status: 401 });
     }
 
-    const { db } = await connectToDatabase();
     const params = await context.params;
     const taskId = params.id;
 
     if (!ObjectId.isValid(taskId)) {
-      return NextResponse.json(
-        { error: 'Invalid task ID' },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid task ID'
+      }, { status: 400 });
     }
 
-    // Get existing task with project info
-    const existingTasks = await db.collection('tasks')
+    const body = await request.json();
+    const {
+      title,
+      description,
+      status,
+      priority,
+      assigneeId,
+      dueDate,
+      startDate,
+      estimatedHours,
+      actualHours,
+      progress,
+      tags,
+      completedDate
+    } = body;
+
+    const { db } = await connectToDatabase();
+
+    // Get existing task to verify permissions
+    const existingTask = await db.collection('tasks')
       .aggregate([
         { $match: { _id: new ObjectId(taskId) } },
         {
@@ -144,158 +168,133 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             from: 'projects',
             localField: 'projectId',
             foreignField: '_id',
-            as: 'projectData',
-            pipeline: [{ $project: { manager: 1, client: 1 } }]
+            as: 'project'
           }
         },
         {
           $addFields: {
-            project: { $arrayElemAt: ['$projectData', 0] }
+            project: { $arrayElemAt: ['$project', 0] }
           }
         }
       ])
       .toArray();
 
-    if (existingTasks.length === 0) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      );
+    if (existingTask.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Task not found'
+      }, { status: 404 });
     }
 
-    const existingTask = existingTasks[0];
+    const task = existingTask[0];
 
-    // Check permission
-    const canEdit = 
+    // Check permission to update
+    const canUpdate = 
       session.user.role === 'super_admin' ||
-      (session.user.role === 'project_manager' && existingTask.project.manager.toString() === session.user.id) ||
-      (existingTask.assignee.toString() === session.user.id); // Assignee can update status
+      (session.user.role === 'project_manager' && task.project.manager.equals(new ObjectId(session.user.id))) ||
+      task.assigneeId?.equals(new ObjectId(session.user.id)) ||
+      task.createdBy.equals(new ObjectId(session.user.id));
 
-    if (!canEdit) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      );
+    if (!canUpdate) {
+      return NextResponse.json({
+        success: false,
+        error: 'Access denied'
+      }, { status: 403 });
     }
 
-    const body = await request.json();
-    
-    // Validate request body
-    const validation = updateTaskSchema.safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json(
-        { 
-          error: 'Validation failed',
-          details: validation.error.issues.map(err => ({
-            field: err.path.join('.'),
-            message: err.message,
-          }))
-        },
-        { status: 400 }
-      );
-    }
-
-    const updateData = validation.data;
-    
-    // Prepare update object with proper typing
-    const update: Record<string, unknown> = {
-      updatedAt: new Date(),
+    // Build update object
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date()
     };
 
-    // Only allow certain fields to be updated by assignees
-    const isAssignee = existingTask.assignee.toString() === session.user.id;
-    const isManager = session.user.role === 'project_manager' && existingTask.project.manager.toString() === session.user.id;
-    const isSuperAdmin = session.user.role === 'super_admin';
-
-    if (updateData.title && (isManager || isSuperAdmin)) update.title = updateData.title;
-    if (updateData.description && (isManager || isSuperAdmin)) update.description = updateData.description;
-    if (updateData.status) update.status = updateData.status;
-    if (updateData.priority && (isManager || isSuperAdmin)) update.priority = updateData.priority;
-    if (updateData.deadline && (isManager || isSuperAdmin)) update.deadline = new Date(updateData.deadline);
-    if (updateData.estimatedHours && (isManager || isSuperAdmin)) update.estimatedHours = updateData.estimatedHours;
-    if (updateData.actualHours !== undefined && isAssignee) update.actualHours = updateData.actualHours;
-
-    // Handle status change notifications
-    const statusChanged = updateData.status && updateData.status !== existingTask.status;
-    const wasCompleted = updateData.status === 'completed' && existingTask.status !== 'completed';
-
-    // Update task
-    const result = await db.collection('tasks').updateOne(
-      { _id: new ObjectId(taskId) },
-      { $set: update }
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      );
-    }
+    if (title !== undefined) updateData.title = title.trim();
+    if (description !== undefined) updateData.description = description?.trim();
+    if (status !== undefined) updateData.status = status;
+    if (priority !== undefined) updateData.priority = priority;
+    if (assigneeId !== undefined) updateData.assigneeId = assigneeId ? new ObjectId(assigneeId) : null;
+    if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null;
+    if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
+    if (estimatedHours !== undefined) updateData.estimatedHours = estimatedHours;
+    if (actualHours !== undefined) updateData.actualHours = actualHours;
+    if (progress !== undefined) updateData.progress = Math.max(0, Math.min(100, progress));
+    if (tags !== undefined) updateData.tags = Array.isArray(tags) ? tags : [];
 
     // Handle completion
-    if (wasCompleted) {
-      const completedAt = new Date();
-      await db.collection('tasks').updateOne(
-        { _id: new ObjectId(taskId) },
-        { $set: { completedAt } }
-      );
-
-      // Create notification for project manager
-      await db.collection('notifications').insertOne({
-        recipient: existingTask.project.manager,
-        sender: new ObjectId(session.user.id),
-        type: 'task_completed',
-        title: 'Task Completed',
-        message: `Task "${existingTask.title}" has been completed`,
-        data: {
-          taskId: new ObjectId(taskId),
-          projectId: existingTask.projectId
-        },
-        isRead: false,
-        createdAt: new Date(),
-      });
-
-      // Update project progress
-      await updateProjectProgress(db, existingTask.projectId);
+    if (status === 'completed' && task.status !== 'completed') {
+      updateData.completedDate = new Date();
+      updateData.progress = 100;
+    } else if (status !== 'completed' && task.status === 'completed') {
+      updateData.completedDate = null;
     }
 
-    // Create notification for status changes
-    if (statusChanged && !isAssignee) {
-      await db.collection('notifications').insertOne({
-        recipient: existingTask.assignee,
-        sender: new ObjectId(session.user.id),
-        type: 'task_updated',
-        title: 'Task Updated',
-        message: `Task "${existingTask.title}" status changed to ${updateData.status}`,
-        data: {
-          taskId: new ObjectId(taskId),
-          projectId: existingTask.projectId
-        },
-        isRead: false,
-        createdAt: new Date(),
-      });
+    // Update task
+    await db.collection('tasks').updateOne(
+      { _id: new ObjectId(taskId) },
+      { $set: updateData }
+    );
+
+    // Create notifications for status changes
+    if (status && status !== task.status) {
+      const notifications = [];
+
+      // Notify assignee about status change (if not the one updating)
+      if (task.assigneeId && !task.assigneeId.equals(new ObjectId(session.user.id))) {
+        notifications.push({
+          recipientId: task.assigneeId,
+          senderId: new ObjectId(session.user.id),
+          type: status === 'completed' ? 'task_completed' : 'project_updated',
+          title: 'Task Status Updated',
+          message: `Task "${task.title}" status changed to ${status}`,
+          data: {
+            projectId: task.projectId.toString(),
+            taskId: taskId,
+            url: `/projects/${task.projectId}/tasks/${taskId}`
+          },
+          isRead: false,
+          priority: 'medium',
+          category: status === 'completed' ? 'success' : 'info',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      }
+
+      // Notify project manager about completion
+      if (status === 'completed' && task.project.manager && !task.project.manager.equals(new ObjectId(session.user.id))) {
+        notifications.push({
+          recipientId: task.project.manager,
+          senderId: new ObjectId(session.user.id),
+          type: 'task_completed',
+          title: 'Task Completed',
+          message: `Task "${task.title}" has been marked as completed`,
+          data: {
+            projectId: task.projectId.toString(),
+            taskId: taskId,
+            url: `/projects/${task.projectId}/tasks/${taskId}`
+          },
+          isRead: false,
+          priority: 'medium',
+          category: 'success',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      }
+
+      if (notifications.length > 0) {
+        await db.collection('notifications').insertMany(notifications);
+      }
     }
 
-    // Return updated task with populated data
-    const updatedTasks = await db.collection('tasks')
+    // Get updated task
+    const updatedTask = await db.collection('tasks')
       .aggregate([
         { $match: { _id: new ObjectId(taskId) } },
         {
           $lookup: {
-            from: 'projects',
-            localField: 'projectId',
-            foreignField: '_id',
-            as: 'projectData',
-            pipeline: [{ $project: { title: 1, client: 1, manager: 1 } }]
-          }
-        },
-        {
-          $lookup: {
             from: 'users',
-            localField: 'assignee',
+            localField: 'assigneeId',
             foreignField: '_id',
-            as: 'assigneeData',
-            pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }]
+            as: 'assignee',
+            pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
@@ -303,174 +302,31 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             from: 'users',
             localField: 'createdBy',
             foreignField: '_id',
-            as: 'creatorData',
-            pipeline: [{ $project: { name: 1, email: 1 } }]
+            as: 'creator',
+            pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
           $addFields: {
-            project: { $arrayElemAt: ['$projectData', 0] },
-            assignee: { $arrayElemAt: ['$assigneeData', 0] },
-            createdBy: { $arrayElemAt: ['$creatorData', 0] }
-          }
-        },
-        { $unset: ['projectData', 'assigneeData', 'creatorData'] }
-      ])
-      .toArray();
-
-    return NextResponse.json({
-      success: true,
-      data: updatedTasks[0],
-      message: 'Task updated successfully',
-    });
-
-  } catch (error: unknown) {
-    console.error('Error updating task:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request: NextRequest, context: RouteContext) {
-  try {
-    const session = await getServerSession(authOptions);
-
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const { db } = await connectToDatabase();
-    const params = await context.params;
-    const taskId = params.id;
-
-    if (!ObjectId.isValid(taskId)) {
-      return NextResponse.json(
-        { error: 'Invalid task ID' },
-        { status: 400 }
-      );
-    }
-
-    // Get existing task with project info
-    const existingTasks = await db.collection('tasks')
-      .aggregate([
-        { $match: { _id: new ObjectId(taskId) } },
-        {
-          $lookup: {
-            from: 'projects',
-            localField: 'projectId',
-            foreignField: '_id',
-            as: 'projectData',
-            pipeline: [{ $project: { manager: 1 } }]
-          }
-        },
-        {
-          $addFields: {
-            project: { $arrayElemAt: ['$projectData', 0] }
+            assignee: { $arrayElemAt: ['$assignee', 0] },
+            creator: { $arrayElemAt: ['$creator', 0] }
           }
         }
       ])
       .toArray();
 
-    if (existingTasks.length === 0) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      );
-    }
-
-    const existingTask = existingTasks[0];
-
-    // Check permission (only super admin and project manager can delete)
-    const canDelete = 
-      session.user.role === 'super_admin' ||
-      (session.user.role === 'project_manager' && existingTask.project.manager.toString() === session.user.id);
-
-    if (!canDelete) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      );
-    }
-
-    // Delete task
-    const result = await db.collection('tasks').deleteOne({
-      _id: new ObjectId(taskId)
-    });
-
-    if (result.deletedCount === 0) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      );
-    }
-
-    // Remove task from project using proper MongoDB update operation
-    await db.collection('projects').updateOne(
-      { _id: existingTask.projectId },
-      { 
-        $pull: { tasks: new ObjectId(taskId) },
-        $set: { updatedAt: new Date() }
-      } as Record<string, unknown>
-    );
-
-    // Delete related notifications
-    await db.collection('notifications').deleteMany({
-      'data.taskId': new ObjectId(taskId)
-    });
-
-    // Update project progress
-    await updateProjectProgress(db, existingTask.projectId);
-
     return NextResponse.json({
       success: true,
-      message: 'Task deleted successfully',
+      data: updatedTask[0],
+      message: 'Task updated successfully'
     });
 
   } catch (error: unknown) {
-    console.error('Error deleting task:', error);
+    console.error('Error updating task:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
-  }
-}
-
-// Helper function to update project progress with proper typing
-async function updateProjectProgress(db: Db, projectId: ObjectId) {
-  try {
-    interface TaskDocument {
-      status: string;
-      [key: string]: unknown;
-    }
-
-    const projectTasks = await db.collection<TaskDocument>('tasks')
-      .find({ projectId: projectId })
-      .toArray();
-
-    if (projectTasks.length === 0) {
-      await db.collection('projects').updateOne(
-        { _id: projectId },
-        { $set: { progress: 0, updatedAt: new Date() } }
-      );
-      return;
-    }
-
-    const completedTasks = projectTasks.filter((task: TaskDocument) => task.status === 'completed').length;
-    const progress = Math.round((completedTasks / projectTasks.length) * 100);
-
-    await db.collection('projects').updateOne(
-      { _id: projectId },
-      { $set: { progress: progress, updatedAt: new Date() } }
-    );
-
-  } catch (error) {
-    console.error('Error updating project progress:', error);
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
+    }, { status: 500 });
   }
 }
