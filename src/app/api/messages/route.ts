@@ -1,15 +1,15 @@
-// src/app/api/messages/route.ts - Fixed TypeScript Issues
+// src/app/api/messages/route.ts - FIXED WITH FULL TYPE SAFETY & ESLINT COMPLIANCE
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId, WithId, Document } from 'mongodb';
+import { ObjectId, WithId, Document, Db } from 'mongodb';
 
 interface MessageDocument {
   _id?: ObjectId;
-  projectId: ObjectId;
+  projectId?: ObjectId;
   senderId: ObjectId;
-  recipientId?: ObjectId;
+  recipientId: ObjectId;
   content: string;
   messageType: 'text' | 'image' | 'file' | 'audio' | 'video';
   attachments: MessageAttachment[];
@@ -39,14 +39,76 @@ interface MessageReaction {
   createdAt: Date;
 }
 
-interface ProjectDocument {
+// Database query filter types
+interface ProjectMessageFilter {
+  projectId: ObjectId;
+  isDeleted: boolean;
+  $or: Array<{
+    senderId: ObjectId;
+    recipientId: ObjectId;
+  }>;
+  recipientId?: ObjectId;
+  isRead?: boolean;
+}
+
+interface DirectMessageFilter {
+  $or: Array<{
+    senderId: ObjectId;
+    recipientId: ObjectId;
+  }>;
+  isDeleted: boolean;
+  projectId: { $exists: false };
+  recipientId?: ObjectId;
+  isRead?: boolean;
+}
+
+interface FileQueryFilter {
+  _id: { $in: ObjectId[] };
+  projectId?: ObjectId;
+}
+
+// User and project document types for database operations
+interface DatabaseUser {
+  _id: ObjectId;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+}
+
+interface DatabaseProject {
   _id: ObjectId;
   title: string;
   client: ObjectId;
   manager: ObjectId;
 }
 
-// GET /api/messages - Retrieve messages for a project or conversation
+interface DatabaseFile {
+  _id: ObjectId;
+  filename: string;
+  originalName: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  projectId?: ObjectId;
+}
+
+// Type-safe database collection interface
+interface DatabaseCollections {
+  messages: MessageDocument;
+  users: DatabaseUser;
+  projects: DatabaseProject;
+  files: DatabaseFile;
+}
+
+// Type-safe aggregation pipeline result
+interface PopulatedMessage extends Omit<MessageDocument, 'senderId' | 'recipientId' | 'projectId'> {
+  sender: DatabaseUser;
+  recipient: DatabaseUser;
+  project?: Pick<DatabaseProject, '_id' | 'title'>;
+}
+
+// GET /api/messages - Retrieve messages for a project or direct conversation
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -59,163 +121,221 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('projectId');
-    const recipientId = searchParams.get('recipientId');
+    const participantId = searchParams.get('participantId');
     const limit = parseInt(searchParams.get('limit') || '50');
     const page = parseInt(searchParams.get('page') || '1');
     const unreadOnly = searchParams.get('unreadOnly') === 'true';
 
-    if (!projectId) {
+    // Validate input parameters
+    if (!participantId) {
       return NextResponse.json({
         success: false,
-        error: 'Project ID is required'
+        error: 'Participant ID is required'
+      }, { status: 400 });
+    }
+
+    if (!ObjectId.isValid(participantId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid participant ID format'
+      }, { status: 400 });
+    }
+
+    if (projectId && !ObjectId.isValid(projectId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid project ID format'
       }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
+    const currentUserId = new ObjectId(session.user.id);
+    const participantObjectId = new ObjectId(participantId);
 
-    // Verify user has access to project - Fixed null check
-    const project: WithId<Document> | null = await db.collection('projects').findOne({
-      _id: new ObjectId(projectId),
-      $or: [
-        { client: new ObjectId(session.user.id) },
-        { manager: new ObjectId(session.user.id) }
-      ]
-    });
+    // Handle project-based messaging
+    if (projectId) {
+      const projectObjectId = new ObjectId(projectId);
 
-    if (!project && session.user.role !== 'super_admin') {
-      return NextResponse.json({
-        success: false,
-        error: 'Access denied to project messages'
-      }, { status: 403 });
-    }
+      // Verify user has access to project
+      const project: WithId<Document> | null = await db.collection('projects').findOne({
+        _id: projectObjectId,
+        $or: [
+          { client: currentUserId },
+          { manager: currentUserId }
+        ]
+      });
 
-    // Build query with proper typing
-    interface QueryFilter {
-      projectId: ObjectId;
-      isDeleted: boolean;
-      $or?: Array<{
-        senderId: ObjectId;
-        recipientId?: ObjectId;
-      }>;
-      isRead?: boolean;
-      recipientId?: ObjectId;
-    }
+      if (!project && session.user.role !== 'super_admin') {
+        return NextResponse.json({
+          success: false,
+          error: 'Access denied to project messages'
+        }, { status: 403 });
+      }
 
-    const query: QueryFilter = {
-      projectId: new ObjectId(projectId),
-      isDeleted: false
-    };
+      // Build type-safe query for project messages
+      const projectQuery: ProjectMessageFilter = {
+        projectId: projectObjectId,
+        isDeleted: false,
+        $or: [
+          { senderId: currentUserId, recipientId: participantObjectId },
+          { senderId: participantObjectId, recipientId: currentUserId }
+        ]
+      };
 
-    // For direct messages
-    if (recipientId) {
-      query.$or = [
-        { 
-          senderId: new ObjectId(session.user.id),
-          recipientId: new ObjectId(recipientId)
-        },
-        { 
-          senderId: new ObjectId(recipientId),
-          recipientId: new ObjectId(session.user.id)
-        }
-      ];
-    }
+      if (unreadOnly) {
+        projectQuery.recipientId = currentUserId;
+        projectQuery.isRead = false;
+      }
 
-    // For unread messages only
-    if (unreadOnly) {
-      query.isRead = false;
-      query.recipientId = new ObjectId(session.user.id);
-    }
-
-    // Get messages with sender and recipient info
-    const messages = await db.collection('messages')
-      .aggregate([
-        { $match: query },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'senderId',
-            foreignField: '_id',
-            as: 'sender',
-            pipeline: [{ $project: { password: 0 } }]
-          }
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'recipientId',
-            foreignField: '_id',
-            as: 'recipient',
-            pipeline: [{ $project: { password: 0 } }]
-          }
-        },
-        {
-          $lookup: {
-            from: 'files',
-            localField: 'attachments.fileId',
-            foreignField: '_id',
-            as: 'attachmentFiles'
-          }
-        },
-        {
-          $addFields: {
-            sender: { $arrayElemAt: ['$sender', 0] },
-            recipient: { $arrayElemAt: ['$recipient', 0] },
-            attachments: {
-              $map: {
-                input: '$attachments',
-                as: 'attachment',
-                in: {
-                  $mergeObjects: [
-                    '$$attachment',
-                    {
-                      $arrayElemAt: [
-                        {
-                          $filter: {
-                            input: '$attachmentFiles',
-                            cond: { $eq: ['$$this._id', '$$attachment.fileId'] }
-                          }
-                        },
-                        0
-                      ]
-                    }
-                  ]
-                }
-              }
+      const projectMessages = await db.collection('messages')
+        .aggregate<PopulatedMessage>([
+          { $match: projectQuery },
+          { $sort: { createdAt: 1 } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'senderId',
+              foreignField: '_id',
+              as: 'sender',
+              pipeline: [{ $project: { password: 0 } }]
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'recipientId',
+              foreignField: '_id',
+              as: 'recipient',
+              pipeline: [{ $project: { password: 0 } }]
+            }
+          },
+          {
+            $lookup: {
+              from: 'projects',
+              localField: 'projectId',
+              foreignField: '_id',
+              as: 'project',
+              pipeline: [{ $project: { title: 1 } }]
+            }
+          },
+          {
+            $addFields: {
+              sender: { $arrayElemAt: ['$sender', 0] },
+              recipient: { $arrayElemAt: ['$recipient', 0] },
+              project: { $arrayElemAt: ['$project', 0] }
             }
           }
-        },
-        { $sort: { createdAt: -1 } },
-        { $skip: (page - 1) * limit },
-        { $limit: limit }
-      ])
-      .toArray();
+        ])
+        .toArray();
 
-    // Get total count for pagination
-    const total = await db.collection('messages').countDocuments(query);
-
-    // Get unread count for current user
-    const unreadCount = await db.collection('messages').countDocuments({
-      projectId: new ObjectId(projectId),
-      recipientId: new ObjectId(session.user.id),
-      isRead: false,
-      isDeleted: false
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        messages: messages.reverse(),
+      return NextResponse.json({
+        success: true,
+        messages: projectMessages,
         pagination: {
           page,
           limit,
-          total,
-          pages: Math.ceil(total / limit),
-          hasNext: page < Math.ceil(total / limit),
-          hasPrev: page > 1
-        },
-        unreadCount
+          total: await db.collection('messages').countDocuments(projectQuery)
+        }
+      });
+    }
+
+    // Handle direct conversation messaging (without project)
+    else {
+      // Verify participants can message each other
+      const [currentUser, participant] = await Promise.all([
+        db.collection('users').findOne(
+          { _id: currentUserId, isActive: true },
+          { projection: { password: 0 } }
+        ) as Promise<DatabaseUser | null>,
+        db.collection('users').findOne(
+          { _id: participantObjectId, isActive: true },
+          { projection: { password: 0 } }
+        ) as Promise<DatabaseUser | null>
+      ]);
+
+      if (!currentUser || !participant) {
+        return NextResponse.json({
+          success: false,
+          error: 'User not found or inactive'
+        }, { status: 404 });
       }
-    });
+
+      // Check messaging permissions
+      const canMessage = await validateMessagingPermission(
+        currentUserId.toString(),
+        participantObjectId.toString(),
+        currentUser.role,
+        participant.role,
+        db
+      );
+
+      if (!canMessage) {
+        return NextResponse.json({
+          success: false,
+          error: 'Not authorized to message this user'
+        }, { status: 403 });
+      }
+
+      // Build type-safe query for direct messages
+      const directQuery: DirectMessageFilter = {
+        $or: [
+          { senderId: currentUserId, recipientId: participantObjectId },
+          { senderId: participantObjectId, recipientId: currentUserId }
+        ],
+        isDeleted: false,
+        projectId: { $exists: false } // Only direct messages without project context
+      };
+
+      if (unreadOnly) {
+        directQuery.recipientId = currentUserId;
+        directQuery.isRead = false;
+      }
+
+      const directMessages = await db.collection('messages')
+        .aggregate<PopulatedMessage>([
+          { $match: directQuery },
+          { $sort: { createdAt: 1 } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'senderId',
+              foreignField: '_id',
+              as: 'sender',
+              pipeline: [{ $project: { password: 0 } }]
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'recipientId',
+              foreignField: '_id',
+              as: 'recipient',
+              pipeline: [{ $project: { password: 0 } }]
+            }
+          },
+          {
+            $addFields: {
+              sender: { $arrayElemAt: ['$sender', 0] },
+              recipient: { $arrayElemAt: ['$recipient', 0] }
+            }
+          }
+        ])
+        .toArray();
+
+      return NextResponse.json({
+        success: true,
+        messages: directMessages,
+        pagination: {
+          page,
+          limit,
+          total: await db.collection('messages').countDocuments(directQuery)
+        }
+      });
+    }
 
   } catch (error: unknown) {
     console.error('Error fetching messages:', error);
@@ -232,15 +352,15 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         success: false,
-        error: 'Unauthorized' 
+        error: 'Unauthorized'
       }, { status: 401 });
     }
 
     const body = await request.json() as {
-      projectId: string;
-      recipientId?: string;
+      projectId?: string;
+      recipientId: string;
       content: string;
       messageType?: 'text' | 'image' | 'file' | 'audio' | 'video';
       attachments?: Array<{ fileId: string }>;
@@ -249,39 +369,126 @@ export async function POST(request: NextRequest) {
 
     const { projectId, recipientId, content, messageType = 'text', attachments = [], replyTo } = body;
 
-    if (!projectId || !content?.trim()) {
+    // Validate required fields
+    if (!recipientId || !content?.trim()) {
       return NextResponse.json({
         success: false,
-        error: 'Project ID and content are required'
+        error: 'Recipient ID and content are required'
+      }, { status: 400 });
+    }
+
+    // Validate ObjectIds
+    if (!ObjectId.isValid(recipientId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid recipient ID format'
+      }, { status: 400 });
+    }
+
+    if (projectId && !ObjectId.isValid(projectId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid project ID format'
+      }, { status: 400 });
+    }
+
+    if (replyTo && !ObjectId.isValid(replyTo)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid reply message ID format'
       }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
+    const currentUserId = new ObjectId(session.user.id);
+    const recipientObjectId = new ObjectId(recipientId);
 
-    // Verify user has access to project - Fixed null check
-    const project: WithId<ProjectDocument> | null = await db.collection<ProjectDocument>('projects').findOne({
-      _id: new ObjectId(projectId),
-      $or: [
-        { client: new ObjectId(session.user.id) },
-        { manager: new ObjectId(session.user.id) }
-      ]
-    });
+    // Handle project-based messaging
+    if (projectId) {
+      const projectObjectId = new ObjectId(projectId);
 
-    if (!project && session.user.role !== 'super_admin') {
-      return NextResponse.json({
-        success: false,
-        error: 'Access denied to project'
-      }, { status: 403 });
+      // Verify user has access to project
+      const project: WithId<Document> | null = await db.collection('projects').findOne({
+        _id: projectObjectId,
+        $or: [
+          { client: currentUserId },
+          { manager: currentUserId }
+        ]
+      });
+
+      if (!project && session.user.role !== 'super_admin') {
+        return NextResponse.json({
+          success: false,
+          error: 'Access denied to project'
+        }, { status: 403 });
+      }
+
+      // Verify recipient has access to project
+      const recipientHasAccess = await db.collection('projects').findOne({
+        _id: projectObjectId,
+        $or: [
+          { client: recipientObjectId },
+          { manager: recipientObjectId }
+        ]
+      });
+
+      if (!recipientHasAccess && session.user.role !== 'super_admin') {
+        return NextResponse.json({
+          success: false,
+          error: 'Recipient does not have access to this project'
+        }, { status: 403 });
+      }
+    }
+
+    // Handle direct messaging (without project)
+    else {
+      // Verify participants can message each other
+      const [currentUser, recipient] = await Promise.all([
+        db.collection('users').findOne(
+          { _id: currentUserId, isActive: true },
+          { projection: { password: 0 } }
+        ) as Promise<DatabaseUser | null>,
+        db.collection('users').findOne(
+          { _id: recipientObjectId, isActive: true },
+          { projection: { password: 0 } }
+        ) as Promise<DatabaseUser | null>
+      ]);
+
+      if (!currentUser || !recipient) {
+        return NextResponse.json({
+          success: false,
+          error: 'User not found or inactive'
+        }, { status: 404 });
+      }
+
+      // Check messaging permissions
+      const canMessage = await validateMessagingPermission(
+        currentUserId.toString(),
+        recipientObjectId.toString(),
+        currentUser.role,
+        recipient.role,
+        db
+      );
+
+      if (!canMessage) {
+        return NextResponse.json({
+          success: false,
+          error: 'Not authorized to message this user'
+        }, { status: 403 });
+      }
     }
 
     // Validate attachments if provided
     let validatedAttachments: MessageAttachment[] = [];
     if (attachments.length > 0) {
       const fileIds = attachments.map((att) => new ObjectId(att.fileId));
-      const files = await db.collection('files').find({
-        _id: { $in: fileIds },
-        projectId: new ObjectId(projectId)
-      }).toArray();
+      const fileQuery: FileQueryFilter = { _id: { $in: fileIds } };
+      
+      if (projectId) {
+        fileQuery.projectId = new ObjectId(projectId);
+      }
+
+      const files = await db.collection('files').find(fileQuery).toArray() as DatabaseFile[];
 
       validatedAttachments = files.map(file => ({
         fileId: file._id,
@@ -295,9 +502,8 @@ export async function POST(request: NextRequest) {
 
     // Create message document
     const messageData: MessageDocument = {
-      projectId: new ObjectId(projectId),
-      senderId: new ObjectId(session.user.id),
-      recipientId: recipientId ? new ObjectId(recipientId) : undefined,
+      senderId: currentUserId,
+      recipientId: recipientObjectId,
       content: content.trim(),
       messageType,
       attachments: validatedAttachments,
@@ -309,11 +515,16 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     };
 
+    // Add projectId only if provided
+    if (projectId) {
+      messageData.projectId = new ObjectId(projectId);
+    }
+
     const result = await db.collection('messages').insertOne(messageData);
 
     // Get the created message with populated fields
     const createdMessage = await db.collection('messages')
-      .aggregate([
+      .aggregate<PopulatedMessage>([
         { $match: { _id: result.insertedId } },
         {
           $lookup: {
@@ -333,10 +544,20 @@ export async function POST(request: NextRequest) {
             pipeline: [{ $project: { password: 0 } }]
           }
         },
+        ...(projectId ? [{
+          $lookup: {
+            from: 'projects',
+            localField: 'projectId',
+            foreignField: '_id',
+            as: 'project',
+            pipeline: [{ $project: { title: 1 } }]
+          }
+        }] : []),
         {
           $addFields: {
             sender: { $arrayElemAt: ['$sender', 0] },
-            recipient: { $arrayElemAt: ['$recipient', 0] }
+            recipient: { $arrayElemAt: ['$recipient', 0] },
+            ...(projectId && { project: { $arrayElemAt: ['$project', 0] } })
           }
         }
       ])
@@ -344,8 +565,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: createdMessage[0],
-      message: 'Message sent successfully'
+      message: createdMessage[0],
+      data: createdMessage[0] // For backward compatibility
     }, { status: 201 });
 
   } catch (error: unknown) {
@@ -358,3 +579,49 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Helper function to validate messaging permissions
+async function validateMessagingPermission(
+  senderId: string,
+  recipientId: string,
+  senderRole: string,
+  recipientRole: string,
+  db: Db
+): Promise<boolean> {
+  try {
+    // Super admin can message anyone
+    if (senderRole === 'super_admin' || recipientRole === 'super_admin') {
+      return true;
+    }
+
+    // Project manager messaging rules
+    if (senderRole === 'project_manager') {
+      // Can message clients they manage
+      if (recipientRole === 'client') {
+        const hasSharedProject = await db.collection('projects').findOne({
+          manager: new ObjectId(senderId),
+          client: new ObjectId(recipientId)
+        });
+        return !!hasSharedProject;
+      }
+      return false;
+    }
+
+    // Client messaging rules
+    if (senderRole === 'client') {
+      // Can message their project manager
+      if (recipientRole === 'project_manager') {
+        const hasSharedProject = await db.collection('projects').findOne({
+          client: new ObjectId(senderId),
+          manager: new ObjectId(recipientId)
+        });
+        return !!hasSharedProject;
+      }
+      return false;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error validating message permission:', error);
+    return false;
+  }
+}

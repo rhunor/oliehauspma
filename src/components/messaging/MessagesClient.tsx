@@ -1,4 +1,4 @@
-// src/components/messaging/MessagesClient.tsx - FULLY RESPONSIVE WITH MOBILE-FIRST DESIGN
+// src/components/messaging/MessagesClient.tsx - FIXED WITH DUAL MESSAGING SUPPORT
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -76,18 +76,22 @@ interface MessagesClientProps {
 // API response interfaces
 interface ConversationsResponse {
   conversations: Conversation[];
+  success: boolean;
 }
 
 interface MessagesResponse {
   messages: Message[];
+  success: boolean;
 }
 
 interface SendMessageResponse {
   message: Message;
+  success: boolean;
 }
 
 interface ApiError {
   error: string;
+  success: false;
 }
 
 // Type guard functions
@@ -96,18 +100,18 @@ function isApiError(response: unknown): response is ApiError {
 }
 
 function isConversationsResponse(response: unknown): response is ConversationsResponse {
-  return typeof response === 'object' && response !== null && 'conversations' in response;
+  return typeof response === 'object' && response !== null && 'conversations' in response && 'success' in response;
 }
 
 function isMessagesResponse(response: unknown): response is MessagesResponse {
-  return typeof response === 'object' && response !== null && 'messages' in response;
+  return typeof response === 'object' && response !== null && 'messages' in response && 'success' in response;
 }
 
 function isSendMessageResponse(response: unknown): response is SendMessageResponse {
-  return typeof response === 'object' && response !== null && 'message' in response;
+  return typeof response === 'object' && response !== null && 'message' in response && 'success' in response;
 }
 
-export default function MessagesClient({ userId }: MessagesClientProps) {
+export default function MessagesClient({ userId, userRole, userName }: MessagesClientProps) {
   const { toast } = useToast();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -133,11 +137,18 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
   const fetchConversations = useCallback(async () => {
     try {
       setError(null);
-      const response = await fetch('/api/messages/conversations');
+      const response = await fetch('/api/messages/conversations', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
       
       if (!response.ok) {
         const errorData: unknown = await response.json();
-        const errorMessage = isApiError(errorData) ? errorData.error : 'Failed to fetch conversations';
+        const errorMessage = isApiError(errorData) 
+          ? errorData.error 
+          : `Failed to fetch conversations (${response.status})`;
         throw new Error(errorMessage);
       }
       
@@ -169,11 +180,29 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
     setError(null);
     
     try {
-      const response = await fetch(`/api/messages?participantId=${encodeURIComponent(participantId)}`);
+      // Find the conversation to determine if it has a projectId
+      const conversation = conversations.find(c => c.participantId === participantId);
+      const projectId = conversation?.projectId;
+
+      // Build query parameters based on available data
+      const queryParams = new URLSearchParams();
+      if (projectId) {
+        queryParams.append('projectId', projectId);
+      }
+      queryParams.append('participantId', participantId);
+
+      const response = await fetch(`/api/messages?${queryParams.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
       
       if (!response.ok) {
         const errorData: unknown = await response.json();
-        const errorMessage = isApiError(errorData) ? errorData.error : 'Failed to fetch messages';
+        const errorMessage = isApiError(errorData) 
+          ? errorData.error 
+          : `Failed to fetch messages (${response.status})`;
         throw new Error(errorMessage);
       }
       
@@ -183,20 +212,25 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
         setMessages(responseData.messages || []);
         
         // Mark messages as read
-        await fetch('/api/messages/mark-read', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ participantId })
-        });
+        try {
+          await fetch('/api/messages/mark-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participantId })
+          });
 
-        // Update conversation unread count
-        setConversations(prev => 
-          prev.map(conv => 
-            conv.participantId === participantId 
-              ? { ...conv, unreadCount: 0 }
-              : conv
-          )
-        );
+          // Update conversation unread count
+          setConversations(prev => 
+            prev.map(conv => 
+              conv.participantId === participantId 
+                ? { ...conv, unreadCount: 0 }
+                : conv
+            )
+          );
+        } catch (markReadError) {
+          console.warn('Failed to mark messages as read:', markReadError);
+          // Don't throw error for mark as read failure
+        }
       } else {
         throw new Error('Invalid response format');
       }
@@ -213,7 +247,7 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
     } finally {
       setMessagesLoading(false);
     }
-  }, [toast]);
+  }, [conversations, toast]);
 
   const sendMessage = useCallback(async () => {
     if (!newMessage.trim() || !selectedConversation || sending) return;
@@ -223,19 +257,38 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
     setSending(true);
     
     try {
+      // Find the conversation to determine if it has a projectId
+      const conversation = conversations.find(c => c.participantId === selectedConversation);
+      const projectId = conversation?.projectId;
+
+      // Build request body based on available data
+      const requestBody: {
+        recipientId: string;
+        content: string;
+        messageType: string;
+        projectId?: string;
+      } = {
+        recipientId: selectedConversation,
+        content: messageContent,
+        messageType: 'text'
+      };
+
+      // Only include projectId if it exists
+      if (projectId) {
+        requestBody.projectId = projectId;
+      }
+
       const response = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipientId: selectedConversation,
-          content: messageContent,
-          messageType: 'text'
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
         const errorData: unknown = await response.json();
-        const errorMessage = isApiError(errorData) ? errorData.error : 'Failed to send message';
+        const errorMessage = isApiError(errorData) 
+          ? errorData.error 
+          : `Failed to send message (${response.status})`;
         throw new Error(errorMessage);
       }
 
@@ -271,7 +324,7 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
     } finally {
       setSending(false);
     }
-  }, [newMessage, selectedConversation, sending, fetchConversations, toast]);
+  }, [newMessage, selectedConversation, sending, conversations, fetchConversations, toast]);
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -323,16 +376,21 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
   const selectedConversationData = conversations.find(c => c.participantId === selectedConversation);
 
   const formatTime = (dateString: string): string => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
-    
-    if (diffInHours < 1) {
-      return 'Just now';
-    } else if (diffInHours < 24) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else {
-      return date.toLocaleDateString();
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+      
+      if (diffInHours < 1) {
+        return 'Just now';
+      } else if (diffInHours < 24) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else {
+        return date.toLocaleDateString();
+      }
+    } catch (error) {
+      console.warn('Invalid date string:', dateString);
+      return 'Unknown';
     }
   };
 
@@ -345,102 +403,90 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
     }
   };
 
-  const getRoleDisplayName = (role: string): string => {
+  const getRoleBadge = (role: string): string => {
     switch (role) {
       case 'super_admin': return 'Admin';
       case 'project_manager': return 'Manager';
       case 'client': return 'Client';
-      default: return role;
+      default: return 'User';
     }
   };
 
+  // Show loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen sm:min-h-96 px-4">
+      <div className="flex items-center justify-center min-h-96">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-gray-600 text-sm sm:text-base">Loading conversations...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading conversations...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error && conversations.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Error Loading Messages</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <Button onClick={() => fetchConversations()}>
+            Try Again
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen sm:h-[calc(100vh-12rem)] max-h-[100vh] sm:max-h-[800px] bg-white sm:rounded-lg shadow-sm border relative overflow-hidden">
-      
-      {/* Mobile Menu Button - Only visible on mobile when conversation is selected */}
-      {selectedConversation && (
-        <Button
-          onClick={toggleSidebar}
-          variant="ghost"
-          size="sm"
-          className="absolute top-4 left-4 z-50 md:hidden bg-white/90 backdrop-blur-sm shadow-sm"
-        >
-          <Menu className="h-4 w-4" />
-        </Button>
-      )}
-
-      {/* Conversations Sidebar */}
+    <div className="flex h-[600px] bg-white rounded-lg shadow-lg overflow-hidden">
+      {/* Sidebar - Conversations List */}
       <div className={`
-        ${showSidebar || !selectedConversation ? 'translate-x-0' : '-translate-x-full'}
-        ${selectedConversation ? 'absolute inset-y-0 left-0 z-40' : 'relative'}
-        w-full sm:w-80 md:w-1/3 lg:w-96 xl:w-80 2xl:w-96
-        bg-white border-r 
-        flex flex-col 
-        transition-transform duration-300 ease-in-out
-        md:relative md:translate-x-0 md:z-auto
+        ${showSidebar || !selectedConversation ? 'flex' : 'hidden'} 
+        md:flex flex-col w-full md:w-80 border-r border-gray-200
       `}>
-        
         {/* Header */}
-        <div className="p-3 sm:p-4 border-b bg-gray-50 flex-shrink-0">
-          <div className="flex items-center justify-between mb-3 sm:mb-4">
-            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">Messages</h2>
-            <div className="flex items-center gap-2">
-              <Button onClick={startNewConversation} size="sm" variant="outline" className="hidden sm:flex">
-                <Plus className="h-4 w-4" />
-              </Button>
-              <Button onClick={startNewConversation} size="sm" variant="outline" className="sm:hidden">
-                <Plus className="h-3 w-3" />
-              </Button>
-              {selectedConversation && (
-                <Button
-                  onClick={() => setShowSidebar(false)}
-                  variant="ghost"
-                  size="sm"
-                  className="md:hidden"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
+        <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Messages</h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={startNewConversation}
+              className="p-2"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
           </div>
           
           {/* Search */}
-          <div className="relative mb-3">
+          <div className="mt-3 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               placeholder="Search conversations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 text-sm"
+              className="pl-10 h-9"
             />
           </div>
 
           {/* Filters */}
-          <div className="flex gap-1 sm:gap-2">
+          <div className="flex gap-2 mt-3">
             <Button
-              variant={filterBy === 'all' ? 'default' : 'ghost'}
+              variant={filterBy === 'all' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setFilterBy('all')}
-              className="text-xs sm:text-sm flex-1 sm:flex-none"
+              className="text-xs"
             >
               All
             </Button>
             <Button
-              variant={filterBy === 'unread' ? 'default' : 'ghost'}
+              variant={filterBy === 'unread' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setFilterBy('unread')}
-              className="text-xs sm:text-sm flex-1 sm:flex-none"
+              className="text-xs"
             >
               Unread
             </Button>
@@ -449,205 +495,197 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
 
         {/* Conversations List */}
         <div className="flex-1 overflow-y-auto">
-          {error && (
-            <div className="p-3 sm:p-4 bg-red-50 border-b">
-              <div className="flex items-center gap-2 text-red-700">
-                <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                <span className="text-xs sm:text-sm">{error}</span>
-              </div>
-            </div>
-          )}
-          
           {filteredConversations.length === 0 ? (
-            <div className="text-center py-6 sm:py-8 px-4">
-              <MessageSquare className="h-6 w-6 sm:h-8 sm:w-8 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-600 text-sm">
-                {searchQuery || filterBy !== 'all' ? 
-                  'No conversations match your search' : 
-                  'No conversations yet'
-                }
+            <div className="p-6 text-center">
+              <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+              <p className="text-gray-500">
+                {searchQuery ? 'No conversations found' : 'No conversations yet'}
               </p>
-              <Button onClick={startNewConversation} size="sm" className="mt-3 text-xs sm:text-sm">
-                Start New Chat
-              </Button>
             </div>
           ) : (
-            <div className="space-y-0">
-              {filteredConversations.map((conversation) => (
-                <div
-                  key={conversation.participantId}
-                  className={`flex items-center gap-2 sm:gap-3 p-3 sm:p-4 cursor-pointer hover:bg-gray-50 border-l-4 transition-colors min-h-[72px] sm:min-h-[80px] ${
-                    selectedConversation === conversation.participantId
-                      ? 'bg-blue-50 border-l-blue-500'
-                      : 'border-l-transparent'
-                  }`}
-                  onClick={() => selectConversation(conversation.participantId)}
-                >
-                  <div className="relative flex-shrink-0">
-                    <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
-                      <AvatarFallback className="bg-gray-100 text-xs sm:text-sm">
-                        {conversation.participantName.split(' ').map(n => n[0]).join('').slice(0, 2)}
+            filteredConversations.map((conversation) => (
+              <div
+                key={conversation.participantId}
+                onClick={() => selectConversation(conversation.participantId)}
+                className={`
+                  p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors
+                  ${selectedConversation === conversation.participantId ? 'bg-blue-50 border-blue-200' : ''}
+                `}
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="relative">
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback className="bg-blue-100 text-blue-600">
+                        {conversation.participantName.charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     {conversation.isOnline && (
-                      <div className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 sm:h-3 sm:w-3 bg-green-500 rounded-full border-2 border-white"></div>
+                      <div className="absolute -bottom-1 -right-1 h-3 w-3 bg-green-500 rounded-full border-2 border-white"></div>
                     )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-1 sm:gap-2 min-w-0">
-                        <p className="font-medium text-xs sm:text-sm text-gray-900 truncate">
-                          {conversation.participantName}
-                        </p>
-                        <Badge className={`text-xs px-1 py-0 sm:px-1.5 sm:py-0.5 ${getRoleColor(conversation.participantRole)} hidden sm:inline-flex`}>
-                          {getRoleDisplayName(conversation.participantRole)}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {conversation.unreadCount > 0 && (
-                          <Badge className="bg-blue-500 text-white text-xs px-1 py-0 sm:px-1.5 sm:py-0.5 min-w-[16px] h-4 sm:h-5 flex items-center justify-center">
-                            {conversation.unreadCount > 9 ? '9+' : conversation.unreadCount}
-                          </Badge>
-                        )}
-                        <span className="text-xs text-gray-500 whitespace-nowrap">
-                          {formatTime(conversation.lastMessageTime)}
-                        </span>
-                      </div>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-gray-900 truncate">
+                        {conversation.participantName}
+                      </h3>
+                      <span className="text-xs text-gray-500">
+                        {formatTime(conversation.lastMessageTime)}
+                      </span>
                     </div>
                     
-                    <p className="text-xs sm:text-sm text-gray-600 truncate">
-                      {conversation.lastMessage || 'No messages yet'}
-                    </p>
-                    
-                    {conversation.projectTitle && (
-                      <p className="text-xs text-blue-600 truncate mt-1 hidden sm:block">
-                        Project: {conversation.projectTitle}
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-sm text-gray-600 truncate">
+                        {conversation.lastMessage || 'No messages yet'}
                       </p>
-                    )}
+                      {conversation.unreadCount > 0 && (
+                        <Badge variant="default" className="ml-2 text-xs">
+                          {conversation.unreadCount}
+                        </Badge>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant="secondary" className={`text-xs ${getRoleColor(conversation.participantRole)}`}>
+                        {getRoleBadge(conversation.participantRole)}
+                      </Badge>
+                      {conversation.projectTitle && (
+                        <Badge variant="outline" className="text-xs">
+                          {conversation.projectTitle}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))
           )}
         </div>
       </div>
 
-      {/* Overlay for mobile when sidebar is open */}
-      {showSidebar && selectedConversation && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
-          onClick={() => setShowSidebar(false)}
-        />
-      )}
-
-      {/* Messages Area */}
+      {/* Chat Area */}
       <div className={`
-        flex-1 flex flex-col
-        ${selectedConversation ? 'block' : 'hidden md:flex'}
-        ${showSidebar && selectedConversation ? 'hidden md:flex' : ''}
+        ${selectedConversation ? 'flex' : 'hidden'} 
+        md:flex flex-col flex-1
       `}>
-        {selectedConversation && selectedConversationData ? (
+        {selectedConversation ? (
           <>
             {/* Chat Header */}
-            <div className="p-3 sm:p-4 border-b bg-gray-50 flex-shrink-0">
-              <div className="flex items-center gap-2 sm:gap-3">
+            <div className="p-4 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={goBackToConversations}
+                    className="md:hidden p-2"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-blue-100 text-blue-600">
+                      {selectedConversationData?.participantName.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  
+                  <div>
+                    <h3 className="font-medium text-gray-900">
+                      {selectedConversationData?.participantName}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className={`text-xs ${getRoleColor(selectedConversationData?.participantRole || '')}`}>
+                        {getRoleBadge(selectedConversationData?.participantRole || '')}
+                      </Badge>
+                      {selectedConversationData?.isOnline && (
+                        <span className="text-xs text-green-600">Online</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <Button
-                  onClick={goBackToConversations}
                   variant="ghost"
                   size="sm"
-                  className="md:hidden p-1 h-8 w-8"
+                  onClick={toggleSidebar}
+                  className="md:hidden p-2"
                 >
-                  <ArrowLeft className="h-4 w-4" />
+                  <Menu className="h-4 w-4" />
                 </Button>
-                <Avatar className="h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0">
-                  <AvatarFallback className="text-xs sm:text-sm">
-                    {selectedConversationData.participantName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1 sm:gap-2 mb-0.5">
-                    <h3 className="font-semibold text-sm sm:text-base text-gray-900 truncate">
-                      {selectedConversationData.participantName}
-                    </h3>
-                    <Badge className={`text-xs px-1 py-0 sm:px-1.5 sm:py-0.5 ${getRoleColor(selectedConversationData.participantRole)} hidden sm:inline-flex`}>
-                      {getRoleDisplayName(selectedConversationData.participantRole)}
-                    </Badge>
-                    {selectedConversationData.isOnline && (
-                      <div className="flex items-center gap-1">
-                        <div className="h-1.5 w-1.5 sm:h-2 sm:w-2 bg-green-500 rounded-full"></div>
-                        <span className="text-xs text-green-600 hidden sm:inline">Online</span>
-                      </div>
-                    )}
-                  </div>
-                  {selectedConversationData.projectTitle && (
-                    <p className="text-xs sm:text-sm text-blue-600 truncate">
-                      Project: {selectedConversationData.projectTitle}
-                    </p>
-                  )}
-                </div>
               </div>
+              
+              {selectedConversationData?.projectTitle && (
+                <div className="mt-2">
+                  <Badge variant="outline" className="text-xs">
+                    Project: {selectedConversationData.projectTitle}
+                  </Badge>
+                </div>
+              )}
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messagesLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="text-center py-6 sm:py-8">
-                  <MessageSquare className="h-8 w-8 sm:h-12 sm:w-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600 text-sm sm:text-base">No messages yet. Start the conversation!</p>
+                <div className="flex items-center justify-center h-32">
+                  <div className="text-center">
+                    <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-gray-500">No messages in this conversation</p>
+                    <p className="text-sm text-gray-400">Send a message to get started!</p>
+                  </div>
                 </div>
               ) : (
-                messages.map((message) => {
-                  const isFromCurrentUser = message.sender._id === userId;
-                  return (
-                    <div
-                      key={message._id}
-                      className={`flex ${isFromCurrentUser ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[85%] sm:max-w-xs lg:max-w-md px-3 sm:px-4 py-2 sm:py-3 rounded-lg ${
-                          isFromCurrentUser
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 text-gray-900'
-                        }`}
-                      >
-                        <p className="text-sm sm:text-base break-words">{message.content}</p>
-                        <div className={`flex items-center justify-between mt-1 sm:mt-2 text-xs ${
-                          isFromCurrentUser ? 'text-blue-100' : 'text-gray-500'
-                        }`}>
-                          <span className="flex-shrink-0">{formatTime(message.createdAt)}</span>
-                          {isFromCurrentUser && (
-                            <CheckCircle className="h-3 w-3 ml-2 flex-shrink-0" />
-                          )}
+                messages.map((message) => (
+                  <div
+                    key={message._id}
+                    className={`flex ${message.sender._id === userId ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`
+                      max-w-xs lg:max-w-md px-4 py-2 rounded-lg
+                      ${message.sender._id === userId
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-900'
+                      }
+                    `}>
+                      {message.sender._id !== userId && (
+                        <div className="text-xs font-medium mb-1 opacity-75">
+                          {message.sender.name}
                         </div>
+                      )}
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                      <div className={`text-xs mt-1 flex items-center justify-end gap-1 ${
+                        message.sender._id === userId ? 'text-blue-200' : 'text-gray-500'
+                      }`}>
+                        <span>{formatTime(message.createdAt)}</span>
+                        {message.sender._id === userId && (
+                          <CheckCircle className="h-3 w-3" />
+                        )}
                       </div>
                     </div>
-                  );
-                })
+                  </div>
+                ))
               )}
               <div ref={messagesEndRef} />
             </div>
 
             {/* Message Input */}
-            <div className="p-3 sm:p-4 border-t bg-gray-50 flex-shrink-0">
-              <div className="flex gap-2">
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              <div className="flex space-x-2">
                 <Input
-                  placeholder="Type your message..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
+                  placeholder="Type your message..."
                   disabled={sending}
-                  className="flex-1 text-sm sm:text-base"
+                  className="flex-1"
                 />
-                <Button 
-                  onClick={sendMessage} 
+                <Button
+                  onClick={sendMessage}
                   disabled={!newMessage.trim() || sending}
-                  className="px-3 sm:px-4 h-9 sm:h-10"
-                  size="sm"
+                  className="px-4"
                 >
                   {sending ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -659,18 +697,12 @@ export default function MessagesClient({ userId }: MessagesClientProps) {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center p-4">
-            <div className="text-center max-w-sm">
-              <MessageSquare className="h-12 w-12 sm:h-16 sm:w-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg sm:text-xl font-medium text-gray-900 mb-2">Select a conversation</h3>
-              <p className="text-gray-600 text-sm sm:text-base">Choose a conversation from the sidebar to start messaging</p>
-              <Button 
-                onClick={() => setShowSidebar(true)} 
-                className="mt-4 md:hidden"
-                variant="outline"
-              >
-                View Conversations
-              </Button>
+          // No conversation selected
+          <div className="hidden md:flex items-center justify-center flex-1">
+            <div className="text-center">
+              <MessageSquare className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Select a conversation</h3>
+              <p className="text-gray-500">Choose a conversation from the sidebar to start messaging</p>
             </div>
           </div>
         )}
