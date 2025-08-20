@@ -1,4 +1,6 @@
-// src/hooks/use-toast.ts
+// src/hooks/use-toast.ts - FIXED: Added "use client" directive to your existing code
+"use client"
+
 import * as React from "react";
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
 

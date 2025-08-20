@@ -1,225 +1,295 @@
-// server.js (Custom server for Socket.IO)
+// server.js - Socket.IO Server for Real-time Features
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
 
 const dev = process.env.NODE_ENV !== 'production';
-const app = next({ dev });
-const handle = app.getRequestHandler();
-
+const hostname = 'localhost';
 const port = process.env.PORT || 3000;
 
+// Initialize Next.js app
+const app = next({ dev, hostname, port });
+const handle = app.getRequestHandler();
+
 app.prepare().then(() => {
-  const server = createServer();
-  const io = new Server(server, {
-    cors: {
-      origin: dev ? "http://localhost:3000" : process.env.NEXT_PUBLIC_APP_URL,
-      methods: ["GET", "POST"]
-    },
-    pingTimeout: 60000,
-    pingInterval: 25000
+  const httpServer = createServer(async (req, res) => {
+    try {
+      const parsedUrl = parse(req.url, true);
+      await handle(req, res, parsedUrl);
+    } catch (err) {
+      console.error('Error occurred handling', req.url, err);
+      res.statusCode = 500;
+      res.end('internal server error');
+    }
   });
 
-  // Store user connections
-  const userConnections = new Map();
+  // Initialize Socket.IO server
+  const io = new Server(httpServer, {
+    cors: {
+      origin: process.env.SOCKET_IO_CORS_ORIGIN || "http://localhost:3000",
+      methods: ["GET", "POST"],
+      credentials: true
+    },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true
+  });
+
+  // Store active users and their socket connections
+  const activeUsers = new Map();
   const projectRooms = new Map();
 
-  io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.id}`);
+  // Middleware for authentication
+  io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+    const userId = socket.handshake.auth.userId;
+    const userRole = socket.handshake.auth.userRole;
 
-    // Handle user authentication
-    socket.on('authenticate', (data) => {
-      const { userId, userRole } = data;
-      socket.userId = userId;
-      socket.userRole = userRole;
-      userConnections.set(userId, socket.id);
-      
-      // Emit user online status to all connected users
-      socket.broadcast.emit('user_online', { userId });
-      
-      console.log(`User ${userId} authenticated with role ${userRole}`);
+    if (!userId) {
+      return next(new Error('Authentication error'));
+    }
+
+    socket.userId = userId;
+    socket.userRole = userRole;
+    next();
+  });
+
+  // Socket.IO connection handling
+  io.on('connection', (socket) => {
+    const userId = socket.userId;
+    const userRole = socket.userRole;
+
+    if (process.env.ENABLE_SOCKET_LOGGING === 'true') {
+      console.log(`User connected: ${userId} (${userRole})`);
+    }
+
+    // Store user connection
+    activeUsers.set(userId, {
+      socketId: socket.id,
+      userRole,
+      lastSeen: new Date(),
+      isOnline: true
     });
 
-    // Join project room
+    // Join user to their personal room
+    socket.join(`user_${userId}`);
+
+    // Emit user online status to relevant users
+    socket.broadcast.emit('user_status_change', {
+      userId,
+      status: 'online',
+      lastSeen: new Date()
+    });
+
+    // Join project rooms
     socket.on('join_project', (projectId) => {
-      socket.join(`project:${projectId}`);
+      socket.join(`project_${projectId}`);
       
       if (!projectRooms.has(projectId)) {
         projectRooms.set(projectId, new Set());
       }
-      projectRooms.get(projectId).add(socket.userId);
-      
-      // Notify others in the project that user joined
-      socket.to(`project:${projectId}`).emit('user_joined_project', {
-        userId: socket.userId,
+      projectRooms.get(projectId).add(userId);
+
+      // Notify others in the project
+      socket.to(`project_${projectId}`).emit('user_joined_project', {
+        userId,
+        userRole,
         projectId
       });
-      
-      console.log(`User ${socket.userId} joined project ${projectId}`);
+
+      if (process.env.ENABLE_SOCKET_LOGGING === 'true') {
+        console.log(`User ${userId} joined project ${projectId}`);
+      }
     });
 
-    // Leave project room
+    // Leave project rooms
     socket.on('leave_project', (projectId) => {
-      socket.leave(`project:${projectId}`);
+      socket.leave(`project_${projectId}`);
       
       if (projectRooms.has(projectId)) {
-        projectRooms.get(projectId).delete(socket.userId);
+        projectRooms.get(projectId).delete(userId);
       }
-      
-      socket.to(`project:${projectId}`).emit('user_left_project', {
-        userId: socket.userId,
+
+      socket.to(`project_${projectId}`).emit('user_left_project', {
+        userId,
         projectId
       });
-      
-      console.log(`User ${socket.userId} left project ${projectId}`);
-    });
-
-    // Handle sending messages
-    socket.on('send_message', async (data) => {
-      try {
-        const { projectId, content, messageType = 'text', recipient = null } = data;
-        
-        // Save message to database (you'll implement this API endpoint)
-        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectId,
-            senderId: socket.userId,
-            recipient,
-            content,
-            messageType
-          })
-        });
-        
-        if (response.ok) {
-          const savedMessage = await response.json();
-          
-          // Emit to project room or specific user
-          if (recipient) {
-            // Private message
-            const recipientSocketId = userConnections.get(recipient);
-            if (recipientSocketId) {
-              io.to(recipientSocketId).emit('message_received', savedMessage.data);
-            }
-            // Also send to sender
-            socket.emit('message_sent', savedMessage.data);
-          } else {
-            // Project group message
-            io.to(`project:${projectId}`).emit('message_received', savedMessage.data);
-          }
-        }
-      } catch (error) {
-        console.error('Error sending message:', error);
-        socket.emit('message_error', { error: 'Failed to send message' });
-      }
     });
 
     // Handle typing indicators
-    socket.on('typing_start', (projectId) => {
-      socket.to(`project:${projectId}`).emit('user_typing_start', {
-        userId: socket.userId,
-        projectId
+    socket.on('typing', (data) => {
+      socket.to(`project_${data.projectId}`).emit('user_typing', {
+        userId,
+        projectId: data.projectId,
+        isTyping: true
       });
     });
 
-    socket.on('typing_stop', (projectId) => {
-      socket.to(`project:${projectId}`).emit('user_typing_stop', {
-        userId: socket.userId,
-        projectId
+    socket.on('stop_typing', (data) => {
+      socket.to(`project_${data.projectId}`).emit('user_typing', {
+        userId,
+        projectId: data.projectId,
+        isTyping: false
       });
     });
 
-    // Handle notifications
-    socket.on('send_notification', async (data) => {
-      try {
-        const { recipientId, type, title, message, data: notificationData } = data;
-        
-        // Save notification to database
-        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            recipientId,
-            senderId: socket.userId,
-            type,
-            title,
-            message,
-            data: notificationData
-          })
-        });
-        
-        if (response.ok) {
-          const savedNotification = await response.json();
-          
-          // Send real-time notification to recipient
-          const recipientSocketId = userConnections.get(recipientId);
-          if (recipientSocketId) {
-            io.to(recipientSocketId).emit('notification_received', savedNotification.data);
-          }
-        }
-      } catch (error) {
-        console.error('Error sending notification:', error);
+    // Handle real-time messages
+    socket.on('send_message', (data) => {
+      const messageData = {
+        ...data,
+        senderId: userId,
+        timestamp: new Date().toISOString(),
+        messageId: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      };
+
+      // Send to project room
+      if (data.projectId) {
+        io.to(`project_${data.projectId}`).emit('new_message', messageData);
+      }
+
+      // Send to specific recipient if direct message
+      if (data.recipientId) {
+        io.to(`user_${data.recipientId}`).emit('new_message', messageData);
+      }
+
+      if (process.env.ENABLE_SOCKET_LOGGING === 'true') {
+        console.log(`Message sent from ${userId} to project ${data.projectId}`);
       }
     });
 
-    // Handle marking notifications as read
-    socket.on('mark_notification_read', async (notificationId) => {
-      try {
-        await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications/${notificationId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isRead: true })
-        });
-      } catch (error) {
-        console.error('Error marking notification as read:', error);
-      }
-    });
+    // Handle real-time notifications
+    socket.on('send_notification', (data) => {
+      const notificationData = {
+        ...data,
+        timestamp: new Date().toISOString(),
+        notificationId: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      };
 
-    // Handle task updates
-    socket.on('task_updated', (data) => {
-      const { projectId, taskData } = data;
-      socket.to(`project:${projectId}`).emit('task_updated', taskData);
+      // Send to specific user
+      if (data.recipientId) {
+        io.to(`user_${data.recipientId}`).emit('new_notification', notificationData);
+      }
+
+      // Send to project members
+      if (data.projectId) {
+        socket.to(`project_${data.projectId}`).emit('new_notification', notificationData);
+      }
     });
 
     // Handle project updates
-    socket.on('project_updated', (data) => {
-      const { projectId, projectData } = data;
-      socket.to(`project:${projectId}`).emit('project_updated', projectData);
+    socket.on('project_update', (data) => {
+      const updateData = {
+        ...data,
+        timestamp: new Date().toISOString(),
+        userId
+      };
+
+      socket.to(`project_${data.projectId}`).emit('project_updated', updateData);
+    });
+
+    // Handle task updates
+    socket.on('task_update', (data) => {
+      const updateData = {
+        ...data,
+        timestamp: new Date().toISOString(),
+        userId
+      };
+
+      socket.to(`project_${data.projectId}`).emit('task_updated', updateData);
+    });
+
+    // Handle file uploads
+    socket.on('file_uploaded', (data) => {
+      const fileData = {
+        ...data,
+        timestamp: new Date().toISOString(),
+        uploadedBy: userId
+      };
+
+      socket.to(`project_${data.projectId}`).emit('new_file', fileData);
     });
 
     // Handle disconnection
     socket.on('disconnect', () => {
-      if (socket.userId) {
-        userConnections.delete(socket.userId);
-        
-        // Remove user from all project rooms
-        for (const [projectId, users] of projectRooms.entries()) {
-          if (users.has(socket.userId)) {
-            users.delete(socket.userId);
-            socket.to(`project:${projectId}`).emit('user_left_project', {
-              userId: socket.userId,
-              projectId
-            });
-          }
-        }
-        
-        // Emit user offline status
-        socket.broadcast.emit('user_offline', { userId: socket.userId });
+      // Update user status
+      if (activeUsers.has(userId)) {
+        activeUsers.set(userId, {
+          ...activeUsers.get(userId),
+          isOnline: false,
+          lastSeen: new Date()
+        });
       }
+
+      // Clean up project rooms
+      projectRooms.forEach((users, projectId) => {
+        if (users.has(userId)) {
+          users.delete(userId);
+          socket.to(`project_${projectId}`).emit('user_left_project', {
+            userId,
+            projectId
+          });
+        }
+      });
+
+      // Notify others about offline status
+      socket.broadcast.emit('user_status_change', {
+        userId,
+        status: 'offline',
+        lastSeen: new Date()
+      });
+
+      if (process.env.ENABLE_SOCKET_LOGGING === 'true') {
+        console.log(`User disconnected: ${userId}`);
+      }
+    });
+
+    // Handle heartbeat for connection health
+    socket.on('ping', () => {
+      socket.emit('pong');
       
-      console.log(`User disconnected: ${socket.id}`);
+      if (activeUsers.has(userId)) {
+        activeUsers.set(userId, {
+          ...activeUsers.get(userId),
+          lastSeen: new Date()
+        });
+      }
     });
   });
 
-  server.on('request', (req, res) => {
-    const parsedUrl = parse(req.url, true);
-    handle(req, res, parsedUrl);
+  // API endpoint to get active users (for admin dashboard)
+  httpServer.on('request', (req, res) => {
+    if (req.url === '/api/socket/active-users' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        activeUsers: Array.from(activeUsers.entries()).map(([userId, data]) => ({
+          userId,
+          ...data,
+          socketId: undefined // Don't expose socket IDs
+        })),
+        totalConnections: io.engine.clientsCount
+      }));
+      return;
+    }
   });
 
-  server.listen(port, (err) => {
-    if (err) throw err;
-    console.log(`> Ready on http://localhost:${port}`);
-  });
+  // Cleanup inactive users every 5 minutes
+  setInterval(() => {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    
+    activeUsers.forEach((userData, userId) => {
+      if (!userData.isOnline && userData.lastSeen < fiveMinutesAgo) {
+        activeUsers.delete(userId);
+      }
+    });
+  }, 5 * 60 * 1000);
+
+  httpServer
+    .once('error', (err) => {
+      console.error(err);
+      process.exit(1);
+    })
+    .listen(port, () => {
+      console.log(`🚀 Server ready on http://${hostname}:${port}`);
+      console.log(`📡 Socket.IO server initialized`);
+    });
 });

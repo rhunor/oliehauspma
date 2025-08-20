@@ -1,11 +1,11 @@
-// src/app/api/messages/stats/route.ts - MESSAGE STATS API FIXED VERSION
+// src/app/api/messages/stats/route.ts - Improved Message Statistics API
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId, Filter } from 'mongodb';
+import { ObjectId, Filter, UpdateFilter } from 'mongodb';
 
-// Define proper TypeScript interfaces
+// Define clean interfaces without extending Document to avoid MongoDB type conflicts
 interface MessageDocument {
   _id: ObjectId;
   senderId: ObjectId;
@@ -13,180 +13,239 @@ interface MessageDocument {
   projectId?: ObjectId;
   content: string;
   isRead: boolean;
+  readAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+}
+
+interface UserDocument {
+  _id: ObjectId;
+  name: string;
+  avatar?: string;
 }
 
 interface MessageStats {
   unreadCount: number;
   totalMessages: number;
+  totalConversations: number;
   messagesThisWeek: number;
   messagesThisMonth: number;
-  conversationCount: number;
   lastMessageTime?: string;
+  recentConversations?: Array<{
+    userId: string;
+    userName: string;
+    userAvatar?: string;
+    lastMessage: string;
+    lastMessageTime: string;
+    unreadCount: number;
+  }>;
 }
 
-// GET /api/messages/stats - Fetch message statistics for current user
-export async function GET(): Promise<NextResponse> {
+// Aggregation result interfaces
+interface ConversationAggregationResult {
+  _id: ObjectId;
+  lastMessage: string;
+  lastMessageTime: Date;
+  messages: MessageDocument[];
+  user?: UserDocument;
+  unreadCount: number;
+}
+
+interface ConversationStatsResult {
+  total: number;
+}
+
+// GET /api/messages/stats - Get comprehensive message statistics
+export async function GET(request: NextRequest) {
   try {
-    // Verify authentication
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized access' },
-        { status: 401 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
+      }, { status: 401 });
     }
 
-    const userId = session.user.id;
-    const userRole = session.user.role;
+    const { searchParams } = new URL(request.url);
+    const includeRecentConversations = searchParams.get('includeRecent') === 'true';
+    const limit = parseInt(searchParams.get('limit') || '5');
 
-    // Connect to database
     const { db } = await connectToDatabase();
+    const userId = new ObjectId(session.user.id);
 
     // Calculate time ranges
     const now = new Date();
     const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // Build query based on user role
-    let messageFilter: Filter<MessageDocument>;
-    
-    if (userRole === 'super_admin') {
-      // Super admin can see all message stats
-      messageFilter = {};
-    } else {
-      // Other users can only see their own messages
-      messageFilter = {
-        $or: [
-          { senderId: new ObjectId(userId) },
-          { recipientId: new ObjectId(userId) }
-        ]
-      };
-    }
+    // Build base filter for user's messages
+    const baseFilter: Filter<MessageDocument> = {
+      $or: [
+        { senderId: userId },
+        { recipientId: userId }
+      ]
+    };
 
-    // Execute database queries in parallel for better performance
-    const [messageStats, lastMessage, conversationStats] = await Promise.all([
-      // Main message statistics
-      db.collection<MessageDocument>('messages').aggregate([
-        { $match: messageFilter },
-        {
-          $group: {
-            _id: null,
-            totalMessages: { $sum: 1 },
-            unreadCount: {
-              $sum: {
-                $cond: [
-                  {
-                    $and: [
-                      { $eq: ['$isRead', false] },
-                      userRole !== 'super_admin' ? { $eq: ['$recipientId', new ObjectId(userId)] } : true
-                    ]
-                  },
-                  1,
-                  0
-                ]
-              }
-            },
-            messagesThisWeek: {
-              $sum: {
-                $cond: [
-                  { $gte: ['$createdAt', oneWeekAgo] },
-                  1,
-                  0
-                ]
-              }
-            },
-            messagesThisMonth: {
-              $sum: {
-                $cond: [
-                  { $gte: ['$createdAt', oneMonthAgo] },
-                  1,
-                  0
-                ]
-              }
-            }
-          }
-        }
-      ]).toArray(),
+    // Execute all queries in parallel for better performance
+    const [
+      unreadCount,
+      totalMessages,
+      messagesThisWeek,
+      messagesThisMonth,
+      lastMessage,
+      conversationStats,
+      recentConversations
+    ] = await Promise.all([
+      // Unread messages count (only messages TO this user)
+      db.collection<MessageDocument>('messages').countDocuments({
+        recipientId: userId,
+        isRead: false
+      }),
 
-      // Get last message timestamp
-      db.collection<MessageDocument>('messages')
-        .findOne(messageFilter, { 
+      // Total messages involving this user
+      db.collection<MessageDocument>('messages').countDocuments(baseFilter),
+
+      // Messages this week
+      db.collection<MessageDocument>('messages').countDocuments({
+        ...baseFilter,
+        createdAt: { $gte: oneWeekAgo }
+      }),
+
+      // Messages this month
+      db.collection<MessageDocument>('messages').countDocuments({
+        ...baseFilter,
+        createdAt: { $gte: oneMonthAgo }
+      }),
+
+      // Last message
+      db.collection<MessageDocument>('messages').findOne(
+        baseFilter,
+        { 
           sort: { createdAt: -1 },
           projection: { createdAt: 1 }
-        }),
+        }
+      ),
 
-      // Count unique conversations
-      db.collection<MessageDocument>('messages').aggregate([
-        { $match: messageFilter },
+      // Total unique conversations
+      db.collection<MessageDocument>('messages').aggregate<ConversationStatsResult>([
+        { $match: baseFilter },
         {
           $group: {
             _id: {
-              // Create conversation identifier
-              participants: {
-                $cond: [
-                  { $lt: ['$senderId', '$recipientId'] },
-                  ['$senderId', '$recipientId'],
-                  ['$recipientId', '$senderId']
-                ]
-              }
+              $cond: [
+                { $eq: ['$senderId', userId] },
+                '$recipientId',
+                '$senderId'
+              ]
             }
           }
         },
+        { $count: 'total' }
+      ]).toArray(),
+
+      // Recent conversations (if requested)
+      includeRecentConversations ? db.collection<MessageDocument>('messages').aggregate<ConversationAggregationResult>([
+        { $match: baseFilter },
+        { $sort: { createdAt: -1 } },
         {
           $group: {
-            _id: null,
-            conversationCount: { $sum: 1 }
+            _id: {
+              $cond: [
+                { $eq: ['$senderId', userId] },
+                '$recipientId',
+                '$senderId'
+              ]
+            },
+            lastMessage: { $first: '$content' },
+            lastMessageTime: { $first: '$createdAt' },
+            messages: { $push: '$$ROOT' }
+          }
+        },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user',
+            pipeline: [{ $project: { name: 1, avatar: 1 } }]
+          }
+        },
+        {
+          $addFields: {
+            user: { $arrayElemAt: ['$user', 0] },
+            unreadCount: {
+              $size: {
+                $filter: {
+                  input: '$messages',
+                  cond: {
+                    $and: [
+                      { $eq: ['$$this.recipientId', userId] },
+                      { $eq: ['$$this.isRead', false] }
+                    ]
+                  }
+                }
+              }
+            }
           }
         }
-      ]).toArray()
+      ]).toArray() : Promise.resolve([])
     ]);
 
-    // Process results with proper error handling
-    const stats = messageStats[0] || {
-      totalMessages: 0,
+    // Process results
+    const totalConversations = conversationStats[0]?.total || 0;
+    const lastMessageTime = lastMessage?.createdAt?.toISOString();
+
+    // Transform recent conversations
+    const transformedRecentConversations = recentConversations.map((conv: ConversationAggregationResult) => ({
+      userId: conv._id.toString(),
+      userName: conv.user?.name || 'Unknown User',
+      userAvatar: conv.user?.avatar,
+      lastMessage: conv.lastMessage.substring(0, 100) + (conv.lastMessage.length > 100 ? '...' : ''),
+      lastMessageTime: conv.lastMessageTime.toISOString(),
+      unreadCount: conv.unreadCount
+    }));
+
+    // Construct response
+    const stats: MessageStats = {
+      unreadCount,
+      totalMessages,
+      totalConversations,
+      messagesThisWeek,
+      messagesThisMonth,
+      ...(lastMessageTime && { lastMessageTime }),
+      ...(includeRecentConversations && { recentConversations: transformedRecentConversations })
+    };
+
+    return NextResponse.json({
+      success: true,
+      data: stats
+    }, {
+      status: 200,
+      headers: {
+        'Cache-Control': 'private, max-age=30', // Cache for 30 seconds
+      }
+    });
+
+  } catch (error: unknown) {
+    console.error('Error fetching message stats:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    
+    // Return fallback stats to prevent UI breaks
+    const fallbackStats: MessageStats = {
       unreadCount: 0,
+      totalMessages: 0,
+      totalConversations: 0,
       messagesThisWeek: 0,
       messagesThisMonth: 0
     };
 
-    const conversationCount = conversationStats[0]?.conversationCount || 0;
-    const lastMessageTime = lastMessage?.createdAt?.toISOString();
-
-    // Construct response
-    const response: MessageStats = {
-      unreadCount: stats.unreadCount,
-      totalMessages: stats.totalMessages,
-      messagesThisWeek: stats.messagesThisWeek,
-      messagesThisMonth: stats.messagesThisMonth,
-      conversationCount,
-      ...(lastMessageTime && { lastMessageTime })
-    };
-
-    return NextResponse.json(response, {
-      status: 200,
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching message stats:', error);
-    
-    // Return safe default values instead of error to prevent UI breaks
-    const fallbackStats: MessageStats = {
-      unreadCount: 0,
-      totalMessages: 0,
-      messagesThisWeek: 0,
-      messagesThisMonth: 0,
-      conversationCount: 0
-    };
-
-    return NextResponse.json(fallbackStats, { 
-      status: 200,
+    return NextResponse.json({
+      success: false,
+      error: errorMessage,
+      data: fallbackStats // Include fallback data
+    }, { 
+      status: 500,
       headers: {
         'X-Fallback': 'true'
       }
@@ -195,23 +254,24 @@ export async function GET(): Promise<NextResponse> {
 }
 
 // POST /api/messages/stats/mark-read - Mark messages as read
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized access' },
-        { status: 401 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
+      }, { status: 401 });
     }
 
     const body = await request.json();
-    const { messageIds, conversationId, markAllRead } = body;
+    const { messageIds, conversationUserId, markAllRead } = body;
 
     const { db } = await connectToDatabase();
     const userId = new ObjectId(session.user.id);
 
     let updateFilter: Filter<MessageDocument>;
+    let updateCount = 0;
 
     if (markAllRead) {
       // Mark all unread messages for this user as read
@@ -219,74 +279,94 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         recipientId: userId,
         isRead: false
       };
-    } else if (conversationId) {
-      // Mark all messages in a conversation as read
+    } else if (conversationUserId) {
+      // Mark all messages in a specific conversation as read
       updateFilter = {
         recipientId: userId,
-        isRead: false,
-        $or: [
-          { senderId: new ObjectId(conversationId) },
-          { recipientId: new ObjectId(conversationId) }
-        ]
+        senderId: new ObjectId(conversationUserId),
+        isRead: false
       };
     } else if (messageIds && Array.isArray(messageIds)) {
       // Mark specific messages as read
+      const validIds = messageIds
+        .filter(id => ObjectId.isValid(id))
+        .map(id => new ObjectId(id));
+      
+      if (validIds.length === 0) {
+        return NextResponse.json({
+          success: false,
+          error: 'No valid message IDs provided'
+        }, { status: 400 });
+      }
+
       updateFilter = {
-        _id: { $in: messageIds.map((id: string) => new ObjectId(id)) },
+        _id: { $in: validIds },
         recipientId: userId,
         isRead: false
       };
     } else {
-      return NextResponse.json(
-        { error: 'Invalid request parameters' },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid request parameters. Provide messageIds, conversationUserId, or markAllRead flag.'
+      }, { status: 400 });
     }
+
+    // Create proper update filter with type safety
+    const updateOperation: UpdateFilter<MessageDocument> = {
+      $set: {
+        isRead: true,
+        readAt: new Date(),
+        updatedAt: new Date()
+      }
+    };
 
     // Update messages
     const updateResult = await db.collection<MessageDocument>('messages').updateMany(
       updateFilter,
-      {
-        $set: {
-          isRead: true,
-          updatedAt: new Date()
-        }
-      }
+      updateOperation
     );
+
+    updateCount = updateResult.modifiedCount;
 
     return NextResponse.json({
       success: true,
-      markedAsRead: updateResult.modifiedCount,
-      message: `Successfully marked ${updateResult.modifiedCount} messages as read`
+      data: {
+        markedAsRead: updateCount,
+        message: `Successfully marked ${updateCount} message${updateCount !== 1 ? 's' : ''} as read`
+      }
     }, { status: 200 });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error marking messages as read:', error);
-    return NextResponse.json(
-      { error: 'Failed to mark messages as read' },
-      { status: 500 }
-    );
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
+    }, { status: 500 });
   }
 }
 
-// PUT /api/messages/stats/refresh - Force refresh stats cache
-export async function PUT(): Promise<NextResponse> {
+// PUT /api/messages/stats/refresh - Force refresh message stats
+export async function PUT() {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized access' },
-        { status: 401 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
+      }, { status: 401 });
     }
 
-    // This endpoint can be used to trigger cache refresh
-    // or perform any maintenance operations on message stats
+    // This endpoint can be used to trigger cache invalidation
+    // or perform maintenance operations on message stats
     
     return NextResponse.json({
       success: true,
-      message: 'Stats cache refreshed successfully',
-      timestamp: new Date().toISOString()
+      data: {
+        message: 'Message stats cache refreshed successfully',
+        timestamp: new Date().toISOString()
+      }
     }, { 
       status: 200,
       headers: {
@@ -294,11 +374,13 @@ export async function PUT(): Promise<NextResponse> {
       }
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error refreshing message stats:', error);
-    return NextResponse.json(
-      { error: 'Failed to refresh stats' },
-      { status: 500 }
-    );
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
+    }, { status: 500 });
   }
 }

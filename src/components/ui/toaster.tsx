@@ -1,5 +1,6 @@
-// src/components/ui/toaster.tsx
-import { useToast } from "@/hooks/use-toast";
+// src/components/ui/toaster.tsx - FIXED: Ensured "use client" directive is present
+"use client"
+
 import {
   Toast,
   ToastClose,
@@ -7,10 +8,11 @@ import {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-} from "@/components/ui/toast";
+} from "@/components/ui/toast"
+import { useToast } from "@/hooks/use-toast"
 
 export function Toaster() {
-  const { toasts } = useToast();
+  const { toasts } = useToast()
 
   return (
     <ToastProvider>
@@ -26,9 +28,9 @@ export function Toaster() {
             {action}
             <ToastClose />
           </Toast>
-        );
+        )
       })}
       <ToastViewport />
     </ToastProvider>
-  );
+  )
 }

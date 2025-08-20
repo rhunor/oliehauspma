@@ -1,4 +1,4 @@
-// src/lib/validation.ts - FIXED VERSION
+// src/lib/validation.ts - FIXED VERSION with Tags Field Added
 import { z } from 'zod';
 
 // Helper function for ObjectId validation
@@ -128,7 +128,7 @@ export const createProjectSchema = z.object({
   endDate: z.string().min(1, 'End date is required'),
   budget: z.number().optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent'] as const),
-  tags: z.array(z.string()),
+  tags: z.array(z.string()).default([]),
   notes: z.string().optional(),
 }).refine((data) => {
   const startDate = new Date(data.startDate);
@@ -159,7 +159,7 @@ export const updateProjectSchema = z.object({
   notes: z.string().optional(),
 });
 
-// Task validation schemas
+// FIXED TASK VALIDATION SCHEMAS - Added missing tags field
 export const createTaskSchema = z.object({
   title: z
     .string()
@@ -172,11 +172,12 @@ export const createTaskSchema = z.object({
     .min(10, 'Description must be at least 10 characters')
     .max(500, 'Description must be less than 500 characters'),
   projectId: z.string().min(1, 'Project is required'),
-  assigneeId: z.string().min(1, 'Assignee is required'),
-  deadline: z.string().min(1, 'Deadline is required'),
-  priority: z.enum(['low', 'medium', 'high', 'urgent'] as const),
+  assigneeId: z.string().optional(), // Made optional to match your route
+  deadline: z.string().optional(), // Made optional to match your route  
+  priority: z.enum(['low', 'medium', 'high', 'urgent'] as const).default('medium'),
   estimatedHours: z.number().optional(),
-  dependencies: z.array(z.string()),
+  dependencies: z.array(z.string()).default([]),
+  tags: z.array(z.string()).default([]), // FIXED: Added missing tags field
 });
 
 export const updateTaskSchema = z.object({
@@ -187,7 +188,9 @@ export const updateTaskSchema = z.object({
   deadline: z.string().optional(),
   estimatedHours: z.number().optional(),
   actualHours: z.number().optional(),
+  progress: z.number().min(0).max(100).optional(), // Added progress field
   dependencies: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(), // FIXED: Added missing tags field
 });
 
 export const taskCommentSchema = z.object({
@@ -197,6 +200,7 @@ export const taskCommentSchema = z.object({
     .min(3, 'Comment must be at least 3 characters')
     .max(500, 'Comment must be less than 500 characters'),
   taskId: z.string().min(1, 'Task ID is required'),
+  isInternal: z.boolean().default(false), // Added isInternal field
 });
 
 export const createNotificationSchema = z.object({
@@ -211,6 +215,9 @@ export const createNotificationSchema = z.object({
     'message_received',
     'file_uploaded',
     'user_mentioned',
+    'project_update', // Added from your email types
+    'welcome',
+    'general',
   ] as const),
   title: z.string().min(1, 'Title is required').max(100, 'Title must be less than 100 characters'),
   message: z.string().min(1, 'Message is required').max(500, 'Message must be less than 500 characters'),
@@ -219,6 +226,57 @@ export const createNotificationSchema = z.object({
     taskId: z.string().optional(),
     messageId: z.string().optional(),
     fileId: z.string().optional(),
+  }).optional(),
+});
+
+// ADDITIONAL SCHEMAS FOR COMPLETENESS
+export const messageSchema = z.object({
+  content: z.string().min(1, 'Message content is required').max(1000, 'Message too long'),
+  projectId: z.string().optional(),
+  recipientId: z.string().optional(),
+  type: z.enum(['text', 'file', 'system', 'image', 'audio', 'video']).default('text'),
+});
+
+export const fileUploadSchema = z.object({
+  projectId: z.string().min(1, 'Project ID is required'),
+  description: z.string().max(500).optional(),
+  tags: z.array(z.string()).default([]),
+  isPublic: z.boolean().default(false),
+});
+
+export const userSettingsSchema = z.object({
+  emailNotifications: z.boolean().default(true),
+  pushNotifications: z.boolean().default(true),
+  projectUpdates: z.boolean().default(true),
+  taskReminders: z.boolean().default(true),
+  messageAlerts: z.boolean().default(true),
+  weeklyReports: z.boolean().default(false),
+  theme: z.enum(['light', 'dark', 'system']).default('system'),
+  timezone: z.string().default('UTC'),
+  language: z.string().default('en'),
+  dateFormat: z.enum(['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD']).default('MM/DD/YYYY'),
+});
+
+export const searchSchema = z.object({
+  query: z.string().optional(),
+  type: z.enum(['projects', 'tasks', 'users', 'files', 'all']).default('all'),
+  filters: z.object({
+    status: z.array(z.string()).optional(),
+    priority: z.array(z.string()).optional(),
+    assignee: z.array(z.string()).optional(),
+    dateRange: z.object({
+      start: z.string().optional(),
+      end: z.string().optional(),
+    }).optional(),
+    tags: z.array(z.string()).optional(),
+  }).optional(),
+  sort: z.object({
+    field: z.string().default('createdAt'),
+    direction: z.enum(['asc', 'desc']).default('desc'),
+  }).optional(),
+  pagination: z.object({
+    page: z.number().min(1).default(1),
+    limit: z.number().min(1).max(100).default(20),
   }).optional(),
 });
 
@@ -234,6 +292,10 @@ export type CreateTaskData = z.infer<typeof createTaskSchema>;
 export type UpdateTaskData = z.infer<typeof updateTaskSchema>;
 export type TaskCommentData = z.infer<typeof taskCommentSchema>;
 export type CreateNotificationData = z.infer<typeof createNotificationSchema>;
+export type MessageData = z.infer<typeof messageSchema>;
+export type FileUploadData = z.infer<typeof fileUploadSchema>;
+export type UserSettingsData = z.infer<typeof userSettingsSchema>;
+export type SearchData = z.infer<typeof searchSchema>;
 
 // Utility validation functions
 export function validateEmail(email: string): boolean {
