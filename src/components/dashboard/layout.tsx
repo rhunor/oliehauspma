@@ -1,11 +1,11 @@
-// src/components/dashboard/layout.tsx - FIXED: Client Component for Context usage
-'use client'; // CRITICAL: This makes it a client component
+// src/components/dashboard/layout.tsx - FIXED: Role-based settings navigation
+'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { useSocket } from '@/contexts/SocketContext'; // Now this will work!
+import { useSocket } from '@/contexts/SocketContext';
 import { NotificationBell } from '@/components/notifications/NotificationSystem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,13 +54,27 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const { data: session } = useSession();
   const pathname = usePathname();
-  const socket = useSocket(); // This will now work since we're in a client component!
+  const socket = useSocket();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [messageStats, setMessageStats] = useState<MessageStats>({ unreadCount: 0 });
 
   const userRole = session?.user?.role || '';
   const userName = session?.user?.name || '';
   const userEmail = session?.user?.email || '';
+
+  // CRITICAL FIX: Get role-specific settings route
+  const getSettingsRoute = useCallback(() => {
+    switch (userRole) {
+      case 'super_admin':
+        return '/admin/settings';
+      case 'project_manager':
+        return '/manager/settings';
+      case 'client':
+        return '/client/settings';
+      default:
+        return '/login';
+    }
+  }, [userRole]);
 
   // Load message statistics
   const loadMessageStats = useCallback(async () => {
@@ -159,14 +173,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const navItems = getNavItems();
 
   const handleSignOut = async () => {
-    // Disconnect socket before signing out
     if (socket?.disconnect) {
       socket.disconnect();
     }
     await signOut({ callbackUrl: '/login' });
   };
 
-  // Handle socket connection toggle
   const handleSocketToggle = () => {
     if (socket?.isConnected) {
       socket.disconnect();
@@ -255,7 +267,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 </span>
               </div>
               
-              {/* Manual socket control */}
               <button
                 onClick={handleSocketToggle}
                 className="p-1 rounded hover:bg-white/50 transition-colors"
@@ -281,14 +292,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <Menu className="h-6 w-6" />
             </button>
 
-            {/* Left section */}
             <div className="flex-1">
               {/* Search or other content can go here */}
             </div>
 
             {/* Right section - Notifications and User menu */}
             <div className="flex items-center space-x-4">
-              {/* Notifications */}
               <NotificationBell />
 
               {/* User menu */}
@@ -314,7 +323,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   </div>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href="/admin/settings" className="flex items-center">
+                    {/* CRITICAL FIX: Use role-specific settings route instead of hardcoded /admin/settings */}
+                    <Link href={getSettingsRoute()} className="flex items-center">
                       <Settings className="mr-2 h-4 w-4" />
                       Settings
                     </Link>
