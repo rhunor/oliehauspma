@@ -1,25 +1,13 @@
-// src/app/api/daily-reports/route.ts - ENHANCED DAILY REPORTS API
+// src/app/api/daily-reports/route.ts - COMPLETE WITH DELETE METHOD
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
 
 // TypeScript interfaces for type safety
-interface DailyReportRequest {
-  projectId: string;
-  date: string;
-  activities: DailyActivity[];
-  summary?: {
-    totalHours?: number;
-    crewSize?: number;
-    weatherConditions?: string;
-    safetyIncidents?: number;
-  };
-  photos?: string[];
-  notes?: string;
-}
-
 interface DailyActivity {
   title: string;
   description?: string;
@@ -30,6 +18,13 @@ interface DailyActivity {
   supervisor?: string;
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   progress?: number;
+}
+
+interface DailyReportSummary {
+  totalHours?: number;
+  crewSize?: number;
+  weatherConditions?: string;
+  safetyIncidents?: number;
 }
 
 interface DailyReportResponse {
@@ -103,7 +98,7 @@ export async function GET(request: NextRequest) {
     }
     // Super admin can see all reports (no additional filter)
 
-    // Add date filters
+    // Add specific filters with proper typing
     if (projectId) {
       baseFilter.project = new ObjectId(projectId);
     }
@@ -112,56 +107,56 @@ export async function GET(request: NextRequest) {
       const targetDate = new Date(date);
       const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
       const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
-      baseFilter.date = { $gte: startOfDay, $lte: endOfDay };
-    } else if (startDate && endDate) {
       baseFilter.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
+        $gte: startOfDay,
+        $lte: endOfDay
       };
-    } else if (startDate) {
-      baseFilter.date = { $gte: new Date(startDate) };
-    } else if (endDate) {
-      baseFilter.date = { $lte: new Date(endDate) };
+    } else if (startDate || endDate) {
+      const dateFilter: { $gte?: Date; $lte?: Date } = {};
+      if (startDate) {
+        dateFilter.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        dateFilter.$lte = new Date(endDate);
+      }
+      baseFilter.date = dateFilter;
     }
 
-    // Execute aggregation pipeline for enhanced data
-    const reports = await db.collection('dailyProgress')
-      .aggregate([
-        { $match: baseFilter },
-        {
-          $lookup: {
-            from: 'projects',
-            localField: 'project',
-            foreignField: '_id',
-            as: 'projectData',
-            pipeline: [{ $project: { title: 1, client: 1, manager: 1 } }]
-          }
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'createdBy',
-            foreignField: '_id',
-            as: 'creatorData',
-            pipeline: [{ $project: { name: 1, email: 1 } }]
-          }
-        },
-        {
-          $addFields: {
-            project: { $arrayElemAt: ['$projectData', 0] },
-            creator: { $arrayElemAt: ['$creatorData', 0] }
-          }
-        },
-        { $sort: { date: -1, createdAt: -1 } },
-        { $skip: (page - 1) * limit },
-        { $limit: limit },
-        { $unset: ['projectData', 'creatorData'] }
-      ])
-      .toArray();
+    // Build aggregation pipeline for enhanced data
+    const pipeline = [
+      { $match: baseFilter },
+      {
+        $lookup: {
+          from: 'projects',
+          localField: 'project',
+          foreignField: '_id',
+          as: 'projectData',
+          pipeline: [{ $project: { title: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'createdBy',
+          foreignField: '_id',
+          as: 'creatorData',
+          pipeline: [{ $project: { name: 1 } }]
+        }
+      },
+      {
+        $addFields: {
+          project: { $arrayElemAt: ['$projectData', 0] },
+          creator: { $arrayElemAt: ['$creatorData', 0] }
+        }
+      },
+      { $sort: { date: -1, createdAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      { $unset: ['projectData', 'creatorData'] }
+    ];
 
-    // Get total count for pagination
-    const totalCount = await db.collection('dailyProgress')
-      .countDocuments(baseFilter);
+    const reports = await db.collection('dailyProgress').aggregate(pipeline).toArray();
+    const totalCount = await db.collection('dailyProgress').countDocuments(baseFilter);
 
     // Transform data for client consumption
     const transformedReports: DailyReportResponse[] = reports.map(report => ({
@@ -210,7 +205,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST new daily report - for project managers and admins
+// POST new daily report - for project managers and admins with file upload
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -231,19 +226,42 @@ export async function POST(request: NextRequest) {
     }
 
     const { db } = await connectToDatabase();
-    const body = await request.json() as DailyReportRequest;
     
+    // Handle FormData for file uploads
+    const formData = await request.formData();
+    
+    // Extract form fields
+    const projectId = formData.get('projectId') as string;
+    const date = formData.get('date') as string;
+    const activitiesStr = formData.get('activities') as string;
+    const summaryStr = formData.get('summary') as string;
+    const notes = formData.get('notes') as string;
+
     // Validate required fields
-    if (!body.projectId || !body.date || !body.activities) {
+    if (!projectId || !date || !activitiesStr) {
       return NextResponse.json(
         { error: "Project ID, date, and activities are required" },
         { status: 400 }
       );
     }
 
+    // Parse JSON data
+    let activities: DailyActivity[];
+    let summary: DailyReportSummary;
+    
+    try {
+      activities = JSON.parse(activitiesStr);
+      summary = summaryStr ? JSON.parse(summaryStr) : {};
+    } catch (_parseError) {
+      return NextResponse.json(
+        { error: "Invalid JSON data in activities or summary" },
+        { status: 400 }
+      );
+    }
+
     // Verify project exists and user has access
     const project = await db.collection('projects')
-      .findOne({ _id: new ObjectId(body.projectId) });
+      .findOne({ _id: new ObjectId(projectId) });
 
     if (!project) {
       return NextResponse.json(
@@ -261,13 +279,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const reportDate = new Date(body.date);
+    const reportDate = new Date(date);
     const currentDate = new Date();
 
     // Check if report already exists for this date
     const existingReport = await db.collection('dailyProgress')
       .findOne({
-        project: new ObjectId(body.projectId),
+        project: new ObjectId(projectId),
         date: {
           $gte: new Date(reportDate.setHours(0, 0, 0, 0)),
           $lte: new Date(reportDate.setHours(23, 59, 59, 999))
@@ -281,30 +299,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Handle file uploads
+    const photoUrls: string[] = [];
+    
+    // Create uploads directory if it doesn't exist
+    const uploadsDir = join(process.cwd(), 'public', 'uploads', 'daily-reports');
+    try {
+      await mkdir(uploadsDir, { recursive: true });
+    } catch (_mkdirError) {
+      // Directory might already exist
+    }
+
+    // Process uploaded files
+    for (const [key, value] of formData.entries()) {
+      if (key.startsWith('photo_') && value instanceof File) {
+        try {
+          const bytes = await value.arrayBuffer();
+          const buffer = Buffer.from(bytes);
+          
+          // Generate unique filename
+          const timestamp = Date.now();
+          const randomString = Math.random().toString(36).substring(2);
+          const extension = value.name.split('.').pop() || 'jpg';
+          const filename = `${timestamp}_${randomString}.${extension}`;
+          
+          // Save file
+          const filepath = join(uploadsDir, filename);
+          await writeFile(filepath, buffer);
+          
+          // Store relative URL
+          photoUrls.push(`/uploads/daily-reports/${filename}`);
+        } catch (_fileError) {
+          console.error('Error saving file:', _fileError);
+          // Continue with other files
+        }
+      }
+    }
+
     // Calculate summary statistics
-    const activities = body.activities;
-    const summary = {
+    const summaryStats = {
       totalActivities: activities.length,
       completed: activities.filter(a => a.status === 'completed').length,
       inProgress: activities.filter(a => a.status === 'in_progress').length,
       pending: activities.filter(a => a.status === 'pending').length,
       delayed: activities.filter(a => a.status === 'delayed').length,
-      ...body.summary
+      ...summary
     };
 
     // Create new daily report
     const newReport = {
-      project: new ObjectId(body.projectId),
-      date: new Date(body.date),
+      project: new ObjectId(projectId),
+      date: new Date(date),
       activities: activities.map(activity => ({
         ...activity,
         _id: new ObjectId(),
         createdAt: currentDate,
         updatedAt: currentDate
       })),
-      summary,
-      photos: body.photos || [],
-      notes: body.notes,
+      summary: summaryStats,
+      photos: photoUrls,
+      notes: notes || '',
       createdBy: new ObjectId(session.user.id),
       createdAt: currentDate,
       updatedAt: currentDate,
@@ -314,44 +368,12 @@ export async function POST(request: NextRequest) {
     const result = await db.collection('dailyProgress')
       .insertOne(newReport);
 
-    // Fetch the created report with project details
-    const createdReport = await db.collection('dailyProgress')
-      .aggregate([
-        { $match: { _id: result.insertedId } },
-        {
-          $lookup: {
-            from: 'projects',
-            localField: 'project',
-            foreignField: '_id',
-            as: 'projectData',
-            pipeline: [{ $project: { title: 1 } }]
-          }
-        },
-        {
-          $addFields: {
-            project: { $arrayElemAt: ['$projectData', 0] }
-          }
-        }
-      ])
-      .toArray();
-
-    const report = createdReport[0];
-
     return NextResponse.json({
       success: true,
       data: {
-        _id: report._id.toString(),
-        projectId: report.project._id.toString(),
-        projectTitle: report.project.title,
-        date: report.date.toISOString(),
-        activities: report.activities,
-        summary: report.summary,
-        photos: report.photos,
-        notes: report.notes,
-        createdAt: report.createdAt.toISOString(),
-        approved: report.approved
-      },
-      message: "Daily report created successfully"
+        reportId: result.insertedId.toString(),
+        message: "Daily report created successfully"
+      }
     });
 
   } catch (error) {
@@ -375,6 +397,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Only project managers and super admins can update reports
     if (!['project_manager', 'super_admin'].includes(session.user.role)) {
       return NextResponse.json(
         { error: "Only project managers and admins can update daily reports" },
@@ -450,6 +473,80 @@ export async function PUT(request: NextRequest) {
 
   } catch (error) {
     console.error('Error updating daily report:', error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE daily report
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Only project managers and super admins can delete reports
+    if (!['project_manager', 'super_admin'].includes(session.user.role)) {
+      return NextResponse.json(
+        { error: "Only project managers and admins can delete daily reports" },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const reportId = searchParams.get('id');
+
+    if (!reportId) {
+      return NextResponse.json(
+        { error: "Report ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const { db } = await connectToDatabase();
+
+    // Find existing report
+    const existingReport = await db.collection('dailyProgress')
+      .findOne({ _id: new ObjectId(reportId) });
+
+    if (!existingReport) {
+      return NextResponse.json(
+        { error: "Report not found" },
+        { status: 404 }
+      );
+    }
+
+    // Check authorization for project managers
+    if (session.user.role === 'project_manager') {
+      const project = await db.collection('projects')
+        .findOne({ _id: existingReport.project });
+      
+      if (project?.manager.toString() !== session.user.id) {
+        return NextResponse.json(
+          { error: "Unauthorized to delete this report" },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Delete the report
+    await db.collection('dailyProgress')
+      .deleteOne({ _id: new ObjectId(reportId) });
+
+    return NextResponse.json({
+      success: true,
+      message: "Daily report deleted successfully"
+    });
+
+  } catch (error) {
+    console.error('Error deleting daily report:', error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
