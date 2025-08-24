@@ -1,4 +1,4 @@
-// src/components/projects/CreateProjectButton.tsx
+// src/components/projects/CreateProjectButton.tsx - FIXED: Array response handling
 'use client';
 
 import { useState } from 'react';
@@ -55,18 +55,60 @@ export default function CreateProjectButton() {
     notes: ''
   });
 
-  // Fetch users when dialog opens
+  // FIXED: Enhanced user fetching with proper error handling
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/users');
-      if (response.ok) {
-        const data = await response.json();
-        const users = data.data || [];
-        setClients(users.filter((user: User) => user.role === 'client'));
-        setManagers(users.filter((user: User) => user.role === 'project_manager'));
+      const response = await fetch('/api/users?limit=100');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch users: ${response.status}`);
       }
+      
+      const data = await response.json();
+      
+      // CRITICAL FIX: Handle different response structures from API
+      let users: User[] = [];
+      
+      if (data.success && data.data) {
+        // Handle paginated response structure
+        if (data.data.users && Array.isArray(data.data.users)) {
+          users = data.data.users;
+        }
+        // Handle direct array response
+        else if (Array.isArray(data.data)) {
+          users = data.data;
+        }
+      }
+      // Handle direct array response (fallback)
+      else if (Array.isArray(data)) {
+        users = data;
+      }
+      
+      // ENHANCED: Validate that users is an array before filtering
+      if (!Array.isArray(users)) {
+        console.warn('Users data is not an array:', users);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Invalid user data format received",
+        });
+        return;
+      }
+
+      // FIXED: Safe filtering with array validation
+      const clientUsers = users.filter((user: User) => user && user.role === 'client');
+      const managerUsers = users.filter((user: User) => user && user.role === 'project_manager');
+      
+      setClients(clientUsers);
+      setManagers(managerUsers);
+      
     } catch (error) {
       console.error('Error fetching users:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load users. Please try again.",
+      });
     }
   };
 
@@ -93,6 +135,26 @@ export default function CreateProjectButton() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Enhanced validation
+    if (!formData.title || !formData.description || !formData.clientId || !formData.managerId) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'Please fill in all required fields',
+      });
+      return;
+    }
+
+    if (formData.startDate && formData.endDate && new Date(formData.startDate) >= new Date(formData.endDate)) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'End date must be after start date',
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -100,8 +162,8 @@ export default function CreateProjectButton() {
         ...formData,
         budget: formData.budget ? parseFloat(formData.budget) : undefined,
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(Boolean),
-        startDate: new Date(formData.startDate).toISOString(),
-        endDate: new Date(formData.endDate).toISOString()
+        startDate: formData.startDate ? new Date(formData.startDate).toISOString() : undefined,
+        endDate: formData.endDate ? new Date(formData.endDate).toISOString() : undefined
       };
 
       const response = await fetch('/api/projects', {
@@ -112,27 +174,27 @@ export default function CreateProjectButton() {
         body: JSON.stringify(projectData),
       });
 
-      if (response.ok) {
-        toast({
-          title: 'Success',
-          description: 'Project created successfully',
-        });
-        setOpen(false);
-        router.refresh(); // Refresh to show new project
-      } else {
-        const error = await response.json();
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: error.error || 'Failed to create project',
-        });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `HTTP error! status: ${response.status}`);
       }
+
+      toast({
+        title: 'Success',
+        description: 'Project created successfully',
+      });
+      
+      setOpen(false);
+      router.refresh(); // Refresh to show new project
+      
     } catch (error) {
       console.error('Error creating project:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'An unexpected error occurred',
+        description: errorMessage,
       });
     } finally {
       setLoading(false);
@@ -143,9 +205,7 @@ export default function CreateProjectButton() {
     return formData.title && 
            formData.description && 
            formData.clientId && 
-           formData.managerId && 
-           formData.startDate && 
-           formData.endDate;
+           formData.managerId;
   };
 
   // Suppress session usage warning - session might be used for auth checks in the future
@@ -169,112 +229,101 @@ export default function CreateProjectButton() {
             Add a new interior design project to your portfolio.
           </DialogDescription>
         </DialogHeader>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Project Title */}
+          <div className="space-y-2">
+            <Label htmlFor="title">Project Title *</Label>
+            <Input
+              id="title"
+              value={formData.title}
+              onChange={(e) => setFormData(prev => ({...prev, title: e.target.value}))}
+              placeholder="Enter project title"
+              required
+            />
+          </div>
+
+          {/* Project Description */}
+          <div className="space-y-2">
+            <Label htmlFor="description">Description *</Label>
+            <Textarea
+              id="description"
+              value={formData.description}
+              onChange={(e) => setFormData(prev => ({...prev, description: e.target.value}))}
+              placeholder="Enter project description"
+              rows={3}
+              required
+            />
+          </div>
+
+          {/* Client and Manager Selection */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <Label htmlFor="title">Project Title *</Label>
-              <Input
-                id="title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Enter project title"
-                required
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <Label htmlFor="description">Description *</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Describe the project scope and objectives"
-                rows={3}
-                required
-              />
-            </div>
-
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="clientId">Client *</Label>
-              <Select 
-                value={formData.clientId} 
-                onValueChange={(value) => setFormData({ ...formData, clientId: value })}
-              >
+              <Select value={formData.clientId} onValueChange={(value) => setFormData(prev => ({...prev, clientId: value}))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select client" />
+                  <SelectValue placeholder="Select a client" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map((client) => (
-                    <SelectItem key={client._id} value={client._id}>
-                      {client.name} ({client.email})
-                    </SelectItem>
-                  ))}
+                  {clients.length > 0 ? (
+                    clients.map((client) => (
+                      <SelectItem key={client._id} value={client._id}>
+                        {client.name} - {client.email}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-clients" disabled>No clients available</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="managerId">Project Manager *</Label>
-              <Select 
-                value={formData.managerId} 
-                onValueChange={(value) => setFormData({ ...formData, managerId: value })}
-              >
+              <Select value={formData.managerId} onValueChange={(value) => setFormData(prev => ({...prev, managerId: value}))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select manager" />
+                  <SelectValue placeholder="Select a manager" />
                 </SelectTrigger>
                 <SelectContent>
-                  {managers.map((manager) => (
-                    <SelectItem key={manager._id} value={manager._id}>
-                      {manager.name} ({manager.email})
-                    </SelectItem>
-                  ))}
+                  {managers.length > 0 ? (
+                    managers.map((manager) => (
+                      <SelectItem key={manager._id} value={manager._id}>
+                        {manager.name} - {manager.email}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-managers" disabled>No managers available</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
-            <div>
-              <Label htmlFor="startDate">Start Date *</Label>
+          {/* Dates and Priority */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="startDate">Start Date</Label>
               <Input
                 id="startDate"
                 type="date"
                 value={formData.startDate}
-                onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                required
+                onChange={(e) => setFormData(prev => ({...prev, startDate: e.target.value}))}
               />
             </div>
 
-            <div>
-              <Label htmlFor="endDate">End Date *</Label>
+            <div className="space-y-2">
+              <Label htmlFor="endDate">End Date</Label>
               <Input
                 id="endDate"
                 type="date"
                 value={formData.endDate}
-                onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                min={formData.startDate}
-                required
+                onChange={(e) => setFormData(prev => ({...prev, endDate: e.target.value}))}
               />
             </div>
 
-            <div>
-              <Label htmlFor="budget">Budget (NGN)</Label>
-              <Input
-                id="budget"
-                type="number"
-                value={formData.budget}
-                onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-              />
-            </div>
-
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="priority">Priority</Label>
-              <Select 
-                value={formData.priority} 
-                onValueChange={(value) => setFormData({ ...formData, priority: value })}
-              >
+              <Select value={formData.priority} onValueChange={(value) => setFormData(prev => ({...prev, priority: value}))}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -286,41 +335,57 @@ export default function CreateProjectButton() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
-            <div className="md:col-span-2">
-              <Label htmlFor="tags">Tags (comma-separated)</Label>
+          {/* Budget and Tags */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="budget">Budget</Label>
               <Input
-                id="tags"
-                value={formData.tags}
-                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                placeholder="interior design, residential, modern"
+                id="budget"
+                type="number"
+                step="0.01"
+                value={formData.budget}
+                onChange={(e) => setFormData(prev => ({...prev, budget: e.target.value}))}
+                placeholder="Enter budget amount"
               />
             </div>
 
-            <div className="md:col-span-2">
-              <Label htmlFor="notes">Additional Notes</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Any additional project details or requirements"
-                rows={2}
+            <div className="space-y-2">
+              <Label htmlFor="tags">Tags</Label>
+              <Input
+                id="tags"
+                value={formData.tags}
+                onChange={(e) => setFormData(prev => ({...prev, tags: e.target.value}))}
+                placeholder="Enter tags (comma separated)"
               />
             </div>
           </div>
 
+          {/* Notes */}
+          <div className="space-y-2">
+            <Label htmlFor="notes">Notes</Label>
+            <Textarea
+              id="notes"
+              value={formData.notes}
+              onChange={(e) => setFormData(prev => ({...prev, notes: e.target.value}))}
+              placeholder="Additional notes or comments"
+              rows={2}
+            />
+          </div>
+
           <DialogFooter>
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setOpen(false)}
               disabled={loading}
             >
               Cancel
             </Button>
-            <Button 
-              type="submit" 
-              disabled={!isFormValid() || loading}
+            <Button
+              type="submit"
+              disabled={loading || !isFormValid()}
             >
               {loading ? 'Creating...' : 'Create Project'}
             </Button>

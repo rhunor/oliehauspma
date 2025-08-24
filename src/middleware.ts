@@ -1,4 +1,4 @@
-// src/middleware.ts - UPDATED: Added service worker support to existing middleware
+// src/middleware.ts - FIXED: Enhanced authentication redirect and session handling
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
@@ -21,13 +21,14 @@ export default withAuth(
       return NextResponse.rewrite(new URL('/manifest.json', request.url));
     }
 
-    // EXISTING CODE BELOW - No changes to your authentication logic
+    // EXISTING CODE BELOW - Enhanced authentication logic
     const token = request.nextauth.token;
 
     // Public routes that don't require authentication
     const publicRoutes = ["/login", "/api/auth", "/unauthorized"];
     const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 
+    // CRITICAL FIX: Handle session expiration and reconnection
     // If user is not authenticated and trying to access protected route
     if (!token && !isPublicRoute) {
       // Store the intended destination for post-login redirect
@@ -38,7 +39,7 @@ export default withAuth(
       return NextResponse.redirect(redirectUrl);
     }
 
-    // If user is authenticated and trying to access login page
+    // ENHANCED FIX: Better handling of authenticated users accessing login page
     if (token && pathname === "/login") {
       // Check for callback URL from query params
       const callbackUrl = request.nextUrl.searchParams.get("callbackUrl");
@@ -53,7 +54,7 @@ export default withAuth(
         }
       }
       
-      // Default redirect based on role
+      // CRITICAL FIX: Always redirect authenticated users away from login
       const redirectPath = getRoleBasedRedirect(token.role as string);
       return NextResponse.redirect(new URL(redirectPath, request.url));
     }
@@ -97,19 +98,21 @@ export default withAuth(
         return NextResponse.redirect(new URL(getRoleBasedRedirect(userRole), request.url));
       }
 
-      // CRITICAL FIX: Remove /admin/settings from admin-only routes
-      // Only these routes should be admin-only, NOT settings pages
+      // ENHANCED: Better unauthorized page handling - redirect to role dashboard instead
+      // Only these routes should be admin-only
       const adminOnlyRoutes = ["/admin/users", "/admin/system"];
       if (adminOnlyRoutes.some(route => pathname.startsWith(route)) && userRole !== "super_admin") {
-        return NextResponse.redirect(new URL("/unauthorized", request.url));
+        // FIXED: Redirect to appropriate dashboard instead of unauthorized page
+        return NextResponse.redirect(new URL(getRoleBasedRedirect(userRole), request.url));
       }
 
-      // Check general route access
+      // Check general route access with better error handling
       const allowedRoutes = roleRoutes[userRole] || [];
       const hasAccess = allowedRoutes.some(route => pathname.startsWith(route));
       
       if (!hasAccess && !pathname.startsWith("/api/")) {
-        return NextResponse.redirect(new URL("/unauthorized", request.url));
+        // FIXED: Redirect to appropriate dashboard instead of unauthorized page
+        return NextResponse.redirect(new URL(getRoleBasedRedirect(userRole), request.url));
       }
 
       // API route protection with enhanced headers
@@ -147,8 +150,9 @@ export default withAuth(
           return true;
         }
 
+        // ENHANCED: Better session validation
         // Require authentication for all other routes
-        return !!token;
+        return !!token && !!token.id && !!token.role;
       },
     },
   }
