@@ -1,4 +1,7 @@
-// src/app/api/files/[id]/download/route.ts - FIXED FOR PROPER FILE DOWNLOADS
+// ========================================
+// src/app/api/files/[id]/preview/route.ts - FIXED WITH AWAITED PARAMS
+// ========================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -12,10 +15,10 @@ interface FileDocument {
   mimeType: string;
   url: string;
   size: number;
-  projectId?: ObjectId;
+  projectId: ObjectId;
   uploadedBy: ObjectId;
-  isPublic?: boolean;
-  downloadCount?: number;
+  isPublic: boolean;
+  viewCount?: number;
   createdAt: Date;
 }
 
@@ -25,6 +28,14 @@ interface ProjectDocument {
   manager: ObjectId;
   title: string;
 }
+
+interface FilePreviewParams {
+  id: string;
+}
+
+// ========================================
+// src/app/api/files/[id]/preview/route.ts - FIXED FOR PROPER FILE PREVIEW
+// ========================================
 
 export async function GET(
   request: NextRequest,
@@ -66,7 +77,7 @@ export async function GET(
       );
     }
 
-    // 4. Check user permissions (simplified)
+    // 4. Check user permissions (same as download)
     let hasAccess = false;
 
     if (session.user.role === 'super_admin') {
@@ -76,7 +87,6 @@ export async function GET(
     } else if (file.uploadedBy.equals(userId)) {
       hasAccess = true;
     } else if (file.projectId) {
-      // Check project access
       const project = await db.collection('projects').findOne({
         _id: file.projectId
       }) as ProjectDocument | null;
@@ -97,69 +107,83 @@ export async function GET(
       );
     }
 
+    // 5. Check if file can be previewed
+    const mimeType = file.mimeType;
+    const canPreview = 
+      mimeType?.startsWith('image/') ||
+      mimeType === 'application/pdf' ||
+      mimeType?.startsWith('text/');
+
+    if (!canPreview) {
+      return NextResponse.json({
+        success: false,
+        error: 'Preview not available for this file type',
+        data: {
+          _id: file._id.toString(),
+          originalName: file.originalName,
+          mimeType: file.mimeType,
+          message: 'This file type cannot be previewed. Please download to view.'
+        }
+      });
+    }
+
     try {
-      console.log('Fetching file from URL:', file.url);
+      console.log('Fetching file for preview from URL:', file.url);
       
-      // 5. FIXED: Fetch file with proper headers
+      // 6. FIXED: Fetch file for preview
       const fileResponse = await fetch(file.url, {
         method: 'GET',
-        cache: 'no-store' // Prevent caching issues
+        cache: 'no-store'
       });
       
       if (!fileResponse.ok) {
-        console.error('File fetch failed:', fileResponse.status, fileResponse.statusText);
+        console.error('File preview fetch failed:', fileResponse.status);
         throw new Error(`Failed to fetch file: ${fileResponse.status}`);
       }
 
-      // 6. FIXED: Get the blob directly instead of arrayBuffer
+      // 7. FIXED: Get blob for preview
       const fileBlob = await fileResponse.blob();
       
-      console.log('File blob size:', fileBlob.size, 'type:', fileBlob.type);
-      
-      // 7. FIXED: Set correct headers for download
+      // 8. FIXED: Set correct headers for inline preview
       const headers = new Headers({
-        'Content-Type': file.mimeType || 'application/octet-stream',
+        'Content-Type': mimeType,
         'Content-Length': fileBlob.size.toString(),
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(file.originalName)}"`,
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
+        'Content-Disposition': `inline; filename="${encodeURIComponent(file.originalName)}"`,
+        'Cache-Control': 'private, max-age=3600',
+        'X-Content-Type-Options': 'nosniff'
       });
 
-      // 8. Update download count (async, non-blocking)
+      // 9. Update view count (async, non-blocking)
       setImmediate(async () => {
         try {
           await db.collection('files').updateOne(
             { _id: fileObjectId },
             { 
-              $inc: { downloadCount: 1 },
-              $set: { 
-                lastDownloadedAt: new Date(),
-                lastDownloadedBy: userId
-              }
+              $inc: { viewCount: 1 },
+              $set: { lastViewedAt: new Date() }
             }
           );
         } catch (error) {
-          console.warn('Failed to update download count:', error);
+          console.warn('Failed to update view count:', error);
         }
       });
 
-      // 9. FIXED: Return the blob directly
+      // 10. FIXED: Return the blob for preview
       return new NextResponse(fileBlob, {
         status: 200,
         headers
       });
 
     } catch (fetchError) {
-      console.error('Error fetching file for download:', fetchError);
+      console.error('Error fetching file for preview:', fetchError);
       return NextResponse.json(
-        { error: 'Failed to retrieve file content' },
+        { error: 'Failed to load file content for preview' },
         { status: 500 }
       );
     }
 
   } catch (error) {
-    console.error('Error in file download:', error);
+    console.error('Error in file preview:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

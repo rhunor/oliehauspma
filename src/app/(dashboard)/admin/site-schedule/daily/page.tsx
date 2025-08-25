@@ -1,231 +1,397 @@
-// src/app/(dashboard)/admin/site-schedule/daily/page.tsx
-"use client";
+// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - FIXED BUILD ERRORS
+'use client';
 
-import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import Link from "next/link";
-import {
-  CalendarCheck,
-  Clock,
-  Plus,
-  Save,
-  Camera,
+import { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent } from '@/components/ui/card'; // FIXED: Removed unused CardHeader, CardTitle
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
+import { 
+  Plus, 
+  CalendarCheck, 
+  Clock, 
   User,
-  AlertCircle,
-  CheckCircle,
-  XCircle,
-  Loader,
-  ChevronLeft,
-  ChevronRight,
-  Edit,
-  Trash,
-  Image as ImageIcon
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatDate } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+  Calendar as CalendarIcon
+  // FIXED: Removed unused imports: Edit, Trash2, CheckCircle, AlertCircle
+} from 'lucide-react';
+import Link from 'next/link';
 
-interface DailyTask {
-  id: string;
+// TypeScript interfaces
+interface Project {
+  _id: string;
   title: string;
-  contractor: string;
-  status: 'completed' | 'in_progress' | 'pending' | 'delayed';
-  comments: string;
-  images: string[];
-  incidentReport?: string;
-  supervisor: string;
-  startTime?: string;
-  endTime?: string;
+  client: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
 }
 
-// Mock contractors list
-const contractors = [
-  "Ernest", "John", "Ben", "Mason", "Ezekiel", 
-  "AY", "Kingsley", "Saheed", "Temidayo"
-];
+interface DailyActivity {
+  _id?: string;
+  title: string;
+  description: string;
+  contractor: string;
+  plannedDate: string;
+  actualDate?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  comments?: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  estimatedDuration?: number;
+  actualDuration?: number;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
-// Mock supervisors list
-const supervisors = [
-  "Anita", "Naomi", "Ernest", "Temidayo"
-];
+interface DailyProgress {
+  _id?: string;
+  project: string;
+  date: string;
+  activities: DailyActivity[];
+  summary: {
+    totalActivities: number;
+    completed: number;
+    inProgress: number;
+    pending: number;
+    delayed: number;
+  };
+  approved: boolean;
+}
 
-export default function DailyProgressPage() {
-  const { data: session } = useSession();
+export default function AdminDailyActivitiesPage() {
   const { toast } = useToast();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [tasks, setTasks] = useState<DailyTask[]>([]);
+  
+  // State management
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [dailyProgress, setDailyProgress] = useState<DailyProgress | null>(null);
   const [loading, setLoading] = useState(false);
-  const [editingTask, setEditingTask] = useState<DailyTask | null>(null);
-  const [showAddTask, setShowAddTask] = useState(false);
-  const [selectedProject, setSelectedProject] = useState("magodo-spa");
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 
-  // Form state for new/edit task
-  const [taskForm, setTaskForm] = useState<Partial<DailyTask>>({
-    title: "",
-    contractor: "",
-    status: "pending",
-    comments: "",
-    images: [],
-    supervisor: session?.user?.name || "",
-    incidentReport: ""
+  // Form state for new activity
+  const [newActivity, setNewActivity] = useState<Omit<DailyActivity, '_id'>>({
+    title: '',
+    description: '',
+    contractor: '',
+    plannedDate: selectedDate,
+    status: 'pending',
+    priority: 'medium',
+    estimatedDuration: 60
   });
 
-  // Load tasks for selected date
-  useEffect(() => {
-    loadTasksForDate(selectedDate);
-  }, [selectedDate]);
-
-  const loadTasksForDate = async (date: string) => {
-    setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      // Mock data for demonstration
-      const mockTasks: DailyTask[] = [
-        {
-          id: "1",
-          title: "Plumbing connections in master bathroom",
-          contractor: "John",
-          status: "completed",
-          comments: "All connections completed and tested for leaks",
-          images: ["image1.jpg", "image2.jpg"],
-          supervisor: "Ernest",
-          startTime: "08:00",
-          endTime: "12:00"
-        },
-        {
-          id: "2",
-          title: "Electrical wiring for kitchen",
-          contractor: "AY",
-          status: "in_progress",
-          comments: "Wiring 70% complete, will finish tomorrow",
-          images: ["image3.jpg"],
-          supervisor: "Ernest",
-          startTime: "09:00"
-        }
-      ];
+  // Fetch projects on component mount
+  const fetchProjects = useCallback(async () => {
+    const abortController = new AbortController(); // FIXED: Use const instead of let
+    
+    try {
+      setProjectsLoading(true);
       
-      if (date === new Date().toISOString().split('T')[0]) {
-        setTasks(mockTasks);
-      } else {
-        setTasks([]);
-      }
-      setLoading(false);
-    }, 500);
-  };
-
-  const handleAddTask = () => {
-    setTaskForm({
-      title: "",
-      contractor: "",
-      status: "pending",
-      comments: "",
-      images: [],
-      supervisor: session?.user?.name || "",
-      incidentReport: ""
-    });
-    setEditingTask(null);
-    setShowAddTask(true);
-  };
-
-  const handleEditTask = (task: DailyTask) => {
-    setTaskForm(task);
-    setEditingTask(task);
-    setShowAddTask(true);
-  };
-
-  const handleDeleteTask = (taskId: string) => {
-    if (confirm("Are you sure you want to delete this task?")) {
-      setTasks(tasks.filter(t => t.id !== taskId));
-      toast({
-        title: "Task Deleted",
-        description: "The task has been removed from the schedule",
+      const response = await fetch('/api/projects?limit=100', {
+        signal: abortController.signal,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
-    }
-  };
 
-  const handleSaveTask = () => {
-    if (!taskForm.title || !taskForm.contractor || !taskForm.supervisor) {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.data?.data) {
+        setProjects(data.data.data);
+        
+        // Auto-select first project if none selected
+        if (data.data.data.length > 0 && !selectedProject) {
+          setSelectedProject(data.data.data[0]._id);
+        }
+      } else {
+        throw new Error(data.error || 'Failed to fetch projects');
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Error fetching projects:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Failed to load projects. Please refresh the page.',
+        });
+      }
+    } finally {
+      setProjectsLoading(false);
+    }
+
+    // Cleanup function
+    return () => {
+      abortController.abort();
+    };
+  }, [selectedProject, toast]);
+
+  // Fetch daily progress for selected project and date
+  const fetchDailyProgress = useCallback(async () => {
+    if (!selectedProject || !selectedDate) return;
+
+    const abortController = new AbortController(); // FIXED: Use const instead of let
+    
+    try {
+      setLoading(true);
+      
+      const response = await fetch(
+        `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate}`,
+        {
+          signal: abortController.signal,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setDailyProgress(data.data);
+      } else {
+        // No progress found for this date - create empty state
+        setDailyProgress({
+          project: selectedProject,
+          date: selectedDate,
+          activities: [],
+          summary: {
+            totalActivities: 0,
+            completed: 0,
+            inProgress: 0,
+            pending: 0,
+            delayed: 0
+          },
+          approved: false
+        });
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Error fetching daily progress:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Failed to load daily activities.',
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+
+    // Cleanup function
+    return () => {
+      abortController.abort();
+    };
+  }, [selectedProject, selectedDate, toast]);
+
+  // Add new activity
+  const handleAddActivity = async () => {
+    if (!selectedProject || !newActivity.title.trim() || !newActivity.contractor.trim()) {
       toast({
-        variant: "destructive",
-        title: "Missing Information",
-        description: "Please fill in all required fields",
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'Please fill in all required fields.',
       });
       return;
     }
 
-    if (editingTask) {
-      // Update existing task
-      setTasks(tasks.map(t => 
-        t.id === editingTask.id 
-          ? { ...t, ...taskForm } as DailyTask
-          : t
-      ));
+    try {
+      setLoading(true);
+
+      const response = await fetch('/api/site-schedule/daily', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: selectedProject,
+          date: selectedDate,
+          activity: {
+            ...newActivity,
+            plannedDate: selectedDate
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add activity');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setDailyProgress(data.data);
+        setIsAddDialogOpen(false);
+        setNewActivity({
+          title: '',
+          description: '',
+          contractor: '',
+          plannedDate: selectedDate,
+          status: 'pending',
+          priority: 'medium',
+          estimatedDuration: 60
+        });
+        
+        toast({
+          title: 'Success',
+          description: 'Activity added successfully.',
+        });
+      }
+    } catch (error) {
+      console.error('Error adding activity:', error);
       toast({
-        title: "Task Updated",
-        description: "The task has been updated successfully",
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to add activity.',
       });
-    } else {
-      // Add new task
-      const newTask: DailyTask = {
-        id: Date.now().toString(),
-        ...taskForm
-      } as DailyTask;
-      setTasks([...tasks, newTask]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update activity status
+  const handleUpdateActivityStatus = async (activityId: string, newStatus: DailyActivity['status']) => {
+    if (!selectedProject || !activityId) return;
+
+    try {
+      setLoading(true);
+
+      const response = await fetch('/api/site-schedule/daily', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: selectedProject,
+          date: selectedDate,
+          activityId,
+          updates: { status: newStatus }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update activity');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setDailyProgress(data.data);
+        toast({
+          title: 'Success',
+          description: 'Activity updated successfully.',
+        });
+      }
+    } catch (error) {
+      console.error('Error updating activity:', error);
       toast({
-        title: "Task Added",
-        description: "New task has been added to the schedule",
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to update activity.',
       });
-    }
-    
-    setShowAddTask(false);
-    setTaskForm({});
-    setEditingTask(null);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files) {
-      // In a real app, you'd upload these to a server
-      const fileNames = Array.from(files).map(f => f.name);
-      setTaskForm({
-        ...taskForm,
-        images: [...(taskForm.images || []), ...fileNames]
-      });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
-      case 'in_progress':
-        return <Loader className="h-5 w-5 text-blue-500 animate-spin" />;
-      case 'pending':
-        return <Clock className="h-5 w-5 text-gray-400" />;
-      case 'delayed':
-        return <XCircle className="h-5 w-5 text-red-500" />;
-      default:
-        return <AlertCircle className="h-5 w-5 text-gray-400" />;
-    }
-  };
-
-  const handleDateChange = (direction: 'prev' | 'next') => {
+  // Date navigation
+  const handleDateChange = (increment: number) => {
     const currentDate = new Date(selectedDate);
-    if (direction === 'prev') {
-      currentDate.setDate(currentDate.getDate() - 1);
-    } else {
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
+    currentDate.setDate(currentDate.getDate() + increment);
     setSelectedDate(currentDate.toISOString().split('T')[0]);
   };
 
+  // FIXED: Effects with proper dependencies
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]); 
+
+  useEffect(() => {
+    if (selectedProject && selectedDate) {
+      fetchDailyProgress();
+    }
+  }, [selectedProject, selectedDate, fetchDailyProgress]); // FIXED: Added missing dependencies
+
+  // Helper functions
+  const getStatusColor = (status: DailyActivity['status']) => {
+    switch (status) {
+      case 'pending': return 'bg-gray-100 text-gray-800';
+      case 'in_progress': return 'bg-blue-100 text-blue-800';
+      case 'completed': return 'bg-green-100 text-green-800';
+      case 'delayed': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getPriorityColor = (priority: DailyActivity['priority']) => {
+    switch (priority) {
+      case 'low': return 'bg-gray-100 text-gray-800';
+      case 'medium': return 'bg-blue-100 text-blue-800';
+      case 'high': return 'bg-yellow-100 text-yellow-800';
+      case 'urgent': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
   const isToday = selectedDate === new Date().toISOString().split('T')[0];
+
+  if (projectsLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
+          <div className="h-32 bg-gray-200 rounded mb-6"></div>
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-24 bg-gray-200 rounded"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -246,10 +412,93 @@ export default function DailyProgressPage() {
               Full Schedule
             </Button>
           </Link>
-          <Button onClick={handleAddTask}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Activity
-          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button disabled={!selectedProject}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Activity
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Activity</DialogTitle>
+                <DialogDescription>
+                  Add a new activity for {selectedProject ? projects.find(p => p._id === selectedProject)?.title : 'the selected project'} on {formatDate(selectedDate)}.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="title">Activity Title *</Label>
+                  <Input
+                    id="title"
+                    value={newActivity.title}
+                    onChange={(e) => setNewActivity(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="e.g., Foundation excavation"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="contractor">Contractor *</Label>
+                  <Input
+                    id="contractor"
+                    value={newActivity.contractor}
+                    onChange={(e) => setNewActivity(prev => ({ ...prev, contractor: e.target.value }))}
+                    placeholder="e.g., ABC Construction"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={newActivity.description}
+                    onChange={(e) => setNewActivity(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Additional details about the activity"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="priority">Priority</Label>
+                    <Select 
+                      value={newActivity.priority} 
+                      onValueChange={(value: DailyActivity['priority']) => 
+                        setNewActivity(prev => ({ ...prev, priority: value }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="urgent">Urgent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="duration">Duration (minutes)</Label>
+                    <Input
+                      id="duration"
+                      type="number"
+                      value={newActivity.estimatedDuration || ''}
+                      onChange={(e) => setNewActivity(prev => ({ 
+                        ...prev, 
+                        estimatedDuration: parseInt(e.target.value) || undefined 
+                      }))}
+                      placeholder="60"
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddActivity} disabled={loading}>
+                  {loading ? 'Adding...' : 'Add Activity'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -261,380 +510,181 @@ export default function DailyProgressPage() {
               <Label>Project:</Label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger className="w-64">
-                  <SelectValue />
+                  <SelectValue placeholder="Select a project" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="magodo-spa">Magodo Spa - Dr Seyi Adebayo</SelectItem>
-                  <SelectItem value="lekki-villa">Lekki Villa - Mrs Johnson</SelectItem>
-                  <SelectItem value="vi-office">VI Office - TechCorp Ltd</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project._id} value={project._id}>
+                      {project.title} - {project.client.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             
-            <div className="flex items-center gap-3 ml-auto">
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={() => handleDateChange('prev')}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              
+            <div className="flex items-center gap-3">
+              <Label>Date:</Label>
               <div className="flex items-center gap-2">
-                <CalendarCheck className="h-5 w-5 text-primary-600" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDateChange(-1)}
+                >
+                  ←
+                </Button>
                 <Input
                   type="date"
                   value={selectedDate}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSelectedDate(e.target.value)}
-                  className="w-48"
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-40"
                 />
-                {isToday && (
-                  <Badge className="bg-green-100 text-green-800">Today</Badge>
-                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDateChange(1)}
+                >
+                  →
+                </Button>
               </div>
-              
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={() => handleDateChange('next')}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+              {isToday && (
+                <Badge variant="secondary">Today</Badge>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Daily Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-neutral-600">Total Activities</p>
-                <p className="text-2xl font-bold">{tasks.length}</p>
+      {/* Summary Stats */}
+      {dailyProgress && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-gray-900">
+                {dailyProgress.summary.totalActivities}
               </div>
-              <CalendarCheck className="h-8 w-8 text-primary-200" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-neutral-600">Completed</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {tasks.filter(t => t.status === 'completed').length}
-                </p>
+              <div className="text-sm text-gray-600">Total</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {dailyProgress.summary.completed}
               </div>
-              <CheckCircle className="h-8 w-8 text-green-200" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-neutral-600">In Progress</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {tasks.filter(t => t.status === 'in_progress').length}
-                </p>
+              <div className="text-sm text-gray-600">Completed</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-blue-600">
+                {dailyProgress.summary.inProgress}
               </div>
-              <Loader className="h-8 w-8 text-blue-200" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-neutral-600">Pending</p>
-                <p className="text-2xl font-bold text-gray-600">
-                  {tasks.filter(t => t.status === 'pending').length}
-                </p>
+              <div className="text-sm text-gray-600">In Progress</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-gray-600">
+                {dailyProgress.summary.pending}
               </div>
-              <Clock className="h-8 w-8 text-gray-200" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              <div className="text-sm text-gray-600">Pending</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-red-600">
+                {dailyProgress.summary.delayed}
+              </div>
+              <div className="text-sm text-gray-600">Delayed</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-      {/* Task List / Add-Edit Form */}
-      {showAddTask ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {editingTask ? 'Edit Activity' : 'Add New Activity'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Activity Title *</Label>
-                <Input
-                  id="title"
-                  placeholder="e.g., Installation of kitchen cabinets"
-                  value={taskForm.title}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => 
-                    setTaskForm({ ...taskForm, title: e.target.value })}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="contractor">Contractor *</Label>
-                <Select 
-                  value={taskForm.contractor} 
-                  onValueChange={(value: string) => setTaskForm({ ...taskForm, contractor: value })}
-                >
-                  <SelectTrigger id="contractor">
-                    <SelectValue placeholder="Select contractor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {contractors.map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="supervisor">Supervisor *</Label>
-                <Select 
-                  value={taskForm.supervisor} 
-                  onValueChange={(value: string) => setTaskForm({ ...taskForm, supervisor: value })}
-                >
-                  <SelectTrigger id="supervisor">
-                    <SelectValue placeholder="Select supervisor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {supervisors.map(s => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="status">Status *</Label>
-                <Select 
-                  value={taskForm.status} 
-                  onValueChange={(value: string) => 
-                    setTaskForm({ ...taskForm, status: value as DailyTask['status'] })}
-                >
-                  <SelectTrigger id="status">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="delayed">Delayed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="startTime">Start Time</Label>
-                <Input
-                  id="startTime"
-                  type="time"
-                  value={taskForm.startTime}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => 
-                    setTaskForm({ ...taskForm, startTime: e.target.value })}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="endTime">End Time</Label>
-                <Input
-                  id="endTime"
-                  type="time"
-                  value={taskForm.endTime}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => 
-                    setTaskForm({ ...taskForm, endTime: e.target.value })}
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="comments">Comments</Label>
-              <Textarea
-                id="comments"
-                placeholder="Add any relevant comments or observations..."
-                value={taskForm.comments}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => 
-                  setTaskForm({ ...taskForm, comments: e.target.value })}
-                rows={3}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="incident">Incident Report (if any)</Label>
-              <Textarea
-                id="incident"
-                placeholder="Describe any incidents or issues encountered..."
-                value={taskForm.incidentReport}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => 
-                  setTaskForm({ ...taskForm, incidentReport: e.target.value })}
-                rows={2}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Images</Label>
-              <div className="flex items-center gap-4">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleImageUpload}
-                  className="hidden"
-                  id="image-upload"
-                />
-                <Label 
-                  htmlFor="image-upload" 
-                  className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
-                >
-                  <Camera className="h-4 w-4" />
-                  Upload Images
-                </Label>
-                {taskForm.images && taskForm.images.length > 0 && (
-                  <span className="text-sm text-neutral-600">
-                    {taskForm.images.length} image(s) selected
-                  </span>
-                )}
-              </div>
-            </div>
-            
-            <div className="flex justify-end gap-3">
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setShowAddTask(false);
-                  setEditingTask(null);
-                  setTaskForm({});
-                }}
-              >
-                Cancel
-              </Button>
-              <Button onClick={handleSaveTask}>
-                <Save className="h-4 w-4 mr-2" />
-                {editingTask ? 'Update Activity' : 'Save Activity'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Activities for {formatDate(selectedDate)}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-center py-8">
-                <Loader className="h-8 w-8 animate-spin text-primary-500 mx-auto" />
-                <p className="mt-2 text-neutral-600">Loading activities...</p>
-              </div>
-            ) : tasks.length === 0 ? (
-              <div className="text-center py-8">
-                <CalendarCheck className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-neutral-600 mb-4">No activities recorded for this date</p>
-                <Button onClick={handleAddTask}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add First Activity
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="border rounded-lg p-4 hover:shadow-sm transition-shadow"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                          {getStatusIcon(task.status)}
-                          <h4 className="font-medium text-lg">{task.title}</h4>
-                          <Badge className={
-                            task.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                            task.status === 'pending' ? 'bg-gray-100 text-gray-800' :
-                            'bg-red-100 text-red-800'
-                          }>
-                            {task.status.replace('_', ' ')}
-                          </Badge>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-3">
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4 text-gray-400" />
-                            <span className="text-neutral-600">Contractor:</span>
-                            <span className="font-medium">{task.contractor}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4 text-gray-400" />
-                            <span className="text-neutral-600">Supervisor:</span>
-                            <span className="font-medium">{task.supervisor}</span>
-                          </div>
-                          {task.startTime && (
-                            <div className="flex items-center gap-2">
-                              <Clock className="h-4 w-4 text-gray-400" />
-                              <span className="text-neutral-600">Time:</span>
-                              <span className="font-medium">
-                                {task.startTime} {task.endTime && `- ${task.endTime}`}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {task.comments && (
-                          <div className="bg-gray-50 p-3 rounded mb-3">
-                            <p className="text-sm text-neutral-700">
-                              <span className="font-medium">Comments:</span> {task.comments}
-                            </p>
-                          </div>
-                        )}
-                        
-                        {task.incidentReport && (
-                          <div className="bg-red-50 p-3 rounded mb-3">
-                            <p className="text-sm text-red-700">
-                              <span className="font-medium">Incident:</span> {task.incidentReport}
-                            </p>
-                          </div>
-                        )}
-                        
-                        {task.images && task.images.length > 0 && (
-                          <div className="flex items-center gap-2 text-sm text-neutral-600">
-                            <ImageIcon className="h-4 w-4" />
-                            <span>{task.images.length} image(s) attached</span>
-                          </div>
-                        )}
+      {/* Activities List */}
+      {loading ? (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-32 bg-gray-200 rounded animate-pulse"></div>
+          ))}
+        </div>
+      ) : dailyProgress?.activities && dailyProgress.activities.length > 0 ? (
+        <div className="space-y-4">
+          {dailyProgress.activities.map((activity) => (
+            <Card key={activity._id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h3 className="font-semibold text-lg">{activity.title}</h3>
+                      <Badge className={getStatusColor(activity.status)}>
+                        {activity.status.replace('_', ' ')}
+                      </Badge>
+                      <Badge className={getPriorityColor(activity.priority)}>
+                        {activity.priority}
+                      </Badge>
+                    </div>
+                    
+                    {activity.description && (
+                      <p className="text-gray-600 mb-3">{activity.description}</p>
+                    )}
+                    
+                    <div className="flex items-center gap-6 text-sm text-gray-500">
+                      <div className="flex items-center gap-1">
+                        <User className="h-4 w-4" />
+                        {activity.contractor}
                       </div>
-                      
-                      <div className="flex gap-2 ml-4">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleEditTask(task)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-red-600 hover:text-red-700"
-                          onClick={() => handleDeleteTask(task.id)}
-                        >
-                          <Trash className="h-4 w-4" />
-                        </Button>
+                      {activity.estimatedDuration && (
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-4 w-4" />
+                          {activity.estimatedDuration} min
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <CalendarIcon className="h-4 w-4" />
+                        {new Date(activity.plannedDate).toLocaleDateString()}
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
+                  
+                  <div className="flex gap-2">
+                    <Select
+                      value={activity.status}
+                      onValueChange={(value: DailyActivity['status']) =>
+                        activity._id && handleUpdateActivityStatus(activity._id, value)
+                      }
+                    >
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="in_progress">In Progress</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="delayed">Delayed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <CalendarIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Activities Scheduled</h3>
+            <p className="text-gray-600 mb-4">
+              {selectedProject 
+                ? `No activities have been added for ${formatDate(selectedDate)}.`
+                : 'Select a project to view or add daily activities.'
+              }
+            </p>
+            {selectedProject && (
+              <Button onClick={() => setIsAddDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add First Activity
+              </Button>
             )}
           </CardContent>
         </Card>
