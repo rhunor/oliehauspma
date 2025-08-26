@@ -1,4 +1,4 @@
-// src/app/(dashboard)/manager/site-schedule/daily/page.tsx - COMPLETE MANAGER DAILY ACTIVITIES INTERFACE
+//src/app/(dashboard)/manager/site-schedule/daily/page.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -9,12 +9,13 @@ import {
   CalendarCheck, 
   Clock, 
   User,
-  Calendar as CalendarIcon,
   Edit,
   Trash2,
   CheckCircle,
   AlertCircle,
-  ArrowLeft
+  ArrowLeft,
+  Save,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,7 +42,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
 
-// TypeScript interfaces - following your existing patterns
+// TypeScript interfaces
 interface ManagerProject {
   _id: string;
   title: string;
@@ -93,63 +94,62 @@ interface DailyProgress {
   updatedAt?: string;
 }
 
-interface NewActivityForm {
-  title: string;
-  description: string;
-  contractor: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  estimatedDuration: number;
-  supervisor: string;
-  category: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
-}
-
-// Helper functions
+// Utility functions
 const getStatusColor = (status: string): string => {
   switch (status) {
-    case 'completed': return 'bg-green-100 text-green-800';
-    case 'in_progress': return 'bg-blue-100 text-blue-800';
-    case 'pending': return 'bg-yellow-100 text-yellow-800';
-    case 'delayed': return 'bg-red-100 text-red-800';
-    default: return 'bg-gray-100 text-gray-800';
+    case 'completed': return 'bg-green-100 text-green-800 border-green-200';
+    case 'in_progress': return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'delayed': return 'bg-red-100 text-red-800 border-red-200';
+    default: return 'bg-gray-100 text-gray-800 border-gray-200';
   }
 };
 
 const getPriorityColor = (priority: string): string => {
   switch (priority) {
-    case 'urgent': return 'bg-red-100 text-red-800';
-    case 'high': return 'bg-orange-100 text-orange-800';
-    case 'medium': return 'bg-blue-100 text-blue-800';
-    case 'low': return 'bg-green-100 text-green-800';
-    default: return 'bg-gray-100 text-gray-800';
+    case 'urgent': return 'bg-red-100 text-red-800 border-red-200';
+    case 'high': return 'bg-orange-100 text-orange-800 border-orange-200';
+    case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'low': return 'bg-green-100 text-green-800 border-green-200';
+    default: return 'bg-gray-100 text-gray-800 border-gray-200';
+  }
+};
+
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
+    case 'in_progress': return <Clock className="h-4 w-4 text-blue-500" />;
+    case 'pending': return <Clock className="h-4 w-4 text-yellow-500" />;
+    case 'delayed': return <AlertCircle className="h-4 w-4 text-red-500" />;
+    default: return <Clock className="h-4 w-4 text-gray-400" />;
   }
 };
 
 export default function ManagerDailyActivitiesPage() {
   const { data: session } = useSession();
   const { toast } = useToast();
-
+  
   // State management
   const [projects, setProjects] = useState<ManagerProject[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [dailyProgress, setDailyProgress] = useState<DailyProgress | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingActivity, setEditingActivity] = useState<DailyActivity | null>(null);
+  const [selectedProject, setSelectedProject] = useState<string>('all');
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
-  // Form state for new activities
-  const [newActivity, setNewActivity] = useState<NewActivityForm>({
+  // Form state for new activity
+  const [newActivity, setNewActivity] = useState<Partial<DailyActivity>>({
     title: '',
     description: '',
     contractor: '',
+    plannedDate: new Date().toISOString().split('T')[0],
+    status: 'pending',
     priority: 'medium',
-    estimatedDuration: 60,
-    supervisor: '',
-    category: 'structural'
+    category: 'other',
+    estimatedDuration: 4
   });
 
-  // Fetch manager's projects
+  // Fetch data functions
   const fetchProjects = useCallback(async () => {
     try {
       const response = await fetch('/api/projects?manager=true');
@@ -167,54 +167,43 @@ export default function ManagerDailyActivitiesPage() {
     }
   }, [toast]);
 
-  // Fetch daily progress for selected project and date
   const fetchDailyProgress = useCallback(async () => {
-    if (!selectedProject) return;
-
     try {
-      setLoading(true);
-      const dateString = selectedDate.toISOString().split('T')[0];
+      const params = new URLSearchParams();
+      if (selectedProject && selectedProject !== 'all') params.append('project', selectedProject);
+      if (selectedDate) params.append('date', selectedDate);
       
-      const response = await fetch(
-        `/api/site-schedule/daily?projectId=${selectedProject}&date=${dateString}`
-      );
-      
+      const response = await fetch(`/api/site-schedule/daily?${params}`);
       if (response.ok) {
         const data = await response.json();
-        setDailyProgress(data.data);
-      } else {
-        // If no progress exists for this date, create empty structure
-        setDailyProgress({
-          project: selectedProject,
-          date: dateString,
-          activities: [],
-          summary: {
-            totalActivities: 0,
-            completed: 0,
-            inProgress: 0,
-            pending: 0,
-            delayed: 0
-          }
-        });
+        setDailyProgress(data.data || []);
       }
     } catch (error) {
       console.error('Error fetching daily progress:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to load daily activities",
+        description: "Failed to load daily progress",
       });
-    } finally {
-      setLoading(false);
     }
   }, [selectedProject, selectedDate, toast]);
 
-  // Add new activity
-  const handleAddActivity = async (): Promise<void> => {
-    if (!selectedProject || !newActivity.title.trim() || !newActivity.contractor.trim()) {
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([fetchProjects(), fetchDailyProgress()]);
+    setLoading(false);
+  }, [fetchProjects, fetchDailyProgress]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Form handlers
+  const handleAddActivity = async () => {
+    if (!selectedProject || selectedProject === 'all' || selectedProject === 'none' || !newActivity.title || !newActivity.contractor) {
       toast({
         variant: "destructive",
-        title: "Error",
+        title: "Validation Error",
         description: "Please fill in all required fields",
       });
       return;
@@ -223,169 +212,276 @@ export default function ManagerDailyActivitiesPage() {
     try {
       const activityData = {
         ...newActivity,
-        plannedDate: selectedDate.toISOString(),
-        status: 'pending' as const
+        project: selectedProject,
+        createdBy: session?.user?.id
       };
 
-      const response = await fetch('/api/site-schedule/daily', {
+      const response = await fetch('/api/site-schedule/daily/activities', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          projectId: selectedProject,
-          date: selectedDate.toISOString().split('T')[0],
-          activity: activityData
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(activityData)
       });
 
       if (response.ok) {
         toast({
           title: "Success",
-          description: "Activity added successfully",
+          description: "Daily activity added successfully",
         });
         
-        // Reset form
+        // Reset form and close dialog
         setNewActivity({
           title: '',
           description: '',
           contractor: '',
+          plannedDate: new Date().toISOString().split('T')[0],
+          status: 'pending',
           priority: 'medium',
-          estimatedDuration: 60,
-          supervisor: '',
-          category: 'structural'
+          category: 'other',
+          estimatedDuration: 4
         });
-        
+        setSelectedProject('all');
         setIsAddDialogOpen(false);
-        await fetchDailyProgress(); // Refresh data
+        
+        // Refresh data
+        await fetchDailyProgress();
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to add activity');
+        throw new Error('Failed to add activity');
       }
     } catch (error) {
       console.error('Error adding activity:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add activity",
+        description: "Failed to add activity",
       });
     }
   };
 
-  // Update activity status
-  const handleUpdateActivityStatus = async (activityId: string, newStatus: DailyActivity['status']): Promise<void> => {
-    try {
-      const response = await fetch('/api/site-schedule/daily', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          projectId: selectedProject,
-          date: selectedDate.toISOString().split('T')[0],
-          activityId,
-          updates: { 
-            status: newStatus,
-            actualDate: newStatus === 'completed' ? new Date().toISOString() : undefined
-          }
-        }),
-      });
-
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Activity status updated",
-        });
-        await fetchDailyProgress(); // Refresh data
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update activity');
-      }
-    } catch (error) {
-      console.error('Error updating activity:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update activity",
-      });
-    }
+  const calculateStats = () => {
+    const allActivities = dailyProgress.flatMap(dp => dp.activities);
+    return {
+      total: allActivities.length,
+      completed: allActivities.filter(a => a.status === 'completed').length,
+      inProgress: allActivities.filter(a => a.status === 'in_progress').length,
+      pending: allActivities.filter(a => a.status === 'pending').length,
+      delayed: allActivities.filter(a => a.status === 'delayed').length,
+    };
   };
 
-  // Delete activity
-  const handleDeleteActivity = async (activityId: string): Promise<void> => {
-    if (!confirm('Are you sure you want to delete this activity?')) return;
+  const stats = calculateStats();
 
-    try {
-      const response = await fetch(
-        `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate.toISOString().split('T')[0]}&activityId=${activityId}`,
-        { method: 'DELETE' }
-      );
-
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Activity deleted successfully",
-        });
-        await fetchDailyProgress(); // Refresh data
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete activity');
-      }
-    } catch (error) {
-      console.error('Error deleting activity:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete activity",
-      });
-    }
-  };
-
-  // Load projects on mount
-  useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
-
-  // Load daily progress when project or date changes
-  useEffect(() => {
-    if (selectedProject) {
-      fetchDailyProgress();
-    }
-  }, [fetchDailyProgress]);
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/manager/site-schedule">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Schedule
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Daily Site Activities</h1>
-            <p className="text-gray-600 mt-1">Manage daily activities and track progress</p>
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-24 sm:h-32 bg-gray-200 rounded-xl"></div>
+            ))}
           </div>
         </div>
       </div>
+    );
+  }
 
-      {/* Project and Date Selection */}
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      {/* FIXED: Responsive Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          <Link href="/manager/site-schedule" className="self-start">
+            <Button variant="outline" size="sm" className="flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">Back to Schedule</span>
+              <span className="sm:hidden">Back</span>
+            </Button>
+          </Link>
+          
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Daily Activities</h1>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">
+              Track and manage daily site activities and progress
+            </p>
+          </div>
+        </div>
+        
+        {/* FIXED: Responsive Add Activity Button */}
+        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="w-full sm:w-auto flex items-center justify-center gap-2">
+              <Plus className="h-4 w-4" />
+              Add Activity
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add Daily Activity</DialogTitle>
+              <DialogDescription>
+                Create a new activity to track daily site progress
+              </DialogDescription>
+            </DialogHeader>
+            
+            {/* FIXED: Responsive Form Layout */}
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="project">Project *</Label>
+                  <Select value={selectedProject} onValueChange={setSelectedProject}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((project) => (
+                        <SelectItem key={project._id} value={project._id}>
+                          {project.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="plannedDate">Planned Date</Label>
+                  <Input
+                    id="plannedDate"
+                    type="date"
+                    value={newActivity.plannedDate}
+                    onChange={(e) => setNewActivity({...newActivity, plannedDate: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="title">Activity Title *</Label>
+                <Input
+                  id="title"
+                  value={newActivity.title}
+                  onChange={(e) => setNewActivity({...newActivity, title: e.target.value})}
+                  placeholder="e.g., Foundation concrete pouring"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={newActivity.description}
+                  onChange={(e) => setNewActivity({...newActivity, description: e.target.value})}
+                  placeholder="Detailed description of the activity..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="contractor">Contractor *</Label>
+                  <Input
+                    id="contractor"
+                    value={newActivity.contractor}
+                    onChange={(e) => setNewActivity({...newActivity, contractor: e.target.value})}
+                    placeholder="Contractor name"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="supervisor">Supervisor</Label>
+                  <Input
+                    id="supervisor"
+                    value={newActivity.supervisor || ''}
+                    onChange={(e) => setNewActivity({...newActivity, supervisor: e.target.value})}
+                    placeholder="Site supervisor"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select value={newActivity.status || 'pending'} onValueChange={(value: 'pending' | 'in_progress' | 'completed' | 'delayed') => setNewActivity({...newActivity, status: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="delayed">Delayed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="priority">Priority</Label>
+                  <Select value={newActivity.priority || 'medium'} onValueChange={(value: 'low' | 'medium' | 'high' | 'urgent') => setNewActivity({...newActivity, priority: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="category">Category</Label>
+                  <Select value={newActivity.category || 'other'} onValueChange={(value: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other') => setNewActivity({...newActivity, category: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="structural">Structural</SelectItem>
+                      <SelectItem value="electrical">Electrical</SelectItem>
+                      <SelectItem value="plumbing">Plumbing</SelectItem>
+                      <SelectItem value="finishing">Finishing</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="estimatedDuration">Estimated Duration (hours)</Label>
+                <Input
+                  id="estimatedDuration"
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  value={newActivity.estimatedDuration}
+                  onChange={(e) => setNewActivity({...newActivity, estimatedDuration: parseFloat(e.target.value)})}
+                />
+              </div>
+            </div>
+            
+            <DialogFooter className="flex flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} className="w-full sm:w-auto">
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={handleAddActivity} className="w-full sm:w-auto">
+                <Save className="h-4 w-4 mr-2" />
+                Add Activity
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* FIXED: Responsive Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle>Activity Management</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Project Selection */}
-            <div>
-              <Label htmlFor="project-select">Select Project</Label>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <div className="flex-1">
+              <Label htmlFor="project-filter" className="text-sm">Filter by Project</Label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a project" />
+                  <SelectValue placeholder="All projects" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">All Projects</SelectItem>
                   {projects.map((project) => (
                     <SelectItem key={project._id} value={project._id}>
                       {project.title}
@@ -394,283 +490,266 @@ export default function ManagerDailyActivitiesPage() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Date Selection */}
-            <div>
-              <Label htmlFor="date-select">Select Date</Label>
+            
+            <div className="flex-1 sm:flex-none sm:w-48">
+              <Label htmlFor="date-filter" className="text-sm">Filter by Date</Label>
               <Input
+                id="date-filter"
                 type="date"
-                value={selectedDate.toISOString().split('T')[0]}
-                onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                className="w-full"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
               />
-            </div>
-
-            {/* Add Activity Button */}
-            <div className="flex items-end">
-              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button disabled={!selectedProject} className="w-full">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Activity
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Add New Activity</DialogTitle>
-                    <DialogDescription>
-                      Add a new activity for {selectedProject ? projects.find(p => p._id === selectedProject)?.title : 'the selected project'} on {formatDate(selectedDate)}.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                      <Label htmlFor="title">Activity Title *</Label>
-                      <Input
-                        id="title"
-                        value={newActivity.title}
-                        onChange={(e) => setNewActivity(prev => ({ ...prev, title: e.target.value }))}
-                        placeholder="e.g., Foundation excavation"
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="contractor">Contractor *</Label>
-                      <Input
-                        id="contractor"
-                        value={newActivity.contractor}
-                        onChange={(e) => setNewActivity(prev => ({ ...prev, contractor: e.target.value }))}
-                        placeholder="e.g., ABC Construction"
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="supervisor">Supervisor</Label>
-                      <Input
-                        id="supervisor"
-                        value={newActivity.supervisor}
-                        onChange={(e) => setNewActivity(prev => ({ ...prev, supervisor: e.target.value }))}
-                        placeholder="e.g., John Smith"
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="priority">Priority</Label>
-                      <Select value={newActivity.priority} onValueChange={(value: NewActivityForm['priority']) => setNewActivity(prev => ({ ...prev, priority: value }))}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                          <SelectItem value="urgent">Urgent</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="category">Category</Label>
-                      <Select value={newActivity.category} onValueChange={(value: NewActivityForm['category']) => setNewActivity(prev => ({ ...prev, category: value }))}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="structural">Structural</SelectItem>
-                          <SelectItem value="electrical">Electrical</SelectItem>
-                          <SelectItem value="plumbing">Plumbing</SelectItem>
-                          <SelectItem value="finishing">Finishing</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="estimatedDuration">Estimated Duration (minutes)</Label>
-                      <Input
-                        id="estimatedDuration"
-                        type="number"
-                        value={newActivity.estimatedDuration}
-                        onChange={(e) => setNewActivity(prev => ({ ...prev, estimatedDuration: parseInt(e.target.value) || 60 }))}
-                        min="15"
-                        step="15"
-                      />
-                    </div>
-                    
-                    <div className="md:col-span-2">
-                      <Label htmlFor="description">Description</Label>
-                      <Textarea
-                        id="description"
-                        value={newActivity.description}
-                        onChange={(e) => setNewActivity(prev => ({ ...prev, description: e.target.value }))}
-                        placeholder="Describe the activity details..."
-                        rows={3}
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleAddActivity}>
-                      Add Activity
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Statistics */}
-      {dailyProgress && dailyProgress.activities.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-gray-900">
-                {dailyProgress.summary.totalActivities}
-              </div>
-              <div className="text-sm text-gray-600">Total</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">
-                {dailyProgress.summary.completed}
-              </div>
-              <div className="text-sm text-gray-600">Completed</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">
-                {dailyProgress.summary.inProgress}
-              </div>
-              <div className="text-sm text-gray-600">In Progress</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-gray-600">
-                {dailyProgress.summary.pending}
-              </div>
-              <div className="text-sm text-gray-600">Pending</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-red-600">
-                {dailyProgress.summary.delayed}
-              </div>
-              <div className="text-sm text-gray-600">Delayed</div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {/* FIXED: Responsive Stats Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+        <Card>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <p className="text-xs sm:text-sm text-gray-600">Total</p>
+            <p className="text-lg sm:text-2xl font-bold">{stats.total}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <p className="text-xs sm:text-sm text-gray-600">Completed</p>
+            <p className="text-lg sm:text-2xl font-bold text-green-600">{stats.completed}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <p className="text-xs sm:text-sm text-gray-600">In Progress</p>
+            <p className="text-lg sm:text-2xl font-bold text-blue-600">{stats.inProgress}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <p className="text-xs sm:text-sm text-gray-600">Pending</p>
+            <p className="text-lg sm:text-2xl font-bold text-yellow-600">{stats.pending}</p>
+          </CardContent>
+        </Card>
+        <Card className="col-span-2 sm:col-span-1">
+          <CardContent className="p-3 sm:p-4 text-center">
+            <p className="text-xs sm:text-sm text-gray-600">Delayed</p>
+            <p className="text-lg sm:text-2xl font-bold text-red-600">{stats.delayed}</p>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Activities List */}
-      {loading ? (
+      {/* FIXED: Responsive Activities List */}
+      {dailyProgress.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <CalendarCheck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Activities Found</h3>
+            <Button onClick={() => setIsAddDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add First Activity
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
         <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-32 bg-gray-200 rounded animate-pulse"></div>
-          ))}
-        </div>
-      ) : dailyProgress?.activities && dailyProgress.activities.length > 0 ? (
-        <div className="space-y-4">
-          {dailyProgress.activities.map((activity) => (
-            <Card key={activity._id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="font-semibold text-lg">{activity.title}</h3>
-                      <Badge className={getStatusColor(activity.status)}>
-                        {activity.status.replace('_', ' ')}
+          {dailyProgress.map((progress) => (
+            <Card key={progress._id} className="overflow-hidden">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <CalendarCheck className="h-5 w-5 text-blue-600" />
+                    {formatDate(new Date(progress.date))}
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {progress.activities.length} activities
+                    </Badge>
+                    {projects.find(p => p._id === progress.project) && (
+                      <Badge variant="secondary" className="text-xs">
+                        {projects.find(p => p._id === progress.project)?.title}
                       </Badge>
-                      <Badge className={getPriorityColor(activity.priority)}>
-                        {activity.priority}
-                      </Badge>
-                    </div>
-                    
-                    {activity.description && (
-                      <p className="text-gray-600 mb-3">{activity.description}</p>
                     )}
-                    
-                    <div className="flex items-center gap-6 text-sm text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <User className="h-4 w-4" />
-                        {activity.contractor}
-                      </div>
-                      {activity.estimatedDuration && (
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          {activity.estimatedDuration} min
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <CalendarIcon className="h-4 w-4" />
-                        {formatDate(new Date(activity.plannedDate))}
-                      </div>
-                      {activity.supervisor && (
-                        <div className="flex items-center gap-1">
-                          <CheckCircle className="h-4 w-4" />
-                          {activity.supervisor}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2 ml-4">
-                    <Select
-                      value={activity.status}
-                      onValueChange={(value: DailyActivity['status']) =>
-                        activity._id && handleUpdateActivityStatus(activity._id, value)
-                      }
-                    >
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="in_progress">In Progress</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                        <SelectItem value="delayed">Delayed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => activity._id && handleDeleteActivity(activity._id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
                   </div>
                 </div>
+              </CardHeader>
+              
+              <CardContent className="pt-0">
+                {/* FIXED: Responsive Activities Grid */}
+                <div className="space-y-3">
+                  {progress.activities.map((activity) => (
+                    <div key={activity._id} className="border rounded-lg p-3 sm:p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex flex-col lg:flex-row lg:items-start gap-3">
+                        {/* Activity Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
+                            <div className="min-w-0 flex-1">
+                              <h4 className="font-medium text-gray-900 line-clamp-1">{activity.title}</h4>
+                              {activity.description && (
+                                <p className="text-sm text-gray-600 mt-1 line-clamp-2">{activity.description}</p>
+                              )}
+                            </div>
+                            
+                            {/* Status and Priority Badges */}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {getStatusIcon(activity.status)}
+                              <Badge className={`text-xs border ${getStatusColor(activity.status)}`}>
+                                {activity.status.replace('_', ' ')}
+                              </Badge>
+                              <Badge className={`text-xs border ${getPriorityColor(activity.priority)}`}>
+                                {activity.priority}
+                              </Badge>
+                            </div>
+                          </div>
+                          
+                          {/* FIXED: Responsive Activity Details */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-sm text-gray-600">
+                            <div className="truncate">
+                              <span className="font-medium">Contractor:</span>
+                              <p className="truncate">{activity.contractor}</p>
+                            </div>
+                            <div>
+                              <span className="font-medium">Planned:</span>
+                              <p>{formatDate(new Date(activity.plannedDate))}</p>
+                            </div>
+                            {activity.supervisor && (
+                              <div className="truncate">
+                                <span className="font-medium">Supervisor:</span>
+                                <p className="truncate">{activity.supervisor}</p>
+                              </div>
+                            )}
+                            {activity.estimatedDuration && (
+                              <div>
+                                <span className="font-medium">Duration:</span>
+                                <p>{activity.estimatedDuration}h estimated</p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Additional Details */}
+                          {activity.actualDate && (
+                            <div className="mt-2 text-sm">
+                              <span className="font-medium text-gray-600">Actual Date:</span>
+                              <span className="ml-2">{formatDate(new Date(activity.actualDate))}</span>
+                            </div>
+                          )}
+                          
+                          {activity.comments && (
+                            <div className="mt-2">
+                              <span className="font-medium text-gray-600 text-sm">Comments:</span>
+                              <p className="text-sm text-gray-700 mt-1 line-clamp-2">{activity.comments}</p>
+                            </div>
+                          )}
+                          
+                          {activity.category && activity.category !== 'other' && (
+                            <div className="mt-2">
+                              <Badge variant="outline" className="text-xs capitalize">
+                                {activity.category}
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* FIXED: Responsive Action Buttons */}
+                        <div className="flex lg:flex-col items-center gap-2 flex-shrink-0">
+                          <Link href={`/manager/site-schedule/activity/${activity._id}/edit`} className="flex-1 lg:flex-none">
+                            <Button variant="outline" size="sm" className="w-full lg:w-auto">
+                              <Edit className="h-4 w-4 lg:mr-0 sm:mr-2" />
+                              <span className="lg:hidden">Edit</span>
+                            </Button>
+                          </Link>
+                          <Button variant="outline" size="sm" className="flex-1 lg:flex-none text-red-600 hover:text-red-700 hover:bg-red-50">
+                            <Trash2 className="h-4 w-4 lg:mr-0 sm:mr-2" />
+                            <span className="lg:hidden">Delete</span>
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Progress Summary */}
+                {progress.summary && (
+                  <div className="mt-4 pt-4 border-t bg-gray-50 -mx-4 px-4 py-3 rounded-b-lg">
+                    <h5 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      Daily Summary
+                    </h5>
+                    
+                    {/* FIXED: Responsive Summary Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-sm">
+                      <div className="text-center">
+                        <p className="text-gray-600">Total</p>
+                        <p className="font-semibold">{progress.summary.totalActivities}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-gray-600">Completed</p>
+                        <p className="font-semibold text-green-600">{progress.summary.completed}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-gray-600">In Progress</p>
+                        <p className="font-semibold text-blue-600">{progress.summary.inProgress}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-gray-600">Pending</p>
+                        <p className="font-semibold text-yellow-600">{progress.summary.pending}</p>
+                      </div>
+                      {progress.summary.totalHours && (
+                        <div className="text-center">
+                          <p className="text-gray-600">Hours</p>
+                          <p className="font-semibold">{progress.summary.totalHours}h</p>
+                        </div>
+                      )}
+                      {progress.summary.crewSize && (
+                        <div className="text-center">
+                          <p className="text-gray-600">Crew Size</p>
+                          <p className="font-semibold">{progress.summary.crewSize}</p>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {progress.summary.weatherConditions && (
+                      <div className="mt-2 text-sm">
+                        <span className="font-medium text-gray-600">Weather:</span>
+                        <span className="ml-2">{progress.summary.weatherConditions}</span>
+                      </div>
+                    )}
+                    
+                    {progress.notes && (
+                      <div className="mt-2">
+                        <span className="font-medium text-gray-600 text-sm">Notes:</span>
+                        <p className="text-sm text-gray-700 mt-1">{progress.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
-      ) : (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <CalendarIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Activities Scheduled</h3>
-            <p className="text-gray-600 mb-4">
-              {selectedProject 
-                ? `No activities have been added for ${formatDate(selectedDate)}.`
-                : 'Select a project to view or add daily activities.'
-              }
-            </p>
-            {selectedProject && (
-              <Button onClick={() => setIsAddDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add First Activity
-              </Button>
-            )}
-          </CardContent>
-        </Card>
       )}
+      
+      {/* FIXED: Responsive Footer Actions */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4">
+        <p className="text-sm text-gray-600 text-center sm:text-left">
+          {dailyProgress.length > 0 ? (
+            <>Showing {dailyProgress.length} day{dailyProgress.length !== 1 ? 's' : ''} of progress</>
+          ) : (
+            'No activities found for the selected criteria'
+          )}
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Link href="/manager/site-schedule" className="w-full sm:w-auto">
+            <Button variant="outline" className="w-full flex items-center justify-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Schedule
+            </Button>
+          </Link>
+          <Button onClick={() => setIsAddDialogOpen(true)} className="w-full sm:w-auto flex items-center justify-center gap-2">
+            <Plus className="h-4 w-4" />
+            Add Activity
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

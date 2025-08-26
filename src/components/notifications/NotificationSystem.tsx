@@ -1,4 +1,4 @@
-// src/components/notifications/NotificationSystem.tsx - Fixed Array Type Conflicts
+// src/components/notifications/NotificationSystem.tsx - FIXED: Add modal={false} to prevent scroll lock
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -57,252 +57,210 @@ class WebPushService {
 
   async initialize(): Promise<boolean> {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.warn('Push notifications are not supported');
+      console.warn('Web Push Notifications not supported');
       return false;
     }
 
     try {
-      // Register service worker
-      const registration = await navigator.serviceWorker.register('/sw.js');
-      console.log('Service Worker registered:', registration);
-
-      // Request notification permission
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        console.warn('Notification permission denied');
+      if (!this.vapidPublicKey) {
+        console.warn('VAPID public key not found');
         return false;
       }
 
-      // Subscribe to push notifications only if VAPID key is available
-      if (this.vapidPublicKey) {
-        this.subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: this.urlBase64ToUint8Array(this.vapidPublicKey)
-        });
+      const registration = await navigator.serviceWorker.ready;
+      const existingSubscription = await registration.pushManager.getSubscription();
 
-        // Send subscription to server
-        await this.sendSubscriptionToServer(this.subscription);
+      if (existingSubscription) {
+        this.subscription = existingSubscription;
+        return true;
       }
-      
-      return true;
 
+      // Request permission
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        console.warn('Push notification permission denied');
+        return false;
+      }
+
+      // Subscribe
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: this.vapidPublicKey,
+      });
+
+      this.subscription = subscription;
+
+      // Send subscription to server
+      await fetch('/api/notifications/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscription: subscription.toJSON(),
+        }),
+      });
+
+      return true;
     } catch (error) {
       console.error('Error initializing push notifications:', error);
       return false;
     }
   }
 
-  private urlBase64ToUint8Array(base64String: string): Uint8Array {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding)
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
+  async unsubscribe(): Promise<boolean> {
+    if (!this.subscription) return true;
 
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-  }
-
-  private async sendSubscriptionToServer(subscription: PushSubscription): Promise<void> {
     try {
-      await fetch('/api/notifications/subscribe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          subscription: subscription.toJSON()
-        }),
-      });
-    } catch (error) {
-      console.error('Error sending subscription to server:', error);
-    }
-  }
-
-  async unsubscribe(): Promise<void> {
-    if (this.subscription) {
       await this.subscription.unsubscribe();
       this.subscription = null;
-      
-      // Remove subscription from server
-      try {
-        await fetch('/api/notifications/subscribe', {
-          method: 'DELETE'
-        });
-      } catch (error) {
-        console.error('Error removing subscription from server:', error);
-      }
+      return true;
+    } catch (error) {
+      console.error('Error unsubscribing from push notifications:', error);
+      return false;
     }
   }
 }
 
-// Notification Bell Component
+// Get notification icon based on type
+function getNotificationIcon(type: string) {
+  switch (type) {
+    case 'success':
+      return <CheckCircle className="h-4 w-4 text-green-500" />;
+    case 'warning':
+      return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+    case 'error':
+      return <AlertTriangle className="h-4 w-4 text-red-500" />;
+    default:
+      return <Info className="h-4 w-4 text-blue-500" />;
+  }
+}
+
+// Notification Bell Component with FIXED modal behavior
 export function NotificationBell() {
   const { data: session } = useSession();
   const socket = useSocket();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
-  // Transform socket notification to app notification
-  const transformSocketNotification = useCallback((socketNotif: SocketNotification): AppNotification => {
-    return {
-      _id: socketNotif._id || `temp-${Date.now()}-${Math.random()}`,
-      title: socketNotif.title,
-      message: socketNotif.message,
-      type: socketNotif.type,
-      isRead: socketNotif.isRead || false,
-      createdAt: socketNotif.createdAt || new Date().toISOString(),
-      actionUrl: socketNotif.actionUrl,
-      data: socketNotif.data
-    };
-  }, []);
-
-  // Load notifications
-  const loadNotifications = useCallback(async () => {
+  // Fetch notifications from API
+  const fetchNotifications = useCallback(async () => {
     if (!session?.user?.id) return;
 
     try {
       setIsLoading(true);
-      const response = await fetch('/api/notifications?limit=20');
-      const data = await response.json();
-
-      if (data.success) {
-        // Ensure we have proper AppNotification objects
-        const transformedNotifications: AppNotification[] = (data.data.notifications || []).map((notif: Record<string, unknown>) => ({
-          _id: notif._id || `api-${Date.now()}-${Math.random()}`,
-          title: notif.title || 'Notification',
-          message: notif.message || '',
-          type: notif.type || 'info',
-          isRead: Boolean(notif.isRead),
-          createdAt: notif.createdAt || new Date().toISOString(),
-          actionUrl: notif.actionUrl,
-          data: notif.data || {}
-        }));
-
-        setNotifications(transformedNotifications);
-        setUnreadCount(data.data.unreadCount || 0);
+      const response = await fetch('/api/notifications');
+      
+      if (response.ok) {
+        const data = await response.json();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.unreadCount || 0);
       }
     } catch (error) {
-      console.error('Error loading notifications:', error);
+      console.error('Error fetching notifications:', error);
     } finally {
       setIsLoading(false);
     }
   }, [session?.user?.id]);
 
   // Mark notification as read
-  const markAsRead = async (notificationId: string) => {
+  const markAsRead = useCallback(async (notificationId: string) => {
     try {
-      await fetch(`/api/notifications/${notificationId}/read`, {
-        method: 'PUT'
+      const response = await fetch(`/api/notifications/${notificationId}/read`, {
+        method: 'PATCH',
       });
 
-      setNotifications(prev => 
-        prev.map(n => 
-          n._id === notificationId ? { ...n, isRead: true } : n
-        )
-      );
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      if (response.ok) {
+        setNotifications(prev =>
+          prev.map(notification =>
+            notification._id === notificationId
+              ? { ...notification, isRead: true }
+              : notification
+          )
+        );
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
-  };
+  }, []);
 
-  // Mark all as read
-  const markAllAsRead = async () => {
+  // Mark all notifications as read
+  const markAllAsRead = useCallback(async () => {
     try {
-      await fetch('/api/notifications/mark-all-read', {
-        method: 'PUT'
+      const response = await fetch('/api/notifications/mark-all-read', {
+        method: 'PATCH',
       });
 
-      setNotifications(prev => 
-        prev.map(n => ({ ...n, isRead: true }))
-      );
-      setUnreadCount(0);
+      if (response.ok) {
+        setNotifications(prev =>
+          prev.map(notification => ({ ...notification, isRead: true }))
+        );
+        setUnreadCount(0);
+      }
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
     }
-  };
+  }, []);
 
-  // Listen for new notifications via socket
+  // Socket event handlers
   useEffect(() => {
-    if (!socket.socket) return;
+    if (!socket?.socket) return;
 
-    const unsubscribe = socket.onNewNotification((socketNotification: SocketNotification) => {
-      const appNotification = transformSocketNotification(socketNotification);
-      
-      setNotifications(prev => {
-        // Avoid duplicates and limit to 20 notifications
-        const filtered = prev.filter(n => n._id !== appNotification._id);
-        return [appNotification, ...filtered].slice(0, 20);
-      });
-      
+    const handleNewNotification = (socketNotification: SocketNotification) => {
+      const notification: AppNotification = {
+        _id: socketNotification._id || Date.now().toString(),
+        title: socketNotification.title,
+        message: socketNotification.message,
+        type: socketNotification.type,
+        isRead: socketNotification.isRead || false,
+        createdAt: socketNotification.createdAt || new Date().toISOString(),
+        actionUrl: socketNotification.actionUrl,
+        data: socketNotification.data,
+      };
+
+      // Add to state
+      setNotifications(prev => [notification, ...prev]);
       setUnreadCount(prev => prev + 1);
-      
+
       // Show toast notification
-      showToastNotification(appNotification);
-    });
-
-    return unsubscribe;
-  }, [socket, transformSocketNotification]);
-
-  // Load notifications on mount
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
-
-  const showToastNotification = (notification: AppNotification) => {
-    const toastProps = {
-      position: 'top-right' as const,
-      autoClose: 5000,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true,
+      toast(notification.message, {
+        type: notification.type,
+        position: 'top-right',
+        autoClose: 5000,
+      });
     };
 
-    switch (notification.type) {
-      case 'success':
-        toast.success(notification.message, toastProps);
-        break;
-      case 'warning':
-        toast.warning(notification.message, toastProps);
-        break;
-      case 'error':
-        toast.error(notification.message, toastProps);
-        break;
-      default:
-        toast.info(notification.message, toastProps);
-    }
-  };
+    // Listen for socket events
+    socket.socket.on('notification', handleNewNotification);
+    socket.socket.on('new-message', handleNewNotification);
 
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'success':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'warning':
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
-      case 'error':
-        return <X className="h-4 w-4 text-red-500" />;
-      default:
-        return <Info className="h-4 w-4 text-blue-500" />;
-    }
-  };
+    return () => {
+      socket.socket?.off('notification', handleNewNotification);
+      socket.socket?.off('new-message', handleNewNotification);
+    };
+  }, [socket]);
+
+  // Fetch notifications on mount
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   return (
     <>
-      <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+      {/* CRITICAL FIX: Add modal={false} to prevent scroll lock */}
+      <DropdownMenu modal={false} open={isOpen} onOpenChange={setIsOpen}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="relative p-2"
+            aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+          >
             <Bell className="h-5 w-5" />
             {unreadCount > 0 && (
-              <Badge 
-                variant="destructive" 
+              <Badge
+                variant="destructive"
                 className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
               >
                 {unreadCount > 99 ? '99+' : unreadCount}

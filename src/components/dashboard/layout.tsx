@@ -1,4 +1,4 @@
-// src/components/dashboard/layout.tsx - FIXED: Role-based settings navigation
+// src/components/dashboard/layout.tsx - PROPER FIX: Original code with modal={false} solution
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -62,7 +62,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const userName = session?.user?.name || '';
   const userEmail = session?.user?.email || '';
 
-  // CRITICAL FIX: Get role-specific settings route
+  // Get role-specific settings route
   const getSettingsRoute = useCallback(() => {
     switch (userRole) {
       case 'super_admin':
@@ -202,56 +202,62 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         <div className="flex flex-col w-full">
-          {/* Sidebar Header */}
-          <div className="flex items-center justify-between h-16 px-6 border-b bg-white">
+          {/* Sidebar header */}
+          <div className="flex items-center justify-between h-16 px-6 bg-white border-b">
             <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">Olivehaus</h1>
+              <div className="flex-shrink-0">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <span className="text-white font-bold text-lg">P</span>
+                </div>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-900">Project Manager</p>
+              </div>
             </div>
             <button
               onClick={() => setIsSidebarOpen(false)}
-              className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-500"
+              className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100"
             >
-              <X className="h-5 w-5" />
+              <X className="h-6 w-6" />
             </button>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 mt-8 px-4 overflow-y-auto">
-            <ul className="space-y-2">
-              {navItems
-                .filter(item => item.roles.includes(userRole))
-                .map((item) => {
-                  const isActive = pathname === item.href;
-                  return (
-                    <li key={item.name}>
-                      <Link
-                        href={item.href}
-                        className={`flex items-center justify-between px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                          isActive
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'text-gray-700 hover:bg-gray-100'
-                        }`}
-                        onClick={() => setIsSidebarOpen(false)}
-                      >
-                        <div className="flex items-center">
-                          <item.icon className="mr-3 h-5 w-5" />
-                          {item.name}
-                        </div>
-                        {item.badge && item.badge > 0 && (
-                          <Badge variant="destructive" className="h-5 w-5 p-0 flex items-center justify-center text-xs">
-                            {item.badge > 99 ? '99+' : item.badge}
-                          </Badge>
-                        )}
-                      </Link>
-                    </li>
-                  );
-                })}
-            </ul>
+          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+            {navItems.map((item) => {
+              const isActive = pathname === item.href || 
+                             (item.href !== '/' && pathname.startsWith(item.href));
+              
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${
+                    isActive
+                      ? 'bg-blue-50 border-r-2 border-blue-500 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                  onClick={() => setIsSidebarOpen(false)}
+                >
+                  <item.icon
+                    className={`mr-3 h-5 w-5 flex-shrink-0 ${
+                      isActive ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-500'
+                    }`}
+                  />
+                  <span className="truncate">{item.name}</span>
+                  {item.badge && item.badge > 0 && (
+                    <Badge variant="secondary" className="ml-auto">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </Badge>
+                  )}
+                </Link>
+              );
+            })}
           </nav>
 
-          {/* Connection Status - Manual control */}
-          <div className="p-4 border-t bg-gray-50">
-            <div className={`flex items-center justify-between p-3 rounded-lg text-sm transition-colors ${
+          {/* Socket connection status */}
+          <div className="px-4 py-4 border-t">
+            <div className={`flex items-center justify-between px-3 py-2 text-xs rounded-lg ${
               socket?.isConnected 
                 ? 'bg-green-100 text-green-800 border border-green-200' 
                 : 'bg-gray-100 text-gray-600 border border-gray-200'
@@ -281,7 +287,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top navigation */}
+        {/* Top navigation - ORIGINAL CODE STRUCTURE */}
         <header className="sticky top-0 z-40 bg-white shadow-sm border-b">
           <div className="flex h-16 items-center justify-between px-4 lg:px-6">
             {/* Mobile menu button */}
@@ -300,8 +306,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="flex items-center space-x-4">
               <NotificationBell />
 
-              {/* User menu */}
-              <DropdownMenu>
+              {/* CRITICAL FIX: User menu with modal={false} to prevent scroll blocking */}
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                     <Avatar className="h-8 w-8">
@@ -311,7 +317,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
+                
+                {/* SOLUTION: modal={false} goes on DropdownMenu component above */}
+                <DropdownMenuContent 
+                  className="w-56" 
+                  align="end" 
+                  forceMount
+                >
                   <div className="flex items-center justify-start gap-2 p-2">
                     <div className="flex flex-col space-y-1 leading-none">
                       <p className="font-medium">{userName}</p>
@@ -323,7 +335,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   </div>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    {/* CRITICAL FIX: Use role-specific settings route instead of hardcoded /admin/settings */}
                     <Link href={getSettingsRoute()} className="flex items-center">
                       <Settings className="mr-2 h-4 w-4" />
                       Settings

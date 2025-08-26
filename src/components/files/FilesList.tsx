@@ -1,5 +1,4 @@
-// src/components/files/FilesList.tsx - FIXED with proper date formatting and error handling
-
+// src/components/files/FilesList.tsx - FIXED: Responsive with icon-only buttons
 'use client';
 
 import { useState } from 'react';
@@ -11,10 +10,21 @@ import {
   FileText,
   Download,
   Eye,
-  Trash2
+  Trash2,
+  Search,
+  Filter
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 
 interface FileItem {
@@ -46,37 +56,32 @@ interface FilesListProps {
   userRole: string;
 }
 
-// FIXED: Date formatting helper to prevent hydration issues
-function formatDate(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    
-    // Use a consistent format that works on both server and client
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
-  } catch (error) {
-    console.warn('Invalid date format:', dateString);
-    return 'Invalid date';
-  }
-}
-
-// FIXED: File size formatting helper
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
 export default function FilesList({ files, userRole }: FilesListProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
-  const getFileIcon = (category: string, iconClass: string = "h-5 w-5") => {
+  // Filter files based on search and category
+  const filteredFiles = files.filter(file => {
+    const matchesSearch = file.originalName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         file.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         file.project.title.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesCategory = categoryFilter === 'all' || file.category === categoryFilter;
+    
+    return matchesSearch && matchesCategory;
+  });
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const getFileIcon = (category: string, iconClass: string = "h-8 w-8") => {
     switch (category) {
       case 'image':
         return <ImageIcon className={`${iconClass} text-green-500`} />;
@@ -95,18 +100,22 @@ export default function FilesList({ files, userRole }: FilesListProps) {
     try {
       setLoading(true);
       
-      // Use the secure download endpoint
-      const downloadUrl = `/api/files/${file._id}/download`;
-      
-      // Create hidden link and trigger download
       const link = document.createElement('a');
-      link.href = downloadUrl;
+      link.href = file.url;
       link.download = file.originalName;
-      link.style.display = 'none';
-      
+      link.target = '_blank';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+
+      // Update download count
+      try {
+        await fetch(`/api/files/${file._id}/download`, {
+          method: 'POST'
+        });
+      } catch (error) {
+        console.error('Error updating download count:', error);
+      }
 
       toast({
         title: 'Download started',
@@ -124,7 +133,6 @@ export default function FilesList({ files, userRole }: FilesListProps) {
     }
   };
 
-  // FIXED: Enhanced delete handler with better error handling
   const handleDelete = async (fileId: string, fileName: string) => {
     if (!confirm(`Are you sure you want to delete "${fileName}"? This action cannot be undone.`)) {
       return;
@@ -132,210 +140,171 @@ export default function FilesList({ files, userRole }: FilesListProps) {
 
     try {
       setLoading(true);
-      
-      console.log(`Attempting to delete file: ${fileId}`);
-      
       const response = await fetch(`/api/files/${fileId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+        method: 'DELETE'
       });
 
-      const responseData = await response.json();
-      console.log('Delete response:', responseData);
-
-      if (response.ok && responseData.success) {
+      if (response.ok) {
         toast({
           title: 'File deleted',
-          description: responseData.message || `${fileName} has been deleted`,
+          description: `${fileName} has been permanently deleted`,
         });
-        
-        // Refresh the page to update the file list
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
-        
+        window.location.reload();
       } else {
-        // Handle API error response
-        const errorMessage = responseData.error || responseData.message || 'Failed to delete file';
-        throw new Error(errorMessage);
+        throw new Error('Failed to delete file');
       }
-      
     } catch (error) {
       console.error('Error deleting file:', error);
-      
-      let errorMessage = 'Failed to delete the file';
-      
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      
       toast({
         variant: 'destructive',
         title: 'Delete failed',
-        description: errorMessage,
+        description: 'Failed to delete the file',
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePreview = async (file: FileItem) => {
-    try {
-      setLoading(true);
-      
-      // Use the secure preview endpoint
-      const previewUrl = `/api/files/${file._id}/preview`;
-      
-      // For images and PDFs, open directly
-      if (file.category === 'image' || file.mimeType === 'application/pdf') {
-        window.open(previewUrl, '_blank');
-      } else {
-        // For other file types, show message and offer download
-        toast({
-          title: 'Preview not available',
-          description: `Preview is not available for ${file.category} files. Click download to view the file.`,
-        });
-      }
-    } catch (error) {
-      console.error('Error previewing file:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Preview failed',
-        description: 'Failed to open file preview',
-      });
-    } finally {
-      setLoading(false);
+  const handlePreview = (file: FileItem) => {
+    if (file.category === 'image') {
+      window.open(file.url, '_blank');
+    } else if (file.category === 'document' && file.mimeType === 'application/pdf') {
+      window.open(file.url, '_blank');
+    } else {
+      handleDownload(file);
     }
-  };
-
-  const canDelete = (file: FileItem): boolean => {
-    return (
-      userRole === 'super_admin' ||
-      userRole === 'project_manager' ||
-      file.uploadedBy._id === userRole // This would need to be properly checked
-    );
   };
 
   if (files.length === 0) {
     return (
       <Card>
-        <CardContent className="p-8 text-center">
-          <File className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No files found</h3>
-          <p className="text-gray-500">Upload some files to get started.</p>
+        <CardContent className="p-8 sm:p-12 text-center">
+          <File className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No Files Found</h3>
+          <p className="text-gray-600">No files have been uploaded yet.</p>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Search and Filter Bar - Mobile Optimized */}
       <Card>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {files.map((file) => (
-              <Card key={file._id} className="hover:shadow-lg transition-shadow duration-200">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      {getFileIcon(file.category)}
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-medium text-gray-900 truncate">
-                          {file.originalName}
-                        </h3>
-                        <p className="text-xs text-gray-500">
-                          {formatFileSize(file.size)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* File metadata */}
-                  <div className="space-y-2">
-                    <div className="text-xs text-gray-500">
-                      <div>by {file.uploadedBy.name}</div>
-                      <div>{file.project.title}</div>
-                      {/* FIXED: Use consistent date formatting */}
-                      <div>{formatDate(file.createdAt)}</div>
-                      {file.downloadCount > 0 && (
-                        <div>{file.downloadCount} downloads</div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* File description */}
-                  {file.description && (
-                    <p className="text-xs text-gray-600 mt-2 line-clamp-2">
-                      {file.description}
-                    </p>
-                  )}
-
-                  {/* File tags */}
-                  {file.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {file.tags.slice(0, 3).map((tag, index) => (
-                        <span
-                          key={index}
-                          className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {file.tags.length > 3 && (
-                        <span className="text-xs text-gray-500">
-                          +{file.tags.length - 3} more
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div className="flex justify-between items-center mt-4 pt-3 border-t border-gray-200">
-                    <div className="flex space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePreview(file)}
-                        disabled={loading}
-                        className="flex items-center space-x-1"
-                      >
-                        <Eye className="h-4 w-4" />
-                        <span>Preview</span>
-                      </Button>
-                      
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDownload(file)}
-                        disabled={loading}
-                        className="flex items-center space-x-1"
-                      >
-                        <Download className="h-4 w-4" />
-                        <span>Download</span>
-                      </Button>
-                    </div>
-
-                    {(userRole === 'super_admin' || userRole === 'project_manager') && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDelete(file._id, file.originalName)}
-                        disabled={loading}
-                        className="flex items-center space-x-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        <span>Delete</span>
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+        <CardContent className="p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search files..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 h-10 sm:h-9"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-gray-400 sm:hidden" />
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-full sm:w-[140px] h-10 sm:h-9">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Files</SelectItem>
+                  <SelectItem value="image">Images</SelectItem>
+                  <SelectItem value="document">Documents</SelectItem>
+                  <SelectItem value="video">Videos</SelectItem>
+                  <SelectItem value="audio">Audio</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Files Grid - Responsive */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        {filteredFiles.map((file) => (
+          <Card key={file._id} className="group hover:shadow-lg transition-all duration-200">
+            <CardContent className="p-3 sm:p-4">
+              {/* File Icon and Actions Row */}
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-shrink-0">
+                  {getFileIcon(file.category, "h-6 w-6 sm:h-8 sm:w-8")}
+                </div>
+                
+                {/* Icon-Only Action Buttons */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handlePreview(file)}
+                    disabled={loading}
+                    title="Preview file"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleDownload(file)}
+                    disabled={loading}
+                    title="Download file"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  
+                  {(userRole === 'super_admin' || file.uploadedBy._id === userRole) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-500"
+                      onClick={() => handleDelete(file._id, file.originalName)}
+                      disabled={loading}
+                      title="Delete file"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              
+              {/* File Name - Responsive Text */}
+              <h3 className="font-medium text-sm sm:text-base mb-2 line-clamp-2 leading-tight" title={file.originalName}>
+                {file.originalName}
+              </h3>
+              
+              {/* File Details */}
+              <div className="space-y-2 text-xs text-gray-500">
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline" className="text-xs px-2 py-0">
+                    {file.category}
+                  </Badge>
+                  <span>{formatFileSize(file.size)}</span>
+                </div>
+                
+                {/* Project info - truncated for mobile */}
+                <div className="line-clamp-1" title={file.project.title}>
+                  <span className="font-medium">Project:</span> {file.project.title}
+                </div>
+                
+                <div className="flex items-center justify-between text-xs">
+                  <span>{new Date(file.createdAt).toLocaleDateString()}</span>
+                  <span>{file.downloadCount} downloads</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Results Summary */}
+      <div className="text-center text-sm text-gray-500 pt-4">
+        Showing {filteredFiles.length} of {files.length} files
+      </div>
     </div>
   );
 }
