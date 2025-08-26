@@ -1,4 +1,4 @@
-// src/app/api/files/[id]/download/route.ts - FIXED FOR PROPER FILE DOWNLOADS
+// src/app/api/files/[id]/download/route.ts - FIXED FOR PUBLIC S3 ACCESS
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -66,7 +66,7 @@ export async function GET(
       );
     }
 
-    // 4. Check user permissions (simplified)
+    // 4. Check user permissions
     let hasAccess = false;
 
     if (session.user.role === 'super_admin') {
@@ -97,36 +97,12 @@ export async function GET(
       );
     }
 
+    // 5. FIXED: Since files are now public, redirect to direct S3 URL
+    // This is much more efficient than proxying the file
     try {
-      console.log('Fetching file from URL:', file.url);
-      
-      // 5. FIXED: Fetch file with proper headers
-      const fileResponse = await fetch(file.url, {
-        method: 'GET',
-        cache: 'no-store' // Prevent caching issues
-      });
-      
-      if (!fileResponse.ok) {
-        console.error('File fetch failed:', fileResponse.status, fileResponse.statusText);
-        throw new Error(`Failed to fetch file: ${fileResponse.status}`);
-      }
+      console.log('Redirecting to public S3 URL:', file.url);
 
-      // 6. FIXED: Get the blob directly instead of arrayBuffer
-      const fileBlob = await fileResponse.blob();
-      
-      console.log('File blob size:', fileBlob.size, 'type:', fileBlob.type);
-      
-      // 7. FIXED: Set correct headers for download
-      const headers = new Headers({
-        'Content-Type': file.mimeType || 'application/octet-stream',
-        'Content-Length': fileBlob.size.toString(),
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(file.originalName)}"`,
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      });
-
-      // 8. Update download count (async, non-blocking)
+      // Update download count (async, non-blocking)
       setImmediate(async () => {
         try {
           await db.collection('files').updateOne(
@@ -144,16 +120,21 @@ export async function GET(
         }
       });
 
-      // 9. FIXED: Return the blob directly
-      return new NextResponse(fileBlob, {
-        status: 200,
-        headers
+      // FIXED: Redirect to the public S3 URL with proper headers
+      return NextResponse.redirect(file.url, {
+        status: 302,
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(file.originalName)}"`
+        }
       });
 
-    } catch (fetchError) {
-      console.error('Error fetching file for download:', fetchError);
+    } catch (error) {
+      console.error('Error processing download:', error);
       return NextResponse.json(
-        { error: 'Failed to retrieve file content' },
+        { error: 'Failed to process download' },
         { status: 500 }
       );
     }

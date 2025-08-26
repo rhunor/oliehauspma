@@ -1,7 +1,4 @@
-// ========================================
-// src/app/api/files/[id]/preview/route.ts - FIXED WITH AWAITED PARAMS
-// ========================================
-
+// src/app/api/files/[id]/preview/route.ts - FIXED FOR PUBLIC S3 ACCESS
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -15,9 +12,9 @@ interface FileDocument {
   mimeType: string;
   url: string;
   size: number;
-  projectId: ObjectId;
+  projectId?: ObjectId;
   uploadedBy: ObjectId;
-  isPublic: boolean;
+  isPublic?: boolean;
   viewCount?: number;
   createdAt: Date;
 }
@@ -28,14 +25,6 @@ interface ProjectDocument {
   manager: ObjectId;
   title: string;
 }
-
-interface FilePreviewParams {
-  id: string;
-}
-
-// ========================================
-// src/app/api/files/[id]/preview/route.ts - FIXED FOR PROPER FILE PREVIEW
-// ========================================
 
 export async function GET(
   request: NextRequest,
@@ -65,7 +54,7 @@ export async function GET(
     const userId = new ObjectId(session.user.id);
     const fileObjectId = new ObjectId(id);
 
-    // 3. Get file details
+    // 3. Get file details with populated user info
     const file = await db.collection('files').findOne({
       _id: fileObjectId
     }) as FileDocument | null;
@@ -77,7 +66,7 @@ export async function GET(
       );
     }
 
-    // 4. Check user permissions (same as download)
+    // 4. Check user permissions
     let hasAccess = false;
 
     if (session.user.role === 'super_admin') {
@@ -87,6 +76,7 @@ export async function GET(
     } else if (file.uploadedBy.equals(userId)) {
       hasAccess = true;
     } else if (file.projectId) {
+      // Check project access
       const project = await db.collection('projects').findOne({
         _id: file.projectId
       }) as ProjectDocument | null;
@@ -127,33 +117,11 @@ export async function GET(
       });
     }
 
+    // 6. FIXED: Since files are now public, redirect to direct S3 URL for preview
     try {
-      console.log('Fetching file for preview from URL:', file.url);
-      
-      // 6. FIXED: Fetch file for preview
-      const fileResponse = await fetch(file.url, {
-        method: 'GET',
-        cache: 'no-store'
-      });
-      
-      if (!fileResponse.ok) {
-        console.error('File preview fetch failed:', fileResponse.status);
-        throw new Error(`Failed to fetch file: ${fileResponse.status}`);
-      }
+      console.log('Redirecting to public S3 URL for preview:', file.url);
 
-      // 7. FIXED: Get blob for preview
-      const fileBlob = await fileResponse.blob();
-      
-      // 8. FIXED: Set correct headers for inline preview
-      const headers = new Headers({
-        'Content-Type': mimeType,
-        'Content-Length': fileBlob.size.toString(),
-        'Content-Disposition': `inline; filename="${encodeURIComponent(file.originalName)}"`,
-        'Cache-Control': 'private, max-age=3600',
-        'X-Content-Type-Options': 'nosniff'
-      });
-
-      // 9. Update view count (async, non-blocking)
+      // Update view count (async, non-blocking)
       setImmediate(async () => {
         try {
           await db.collection('files').updateOne(
@@ -168,16 +136,20 @@ export async function GET(
         }
       });
 
-      // 10. FIXED: Return the blob for preview
-      return new NextResponse(fileBlob, {
-        status: 200,
-        headers
+      // FIXED: Redirect to the public S3 URL for inline preview
+      return NextResponse.redirect(file.url, {
+        status: 302,
+        headers: {
+          'Cache-Control': 'private, max-age=3600',
+          'Content-Disposition': `inline; filename="${encodeURIComponent(file.originalName)}"`,
+          'X-Content-Type-Options': 'nosniff'
+        }
       });
 
-    } catch (fetchError) {
-      console.error('Error fetching file for preview:', fetchError);
+    } catch (error) {
+      console.error('Error processing preview:', error);
       return NextResponse.json(
-        { error: 'Failed to load file content for preview' },
+        { error: 'Failed to process preview' },
         { status: 500 }
       );
     }

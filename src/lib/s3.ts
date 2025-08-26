@@ -1,4 +1,4 @@
-// src/lib/s3.ts - AWS S3 Configuration with Best Practices
+// src/lib/s3.ts - AWS S3 Configuration with PUBLIC FILE ACCESS
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -59,13 +59,14 @@ export async function uploadFileToS3(options: UploadFileToS3Options): Promise<Up
         uploadedAt: new Date().toISOString(),
         ...metadata,
       },
-      // Security: Make files private by default
-      ACL: 'private',
+      // FIXED: Remove ACL since bucket doesn't support ACLs
+      // Public access is controlled by bucket policy instead
+      CacheControl: 'max-age=31536000', // 1 year
     });
 
     await client.send(command);
 
-    // Generate CloudFront URL if available, otherwise use S3 URL
+    // FIXED: Generate public URL for direct access
     const baseUrl = process.env.AWS_CLOUDFRONT_URL || `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com`;
     const url = `${baseUrl}/${key}`;
 
@@ -102,6 +103,7 @@ export async function deleteFileFromS3(key: string): Promise<void> {
   }
 }
 
+// UPDATED: Keep signed URL function for special cases (optional premium features)
 export async function getSignedDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
   const client = getS3Client();
   const bucketName = process.env.AWS_S3_BUCKET_NAME;
@@ -152,6 +154,7 @@ export function validateFileSize(file: File, maxSizeMB: number = 50): boolean {
   return file.size <= maxSizeBytes;
 }
 
+// FIXED: Updated environment variables comment
 // Environment variables to add to your .env.local:
 /*
 AWS_ACCESS_KEY_ID=your_access_key_here
@@ -159,4 +162,9 @@ AWS_SECRET_ACCESS_KEY=your_secret_key_here
 AWS_REGION=us-east-1
 AWS_S3_BUCKET_NAME=your-bucket-name
 AWS_CLOUDFRONT_URL=https://your-cloudfront-distribution.cloudfront.net (optional)
+
+IMPORTANT: Your S3 bucket must have public access configured:
+1. Bucket Policy allowing public read access to objects
+2. Block Public Access settings configured appropriately
+3. CORS policy configured for web access
 */
