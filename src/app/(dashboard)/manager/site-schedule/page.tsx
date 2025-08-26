@@ -1,4 +1,4 @@
-// src/app/(dashboard)/manager/site-schedule/page.tsx - MANAGER SITE SCHEDULE
+// FILE 3: src/app/(dashboard)/manager/site-schedule/page.tsx - CORRECTED VERSION WITH ALL LINKS
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -42,7 +42,7 @@ interface ManagerProject {
   };
 }
 
-const getStatusColor = (status: string) => {
+const getStatusColor = (status: string): string => {
   switch (status) {
     case 'completed': return 'bg-green-100 text-green-800';
     case 'in_progress': return 'bg-blue-100 text-blue-800';
@@ -53,7 +53,7 @@ const getStatusColor = (status: string) => {
 };
 
 export default function ManagerSiteSchedulePage() {
-  const { data: _session } = useSession();
+  const { data: session } = useSession();
   const { toast } = useToast();
   const [activities, setActivities] = useState<SiteActivity[]>([]);
   const [projects, setProjects] = useState<ManagerProject[]>([]);
@@ -89,11 +89,11 @@ export default function ManagerSiteSchedulePage() {
     } finally {
       setLoading(false);
     }
-  }, [toast]); // ✅ Added toast dependency
+  }, [toast]);
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]); // ✅ Now includes fetchData dependency
+  }, [fetchData]);
 
   // Filter activities based on selected filters
   const filteredActivities = activities.filter(activity => {
@@ -134,6 +134,7 @@ export default function ManagerSiteSchedulePage() {
           <p className="text-gray-600 mt-1">Manage activities and track progress for your projects</p>
         </div>
         <div className="flex items-center gap-3 mt-4 sm:mt-0">
+          {/* ✅ PRESERVED: Daily View Link - Now points to our created daily activities page */}
           <Link href="/manager/site-schedule/daily">
             <Button variant="outline" className="flex items-center gap-2">
               <Calendar className="h-4 w-4" />
@@ -147,21 +148,22 @@ export default function ManagerSiteSchedulePage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filter Controls */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Filter by Project
-              </label>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium">Project</label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Projects" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map(project => (
+                  {projects.map((project) => (
                     <SelectItem key={project._id} value={project._id}>
                       {project.title}
                     </SelectItem>
@@ -169,16 +171,14 @@ export default function ManagerSiteSchedulePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Filter by Status
-              </label>
+            <div>
+              <label className="text-sm font-medium">Status</label>
               <Select value={selectedStatus} onValueChange={setSelectedStatus}>
                 <SelectTrigger>
-                  <SelectValue placeholder="All Statuses" />
+                  <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
@@ -190,7 +190,7 @@ export default function ManagerSiteSchedulePage() {
         </CardContent>
       </Card>
 
-      {/* Stats Cards */}
+      {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardContent className="pt-6">
@@ -269,6 +269,7 @@ export default function ManagerSiteSchedulePage() {
                     Clear Filters
                   </Button>
                 )}
+                {/* ✅ PRESERVED: Add Activities Link - Now points to our created daily activities page */}
                 <Link href="/manager/site-schedule/daily">
                   <Button>Add Activities</Button>
                 </Link>
@@ -325,11 +326,13 @@ export default function ManagerSiteSchedulePage() {
                     </div>
 
                     <div className="flex items-center gap-2 ml-4">
+                      {/* ✅ PRESERVED: Project Schedule Link - Now points to our created schedule page */}
                       <Link href={`/manager/projects/${activity.projectId}/schedule`}>
                         <Button variant="outline" size="sm">
                           <Eye className="h-4 w-4" />
                         </Button>
                       </Link>
+                      {/* ✅ PRESERVED: Activity Edit Link - Now points to our created edit page */}
                       <Link href={`/manager/site-schedule/activity/${activity._id}/edit`}>
                         <Button variant="outline" size="sm">
                           <Edit className="h-4 w-4" />
