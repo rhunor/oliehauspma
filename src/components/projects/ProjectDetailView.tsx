@@ -1,4 +1,4 @@
-// src/components/projects/ProjectDetailView.tsx - COMPLETELY FIXED
+// src/components/projects/ProjectDetailView.tsx - FIXED: Button Navigation and Responsivity
 'use client';
 
 import { useState } from 'react';
@@ -30,7 +30,8 @@ import {
   Settings,
   Video,
   Music,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Plus
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -46,7 +47,6 @@ interface ProjectFile {
   category?: string;
   tags?: string[];
   description?: string;
-  // Additional properties that might exist from database
   mimeType?: string;
   originalName?: string;
   filename?: string;
@@ -159,7 +159,7 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getFileIcon = (fileType: string, size: string = 'h-6 w-6') => {
+  const getFileIcon = (fileType: string, size: string = 'h-4 w-4 sm:h-6 sm:w-6') => {
     if (fileType.startsWith('image/')) {
       return <ImageIcon className={`${size} text-blue-500`} />;
     } else if (fileType.startsWith('video/')) {
@@ -234,14 +234,26 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
   const canUploadFiles = userRole === 'super_admin' || 
                         (userRole === 'project_manager' && project.manager._id === userId);
 
+  // FIXED: Get proper role-based paths for navigation
+  const getRoleBasePath = () => {
+    switch (userRole) {
+      case 'super_admin': return '/admin';
+      case 'project_manager': return '/manager'; 
+      case 'client': return '/client';
+      default: return '/dashboard';
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{project.title}</h1>
-          <p className="text-gray-600 mt-1">{project.description}</p>
-          <div className="flex items-center gap-4 mt-4">
+    <div className="w-full space-y-4 sm:space-y-6">
+      {/* FIXED: Mobile-first responsive header - prevent button overflow */}
+      <div className="flex flex-col gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 break-words">{project.title}</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1 line-clamp-3">{project.description}</p>
+          
+          {/* FIXED: Responsive badges and progress - wrap on mobile */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-3 sm:mt-4">
             <Badge className={getStatusColor(project.status)}>
               {project.status.replace('_', ' ').toUpperCase()}
             </Badge>
@@ -249,35 +261,40 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
               {project.priority.toUpperCase()} PRIORITY
             </Badge>
             <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-gray-500" />
-              <span className="text-sm text-gray-600">{project.progress}% Complete</span>
+              <Target className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500 flex-shrink-0" />
+              <span className="text-xs sm:text-sm text-gray-600">{project.progress}% Complete</span>
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        
+        {/* FIXED: Responsive action buttons - no overflow on mobile */}
+        <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-shrink-0">
           {canEdit && (
-            <Button variant="outline" size="sm">
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Project
+            <Button variant="outline" size="sm" asChild className="w-full sm:w-auto text-xs sm:text-sm">
+              <Link href={`${getRoleBasePath()}/projects/${project._id}/edit`}>
+                <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 flex-shrink-0" />
+                <span className="truncate">Edit Project</span>
+              </Link>
             </Button>
           )}
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/dashboard/${userRole}/messages`}>
-              <MessageSquare className="h-4 w-4 mr-2" />
-              Message Team
+          <Button variant="outline" size="sm" asChild className="w-full sm:w-auto text-xs sm:text-sm">
+            <Link href={`${getRoleBasePath()}/messages`}>
+              <MessageSquare className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 flex-shrink-0" />
+              <span className="sm:hidden truncate">Message</span>
+              <span className="hidden sm:inline truncate">Message Team</span>
             </Link>
           </Button>
         </div>
       </div>
 
-      {/* Progress Bar */}
+      {/* FIXED: Responsive progress bar */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-900">Project Progress</span>
             <span className="text-sm font-medium text-gray-900">{project.progress}%</span>
           </div>
-          <Progress value={project.progress} className="h-3" />
+          <Progress value={project.progress} className="h-2 sm:h-3" />
           {project.siteSchedule && (
             <p className="text-xs text-gray-500 mt-2">
               {project.siteSchedule.completedActivities} of {project.siteSchedule.totalActivities} activities completed
@@ -286,556 +303,471 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
         </CardContent>
       </Card>
 
-      {/* Main Content Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="team">Team</TabsTrigger>
-          <TabsTrigger value="schedule">Schedule</TabsTrigger>
-          <TabsTrigger value="files">Files</TabsTrigger>
-          <TabsTrigger value="milestones">Milestones</TabsTrigger>
-        </TabsList>
+      {/* FIXED: Mobile-first responsive content layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        {/* Main content area */}
+        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            {/* FIXED: Responsive tabs list */}
+            <TabsList className="grid w-full grid-cols-4 h-auto p-1">
+              <TabsTrigger value="overview" className="text-xs sm:text-sm px-2 py-2">Overview</TabsTrigger>
+              <TabsTrigger value="schedule" className="text-xs sm:text-sm px-2 py-2">Schedule</TabsTrigger>
+              <TabsTrigger value="files" className="text-xs sm:text-sm px-2 py-2">Files</TabsTrigger>
+              <TabsTrigger value="milestones" className="text-xs sm:text-sm px-2 py-2">Milestones</TabsTrigger>
+            </TabsList>
 
-        {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Project Details */}
-            <div className="md:col-span-2 space-y-6">
+            {/* Overview Tab */}
+            <TabsContent value="overview" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5" />
-                    Project Information
-                  </CardTitle>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base sm:text-lg">Project Details</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                <CardContent className="space-y-3 sm:space-y-4">
+                  {/* FIXED: Responsive grid layout */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
                     <div>
-                      <label className="text-sm font-medium text-gray-500">Site Address</label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <MapPin className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{project.siteAddress}</span>
+                      <span className="font-medium text-gray-600">Site Address:</span>
+                      <p className="text-gray-900 mt-1 break-words">{project.siteAddress}</p>
+                    </div>
+                    {project.scopeOfWork && (
+                      <div>
+                        <span className="font-medium text-gray-600">Scope of Work:</span>
+                        <p className="text-gray-900 mt-1">{project.scopeOfWork}</p>
                       </div>
+                    )}
+                    {project.designStyle && (
+                      <div>
+                        <span className="font-medium text-gray-600">Design Style:</span>
+                        <p className="text-gray-900 mt-1">{project.designStyle}</p>
+                      </div>
+                    )}
+                    <div>
+                      <span className="font-medium text-gray-600">Project Duration:</span>
+                      <p className="text-gray-900 mt-1">{project.projectDuration || 'Not specified'}</p>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-500">Duration</label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Clock className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{project.projectDuration || 'Not specified'}</span>
-                      </div>
+                      <span className="font-medium text-gray-600">Work Days:</span>
+                      <p className="text-gray-900 mt-1">{project.workDays || 'Mon-Sat'}</p>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-500">Start Date</label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Calendar className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{formatDate(project.startDate)}</span>
-                      </div>
+                      <span className="font-medium text-gray-600">Start Date:</span>
+                      <p className="text-gray-900 mt-1">{formatDate(project.startDate)}</p>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-500">End Date</label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Calendar className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{formatDate(project.endDate)}</span>
-                      </div>
+                      <span className="font-medium text-gray-600">End Date:</span>
+                      <p className="text-gray-900 mt-1">{formatDate(project.endDate)}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-600">Budget:</span>
+                      <p className="text-gray-900 mt-1">{formatCurrency(project.budget)}</p>
                     </div>
                   </div>
-                  
-                  {project.scopeOfWork && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Scope of Work</label>
-                      <p className="text-sm mt-1">{project.scopeOfWork}</p>
-                    </div>
-                  )}
-                  
-                  {project.designStyle && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Design Style</label>
-                      <p className="text-sm mt-1">{project.designStyle}</p>
-                    </div>
-                  )}
                   
                   {project.notes && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-500">Notes</label>
-                      <p className="text-sm mt-1">{project.notes}</p>
+                    <div className="pt-3 sm:pt-4 border-t">
+                      <span className="font-medium text-gray-600">Additional Notes:</span>
+                      <p className="text-gray-900 mt-1 whitespace-pre-wrap text-sm">{project.notes}</p>
                     </div>
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
 
-              {/* Tags */}
-              {project.tags && project.tags.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Tags</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-2">
-                      {project.tags.map((tag, index) => (
-                        <Badge key={index} variant="secondary">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Budget */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5" />
-                    Budget
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-green-600">
-                    {formatCurrency(project.budget)}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Quick Stats */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Quick Stats</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Files</span>
-                    <span className="font-medium">{project.files?.length || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Milestones</span>
-                    <span className="font-medium">{project.milestones?.length || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Work Days</span>
-                    <span className="font-medium text-xs">{project.workDays || 'Mon-Sat'}</span>
-                  </div>
-                  {project.siteSchedule && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Activities</span>
-                      <span className="font-medium">
-                        {project.siteSchedule.completedActivities}/{project.siteSchedule.totalActivities}
-                      </span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Project Coordinator */}
-              {project.projectCoordinator && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <User className="h-5 w-5" />
-                      Project Coordinator
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <p className="font-medium">{project.projectCoordinator.name}</p>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Phone className="h-4 w-4" />
-                      {project.projectCoordinator.phone}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Site Officer */}
-              {project.siteOfficer && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings className="h-5 w-5" />
-                      Site Officer
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <p className="font-medium">{project.siteOfficer.name}</p>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Phone className="h-4 w-4" />
-                      {project.siteOfficer.phone}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* Team Tab */}
-        <TabsContent value="team" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Client */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Client
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4">
-                  <Avatar className="h-12 w-12">
-                    <AvatarFallback>
-                      {project.client.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <h3 className="font-semibold">{project.client.name}</h3>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Mail className="h-4 w-4" />
-                      <a href={`mailto:${project.client.email}`} className="hover:text-blue-600">
-                        {project.client.email}
-                      </a>
-                    </div>
-                    {project.client.phone && (
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Phone className="h-4 w-4" />
-                        <a href={`tel:${project.client.phone}`} className="hover:text-blue-600">
-                          {project.client.phone}
-                        </a>
-                      </div>
-                    )}
-                    <Badge className="mt-2 bg-green-100 text-green-800">Client</Badge>
-                  </div>
-                  <Button size="sm" variant="outline" asChild>
-                    <Link href={`/dashboard/${userRole}/messages`}>
-                      <MessageSquare className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Project Manager */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Briefcase className="h-5 w-5" />
-                  Project Manager
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4">
-                  <Avatar className="h-12 w-12">
-                    <AvatarFallback>
-                      {project.manager.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <h3 className="font-semibold">{project.manager.name}</h3>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Mail className="h-4 w-4" />
-                      <a href={`mailto:${project.manager.email}`} className="hover:text-blue-600">
-                        {project.manager.email}
-                      </a>
-                    </div>
-                    {project.manager.phone && (
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Phone className="h-4 w-4" />
-                        <a href={`tel:${project.manager.phone}`} className="hover:text-blue-600">
-                          {project.manager.phone}
-                        </a>
-                      </div>
-                    )}
-                    <Badge className="mt-2 bg-blue-100 text-blue-800">Manager</Badge>
-                  </div>
-                  <Button size="sm" variant="outline" asChild>
-                    <Link href={`/dashboard/${userRole}/messages`}>
-                      <MessageSquare className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* Schedule Tab */}
-        <TabsContent value="schedule" className="space-y-6">
-          {project.siteSchedule && project.siteSchedule.phases ? (
-            <div className="space-y-6">
-              {project.siteSchedule.phases.map((phase, phaseIndex) => (
-                <Card key={phaseIndex}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <CalendarIcon className="h-5 w-5" />
-                      {phase.name}
-                    </CardTitle>
-                    {phase.description && (
-                      <p className="text-sm text-gray-600">{phase.description}</p>
-                    )}
-                  </CardHeader>
-                  <CardContent>
-                    {phase.weeks && phase.weeks.length > 0 ? (
-                      <div className="space-y-4">
-                        {phase.weeks.map((week, weekIndex) => (
-                          <div key={weekIndex} className="border rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <h4 className="font-semibold">Week {week.weekNumber}: {week.title}</h4>
-                              <span className="text-sm text-gray-500">
-                                {formatDate(week.startDate)} - {formatDate(week.endDate)}
-                              </span>
-                            </div>
-                            {week.days && week.days.length > 0 ? (
-                              <div className="space-y-3">
-                                {week.days.map((day, dayIndex) => (
-                                  <div key={dayIndex} className="bg-gray-50 rounded-lg p-3">
-                                    <h5 className="font-medium mb-2">
-                                      Day {day.dayNumber} - {formatDate(day.date)}
-                                    </h5>
-                                    {day.activities && day.activities.length > 0 ? (
-                                      <div className="space-y-2">
-                                        {day.activities.map((activity, activityIndex) => (
-                                          <div key={activityIndex} className="flex items-center justify-between bg-white rounded p-2">
-                                            <div className="flex-1">
-                                              <p className="font-medium text-sm">{activity.title}</p>
-                                              <p className="text-xs text-gray-600">Contractor: {activity.contractor}</p>
-                                              {activity.supervisor && (
-                                                <p className="text-xs text-gray-600">Supervisor: {activity.supervisor}</p>
-                                              )}
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                              <Badge className={`text-xs ${
-                                                activity.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                                activity.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                                                activity.status === 'delayed' ? 'bg-red-100 text-red-800' :
-                                                'bg-gray-100 text-gray-800'
-                                              }`}>
-                                                {activity.status.replace('_', ' ')}
-                                              </Badge>
-                                              {activity.status === 'completed' && (
-                                                <CheckCircle className="h-4 w-4 text-green-500" />
-                                              )}
-                                              {activity.status === 'delayed' && (
-                                                <AlertCircle className="h-4 w-4 text-red-500" />
-                                              )}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <p className="text-sm text-gray-500">No activities scheduled</p>
-                                    )}
+            {/* Schedule Tab - FIXED: Proper navigation to schedule page */}
+            <TabsContent value="schedule" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
+              {project.siteSchedule && project.siteSchedule.phases.length > 0 ? (
+                <div className="space-y-4">
+                  {project.siteSchedule.phases.map((phase, phaseIndex) => (
+                    <Card key={phaseIndex}>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                          <CalendarIcon className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+                          {phase.name}
+                        </CardTitle>
+                        {phase.description && (
+                          <p className="text-sm text-gray-600">{phase.description}</p>
+                        )}
+                      </CardHeader>
+                      <CardContent>
+                        {phase.weeks && phase.weeks.length > 0 ? (
+                          <div className="space-y-3">
+                            {phase.weeks.map((week, weekIndex) => (
+                              <div key={weekIndex} className="border rounded-lg p-3 sm:p-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                                  <h4 className="font-medium text-sm sm:text-base">{week.title}</h4>
+                                  <div className="text-xs sm:text-sm text-gray-500">
+                                    {formatDate(week.startDate)} - {formatDate(week.endDate)}
                                   </div>
-                                ))}
+                                </div>
+                                {week.days && week.days.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {week.days.map((day, dayIndex) => (
+                                      <div key={dayIndex} className="bg-gray-50 rounded p-2 sm:p-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                          <span className="font-medium text-xs sm:text-sm">
+                                            Day {day.dayNumber} - {formatDate(day.date)}
+                                          </span>
+                                        </div>
+                                        {day.activities && day.activities.length > 0 ? (
+                                          <div className="space-y-1">
+                                            {day.activities.map((activity, activityIndex) => (
+                                              <div key={activityIndex} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+                                                <span className="font-medium">{activity.title}</span>
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-gray-500">{activity.contractor}</span>
+                                                  <Badge className={`text-xs ${
+                                                    activity.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                                    activity.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                                                    activity.status === 'delayed' ? 'bg-red-100 text-red-800' :
+                                                    'bg-gray-100 text-gray-800'
+                                                  }`}>
+                                                    {activity.status.replace('_', ' ')}
+                                                  </Badge>
+                                                  {activity.status === 'completed' && (
+                                                    <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-500" />
+                                                  )}
+                                                  {activity.status === 'delayed' && (
+                                                    <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4 text-red-500" />
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <p className="text-xs text-gray-500">No activities scheduled</p>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-gray-500">No days scheduled</p>
+                                )}
                               </div>
-                            ) : (
-                              <p className="text-sm text-gray-500">No days scheduled</p>
-                            )}
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-500">No weeks scheduled for this phase</p>
+                        ) : (
+                          <p className="text-sm text-gray-500">No weeks scheduled for this phase</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="p-8 sm:p-12 text-center">
+                    <CalendarIcon className="h-8 w-8 sm:h-12 sm:w-12 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">No Schedule Available</h3>
+                    <p className="text-sm text-gray-600 mb-4">The project schedule has not been created yet.</p>
+                    {canEdit && (
+                      <Button className="w-full sm:w-auto" variant="outline" asChild>
+                        <Link href={`${getRoleBasePath()}/projects/${project._id}/schedule`}>
+                          <Settings className="h-4 w-4 mr-2" />
+                          Create Schedule
+                        </Link>
+                      </Button>
                     )}
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <CalendarIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Schedule Available</h3>
-                <p className="text-gray-600">The project schedule has not been created yet.</p>
-                {canEdit && (
-                  <Button className="mt-4" variant="outline">
-                    <Settings className="h-4 w-4 mr-2" />
-                    Create Schedule
+              )}
+            </TabsContent>
+
+            {/* Files Tab */}
+            <TabsContent value="files" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <h3 className="text-base sm:text-lg font-semibold">Project Files</h3>
+                {canUploadFiles && (
+                  <Button className="w-full sm:w-auto">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Files
                   </Button>
                 )}
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Files Tab - COMPLETELY FIXED */}
-        <TabsContent value="files" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Project Files</h3>
-            {canUploadFiles && (
-              <Button>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload Files
-              </Button>
-            )}
-          </div>
-          
-          {project.files && project.files.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {project.files.map((file, index) => {
-                // CRITICAL FIX: Comprehensive defensive checks with proper typing
-                const fileType = file.type || file.mimeType || 'application/octet-stream';
-                const fileName = file.name || file.originalName || file.filename || `File ${index + 1}`;
-                const fileUrl = file.url || '';
-                const fileSize = file.size || 0;
-                const uploadDate = file.uploadedAt || '';
-                
-                return (
-                  <Card key={`${index}-${fileName}`} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0">
-                          {/* CRITICAL FIX: Safe file type checking with fallbacks */}
-                          {fileType && fileType.startsWith('image/') && fileUrl ? (
-                            <div className="relative w-12 h-12">
-                              <Image
-                                src={fileUrl}
-                                alt={fileName}
-                                fill
-                                className="object-cover rounded"
-                                onError={(e) => {
-                                  // Fallback for broken images
-                                  const target = e.target as HTMLImageElement;
-                                  target.style.display = 'none';
-                                  const parent = target.parentElement;
-                                  if (parent) {
-                                    parent.innerHTML = `<div class="w-12 h-12 bg-gray-100 rounded flex items-center justify-center">${getFileIcon(fileType, 'h-6 w-6')}</div>`;
-                                  }
-                                }}
-                              />
+              </div>
+              
+              {project.files && project.files.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
+                  {project.files.map((file, index) => (
+                    <Card key={index} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0">
+                            {getFileIcon(file.type)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-medium text-sm sm:text-base text-gray-900 truncate">
+                              {file.name || file.originalName || 'Unnamed file'}
+                            </h4>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mt-1 text-xs text-gray-500">
+                              <span>{file.size ? formatFileSize(file.size) : 'Unknown size'}</span>
+                              <span className="hidden sm:inline">•</span>
+                              <span>Uploaded {formatDate(file.uploadedAt)}</span>
                             </div>
-                          ) : (
-                            <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center">
-                              {getFileIcon(fileType)}
-                            </div>
-                          )}
+                            <p className="text-xs text-gray-500 mt-1">By: {file.uploadedBy}</p>
+                            {file.description && (
+                              <p className="text-xs text-gray-600 mt-2 line-clamp-2">{file.description}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-1 flex-shrink-0">
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={file.url} target="_blank" rel="noopener noreferrer">
+                                <Eye className="h-3 w-3 sm:h-4 sm:w-4" />
+                              </a>
+                            </Button>
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={file.url} download={file.name}>
+                                <Download className="h-3 w-3 sm:h-4 sm:w-4" />
+                              </a>
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate" title={fileName}>
-                            {fileName}
-                          </p>
-                          {uploadDate && (
-                            <p className="text-xs text-gray-500">
-                              Uploaded {formatDate(uploadDate)}
-                            </p>
-                          )}
-                          {fileSize > 0 && (
-                            <p className="text-xs text-gray-500">
-                              {formatFileSize(fileSize)}
-                            </p>
-                          )}
-                          {file.category && (
-                            <Badge variant="outline" className="text-xs mt-1">
-                              {file.category}
-                            </Badge>
-                          )}
-                          <div className="flex items-center gap-2 mt-2">
-                            {fileUrl && (
-                              <>
-                                <Button size="sm" variant="outline" asChild>
-                                  <a href={fileUrl} target="_blank" rel="noopener noreferrer">
-                                    <Eye className="h-3 w-3 mr-1" />
-                                    View
-                                  </a>
-                                </Button>
-                                <Button size="sm" variant="outline" asChild>
-                                  <a href={fileUrl} download={fileName}>
-                                    <Download className="h-3 w-3 mr-1" />
-                                    Download
-                                  </a>
-                                </Button>
-                              </>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="p-8 sm:p-12 text-center">
+                    <FileText className="h-8 w-8 sm:h-12 sm:w-12 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">No Files Yet</h3>
+                    <p className="text-sm text-gray-600 mb-4">Project files will appear here once uploaded.</p>
+                    {canUploadFiles && (
+                      <Button className="w-full sm:w-auto" variant="outline">
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload First File
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* Milestones Tab - FIXED: Proper navigation to milestones page */}
+            <TabsContent value="milestones" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <h3 className="text-base sm:text-lg font-semibold">Project Milestones</h3>
+                {canEdit && (
+                  <Button variant="outline" className="w-full sm:w-auto" asChild>
+                    <Link href={`${getRoleBasePath()}/projects/${project._id}/milestones`}>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Add Milestone
+                    </Link>
+                  </Button>
+                )}
+              </div>
+
+              {project.milestones && project.milestones.length > 0 ? (
+                <div className="space-y-3 sm:space-y-4">
+                  {project.milestones.map((milestone, index) => (
+                    <Card key={index}>
+                      <CardContent className="p-4">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
+                              <h4 className="font-semibold text-sm sm:text-base">{milestone.name}</h4>
+                              <Badge className={getMilestoneStatusColor(milestone.status)}>
+                                {milestone.status.replace('_', ' ').toUpperCase()}
+                              </Badge>
+                            </div>
+                            {milestone.description && (
+                              <p className="text-xs sm:text-sm text-gray-600 mb-2">{milestone.description}</p>
+                            )}
+                            <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
+                              <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+                              <span>Due: {formatDate(milestone.dueDate)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center flex-shrink-0">
+                            {milestone.status === 'completed' && (
+                              <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 text-green-500" />
+                            )}
+                            {milestone.status === 'in_progress' && (
+                              <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-blue-500" />
+                            )}
+                            {milestone.status === 'pending' && (
+                              <AlertCircle className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400" />
                             )}
                           </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Files Yet</h3>
-                <p className="text-gray-600">Project files will appear here once uploaded.</p>
-                {canUploadFiles && (
-                  <Button className="mt-4" variant="outline">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload First File
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Milestones Tab */}
-        <TabsContent value="milestones" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Project Milestones</h3>
-            {canEdit && (
-              <Button variant="outline">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Add Milestone
-              </Button>
-            )}
-          </div>
-
-          {project.milestones && project.milestones.length > 0 ? (
-            <div className="space-y-4">
-              {project.milestones.map((milestone, index) => (
-                <Card key={index}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h4 className="font-semibold">{milestone.name}</h4>
-                          <Badge className={getMilestoneStatusColor(milestone.status)}>
-                            {milestone.status.replace('_', ' ').toUpperCase()}
-                          </Badge>
-                        </div>
-                        {milestone.description && (
-                          <p className="text-sm text-gray-600 mb-2">{milestone.description}</p>
-                        )}
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                          <Calendar className="h-4 w-4" />
-                          <span>Due: {formatDate(milestone.dueDate)}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center">
-                        {milestone.status === 'completed' && (
-                          <CheckCircle className="h-6 w-6 text-green-500" />
-                        )}
-                        {milestone.status === 'in_progress' && (
-                          <Clock className="h-6 w-6 text-blue-500" />
-                        )}
-                        {milestone.status === 'pending' && (
-                          <AlertCircle className="h-6 w-6 text-gray-400" />
-                        )}
-                      </div>
-                    </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="p-8 sm:p-12 text-center">
+                    <Target className="h-8 w-8 sm:h-12 sm:w-12 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">No Milestones Set</h3>
+                    <p className="text-sm text-gray-600 mb-4">Project milestones help track important achievements.</p>
+                    {canEdit && (
+                      <Button className="w-full sm:w-auto" variant="outline" asChild>
+                        <Link href={`${getRoleBasePath()}/projects/${project._id}/milestones`}>
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Create First Milestone
+                        </Link>
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <Target className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Milestones Set</h3>
-                <p className="text-gray-600">Project milestones help track important achievements.</p>
-                {canEdit && (
-                  <Button className="mt-4" variant="outline">
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Create First Milestone
-                  </Button>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* FIXED: Mobile-first responsive sidebar */}
+        <div className="space-y-4 sm:space-y-6">
+          {/* Client Information */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <User className="h-4 w-4 sm:h-5 sm:w-5" />
+                Client Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
+                  <AvatarFallback className="text-xs sm:text-sm">
+                    {project.client.name.split(' ').map(n => n[0]).join('')}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm sm:text-base truncate">{project.client.name}</p>
+                  <p className="text-xs sm:text-sm text-gray-500 capitalize">{project.client.role}</p>
+                </div>
+              </div>
+              <div className="space-y-2 text-xs sm:text-sm">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="truncate">{project.client.email}</span>
+                </div>
+                {project.client.phone && (
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{project.client.phone}</span>
+                  </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Project Manager Information */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <Briefcase className="h-4 w-4 sm:h-5 sm:w-5" />
+                Project Manager
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
+                  <AvatarFallback className="text-xs sm:text-sm">
+                    {project.manager.name.split(' ').map(n => n[0]).join('')}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm sm:text-base truncate">{project.manager.name}</p>
+                  <p className="text-xs sm:text-sm text-gray-500 capitalize">{project.manager.role}</p>
+                </div>
+              </div>
+              <div className="space-y-2 text-xs sm:text-sm">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="truncate">{project.manager.email}</span>
+                </div>
+                {project.manager.phone && (
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{project.manager.phone}</span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Budget Information */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <DollarSign className="h-4 w-4 sm:h-5 sm:w-5" />
+                Budget Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm text-gray-500">Total Budget</span>
+                <span className="font-medium text-sm sm:text-base">{formatCurrency(project.budget)}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Stats */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base sm:text-lg">Quick Stats</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm text-gray-500">Files</span>
+                <span className="font-medium text-sm">{project.files?.length || 0}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm text-gray-500">Milestones</span>
+                <span className="font-medium text-sm">{project.milestones?.length || 0}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm text-gray-500">Work Days</span>
+                <span className="font-medium text-xs">{project.workDays || 'Mon-Sat'}</span>
+              </div>
+              {project.siteSchedule && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs sm:text-sm text-gray-500">Activities</span>
+                  <span className="font-medium text-sm">
+                    {project.siteSchedule.completedActivities}/{project.siteSchedule.totalActivities}
+                  </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Project Coordinator */}
+          {project.projectCoordinator && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                  <User className="h-4 w-4 sm:h-5 sm:w-5" />
+                  Project Coordinator
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="font-medium text-sm sm:text-base">{project.projectCoordinator.name}</p>
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
+                  <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                  {project.projectCoordinator.phone}
+                </div>
               </CardContent>
             </Card>
           )}
-        </TabsContent>
-      </Tabs>
+
+          {/* Site Officer */}
+          {project.siteOfficer && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                  <User className="h-4 w-4 sm:h-5 sm:w-5" />
+                  Site Officer
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="font-medium text-sm sm:text-base">{project.siteOfficer.name}</p>
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
+                  <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                  {project.siteOfficer.phone}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
