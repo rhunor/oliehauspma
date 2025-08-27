@@ -1,7 +1,4 @@
-// src/app/(dashboard)/admin/projects/[id]/schedule/page.tsx
-// src/app/(dashboard)/manager/projects/[id]/schedule/page.tsx
-// FIXED: Complete project schedule page linking to daily activities
-
+// src/app/(dashboard)/admin/projects/[id]/schedule/page.tsx - FUNCTIONAL VERSION
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -14,15 +11,20 @@ import {
   Clock, 
   CheckCircle, 
   AlertTriangle,
-  Eye,
-  Edit,
   Plus,
-  Download,
+  RefreshCcw,
+  Loader2,
   Filter,
+  Download,
   BarChart3,
   Activity,
   Users,
-  CalendarDays
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  MoreVertical,
+  Edit,
+  Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -36,26 +38,39 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
+// Types
 interface Project {
   _id: string;
   title: string;
-  description: string;
-  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  startDate: string;
-  endDate: string;
+  startDate?: string;
+  endDate?: string;
+  status: string;
   progress: number;
-  client: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  manager: {
-    _id: string;
-    name: string;
-    email: string;
-  };
 }
 
 interface ScheduleActivity {
@@ -75,6 +90,10 @@ interface ScheduleActivity {
   estimatedDuration?: number;
   actualDuration?: number;
   dependencies?: string[];
+  resources?: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface SchedulePhase {
@@ -86,158 +105,84 @@ interface SchedulePhase {
   status: 'upcoming' | 'active' | 'completed' | 'delayed';
   progress: number;
   activities: ScheduleActivity[];
+  dependencies?: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface ProjectScheduleData {
+interface OverallStats {
+  totalActivities: number;
+  completedActivities: number;
+  activeActivities: number;
+  delayedActivities: number;
+  overallProgress: number;
+  onSchedule: boolean;
+  daysRemaining?: number;
+}
+
+interface ScheduleData {
   project: Project;
   phases: SchedulePhase[];
-  overallStats: {
-    totalActivities: number;
-    completedActivities: number;
-    activeActivities: number;
-    delayedActivities: number;
-    overallProgress: number;
-    onSchedule: boolean;
-    daysRemaining?: number;
-  };
+  overallStats: OverallStats;
+  upcomingActivities: ScheduleActivity[];
 }
 
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'completed': return 'bg-green-100 text-green-800';
-    case 'in_progress': 
-    case 'active': return 'bg-blue-100 text-blue-800';
-    case 'pending': 
-    case 'upcoming': return 'bg-gray-100 text-gray-800';
-    case 'delayed': return 'bg-red-100 text-red-800';
-    case 'on_hold': return 'bg-yellow-100 text-yellow-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-};
-
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
-    case 'in_progress':
-    case 'active': return <Clock className="h-4 w-4 text-blue-500" />;
-    case 'delayed': return <AlertTriangle className="h-4 w-4 text-red-500" />;
-    default: return <Clock className="h-4 w-4 text-gray-400" />;
-  }
-};
-
-const getPriorityColor = (priority: string) => {
-  switch (priority) {
-    case 'low': return 'bg-gray-100 text-gray-800';
-    case 'medium': return 'bg-blue-100 text-blue-800';
-    case 'high': return 'bg-yellow-100 text-yellow-800';
-    case 'urgent': return 'bg-red-100 text-red-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-};
+interface CreatePhaseForm {
+  name: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  dependencies: string[];
+}
 
 export default function ProjectSchedulePage() {
-  const params = useParams();
-  const router = useRouter();
   const { data: session } = useSession();
+  const router = useRouter();
+  const params = useParams();
   const { toast } = useToast();
   
-  const [scheduleData, setScheduleData] = useState<ProjectScheduleData | null>(null);
+  const projectId = params?.id as string;
+  const userRole = session?.user?.role;
+  
+  // State management
   const [loading, setLoading] = useState(true);
-  const [selectedPhase, setSelectedPhase] = useState<string>('all');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [scheduleData, setScheduleData] = useState<ScheduleData | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [formData, setFormData] = useState<CreatePhaseForm>({
+    name: '',
+    description: '',
+    startDate: '',
+    endDate: '',
+    dependencies: []
+  });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  const projectId = params.id as string;
-
-  // Get role-based path
-  const getRoleBasePath = () => {
-    switch (session?.user?.role) {
-      case 'super_admin': return '/admin';
-      case 'project_manager': return '/manager';
-      default: return '/dashboard';
-    }
-  };
-
+  // Fetch schedule data
   const fetchScheduleData = useCallback(async () => {
     try {
       setLoading(true);
+      const response = await fetch(`/api/projects/${projectId}/schedule`);
       
-      // Fetch project details
-      const projectResponse = await fetch(`/api/projects/${projectId}`);
-      if (!projectResponse.ok) {
-        throw new Error('Failed to fetch project');
-      }
-      const projectData = await projectResponse.json();
-
-      // Fetch project schedule/activities
-      const scheduleResponse = await fetch(`/api/projects/${projectId}/schedule`);
-      let scheduleInfo = null;
-      if (scheduleResponse.ok) {
-        scheduleInfo = await scheduleResponse.json();
-      }
-
-      // Mock schedule data if not available (for demonstration)
-      const mockScheduleData: ProjectScheduleData = {
-        project: projectData.data,
-        phases: scheduleInfo?.phases || [
-          {
-            _id: 'phase1',
-            name: 'Foundation & Structure',
-            description: 'Initial construction phase including foundation and structural work',
-            startDate: projectData.data.startDate,
-            endDate: new Date(new Date(projectData.data.startDate).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            status: 'active',
-            progress: 65,
-            activities: [
-              {
-                _id: 'act1',
-                title: 'Foundation Excavation',
-                description: 'Excavate foundation according to architectural plans',
-                contractor: 'Foundation Experts Ltd',
-                supervisor: 'John Smith',
-                plannedStartDate: projectData.data.startDate,
-                plannedEndDate: new Date(new Date(projectData.data.startDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                status: 'completed',
-                priority: 'high',
-                category: 'structural',
-                progress: 100,
-                estimatedDuration: 7,
-                actualDuration: 6
-              },
-              {
-                _id: 'act2',
-                title: 'Foundation Pouring',
-                description: 'Pour concrete foundation',
-                contractor: 'Foundation Experts Ltd',
-                supervisor: 'John Smith',
-                plannedStartDate: new Date(new Date(projectData.data.startDate).getTime() + 8 * 24 * 60 * 60 * 1000).toISOString(),
-                plannedEndDate: new Date(new Date(projectData.data.startDate).getTime() + 12 * 24 * 60 * 60 * 1000).toISOString(),
-                status: 'in_progress',
-                priority: 'high',
-                category: 'structural',
-                progress: 40,
-                estimatedDuration: 5
-              }
-            ]
-          }
-        ],
-        overallStats: {
-          totalActivities: 2,
-          completedActivities: 1,
-          activeActivities: 1,
-          delayedActivities: 0,
-          overallProgress: projectData.data.progress || 0,
-          onSchedule: true,
-          daysRemaining: 45
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setScheduleData(result.data);
+        } else {
+          throw new Error(result.error || 'Failed to fetch schedule');
         }
-      };
-
-      setScheduleData(mockScheduleData);
+      } else {
+        throw new Error(`HTTP ${response.status}: Failed to fetch schedule`);
+      }
     } catch (error) {
-      console.error('Error fetching schedule data:', error);
+      console.error('Error fetching schedule:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to load project schedule"
+        description: error instanceof Error ? error.message : "Failed to load schedule",
       });
     } finally {
       setLoading(false);
@@ -245,11 +190,154 @@ export default function ProjectSchedulePage() {
   }, [projectId, toast]);
 
   useEffect(() => {
-    if (session?.user) {
+    if (projectId && session?.user) {
       fetchScheduleData();
     }
-  }, [session, fetchScheduleData]);
+  }, [projectId, session, fetchScheduleData]);
 
+  // Handle form input changes
+  const handleFormChange = (field: keyof CreatePhaseForm, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (formErrors[field]) {
+      setFormErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  // Validate create form
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    if (!formData.name.trim()) errors.name = 'Phase name is required';
+    if (!formData.startDate) errors.startDate = 'Start date is required';
+    if (!formData.endDate) errors.endDate = 'End date is required';
+    
+    if (formData.startDate && formData.endDate) {
+      const start = new Date(formData.startDate);
+      const end = new Date(formData.endDate);
+      if (start >= end) {
+        errors.endDate = 'End date must be after start date';
+      }
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Handle phase creation
+  const handleCreatePhase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Please fix the errors before creating the phase",
+      });
+      return;
+    }
+
+    try {
+      setCreating(true);
+      
+      const response = await fetch(`/api/projects/${projectId}/schedule`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          description: formData.description.trim(),
+          startDate: formData.startDate,
+          endDate: formData.endDate,
+          dependencies: formData.dependencies
+        }),
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: "Phase created successfully",
+        });
+        
+        // Reset form and close dialog
+        setFormData({
+          name: '',
+          description: '',
+          startDate: '',
+          endDate: '',
+          dependencies: []
+        });
+        setCreateDialogOpen(false);
+        
+        // Refresh schedule
+        fetchScheduleData();
+      } else {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to create phase');
+      }
+    } catch (error) {
+      console.error('Error creating phase:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create phase",
+      });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // Toggle phase expansion - REMOVED (now using controlled state directly)
+
+  // Get status info
+  const getStatusInfo = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return { icon: CheckCircle, color: 'text-green-500', bgColor: 'bg-green-100', label: 'Completed' };
+      case 'active':
+      case 'in_progress':
+        return { icon: Activity, color: 'text-blue-500', bgColor: 'bg-blue-100', label: 'Active' };
+      case 'delayed':
+        return { icon: AlertTriangle, color: 'text-red-500', bgColor: 'bg-red-100', label: 'Delayed' };
+      default:
+        return { icon: Clock, color: 'text-gray-500', bgColor: 'bg-gray-100', label: 'Upcoming' };
+    }
+  };
+
+  // Get priority badge
+  const getPriorityBadge = (priority: ScheduleActivity['priority']) => {
+    const variants = {
+      low: 'bg-gray-100 text-gray-700',
+      medium: 'bg-blue-100 text-blue-700',
+      high: 'bg-orange-100 text-orange-700',
+      urgent: 'bg-red-100 text-red-700'
+    };
+    
+    return (
+      <Badge className={variants[priority]}>
+        {priority.charAt(0).toUpperCase() + priority.slice(1)}
+      </Badge>
+    );
+  };
+
+  // Get category badge
+  const getCategoryBadge = (category: ScheduleActivity['category']) => {
+    const variants = {
+      structural: 'bg-stone-100 text-stone-700',
+      electrical: 'bg-yellow-100 text-yellow-700',
+      plumbing: 'bg-blue-100 text-blue-700',
+      finishing: 'bg-green-100 text-green-700',
+      other: 'bg-gray-100 text-gray-700'
+    };
+    
+    return (
+      <Badge variant="outline" className={variants[category]}>
+        {category.charAt(0).toUpperCase() + category.slice(1)}
+      </Badge>
+    );
+  };
+
+  // Format date
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -258,41 +346,49 @@ export default function ProjectSchedulePage() {
     });
   };
 
-  const formatDateRange = (startDate: string, endDate: string) => {
-    return `${formatDate(startDate)} - ${formatDate(endDate)}`;
+  // Filter activities across all phases
+  const getFilteredActivities = () => {
+    if (!scheduleData) return [];
+    
+    const allActivities = scheduleData.phases.flatMap(phase => 
+      phase.activities.map(activity => ({ ...activity, phaseName: phase.name }))
+    );
+    
+    return allActivities.filter(activity => {
+      const statusMatch = statusFilter === 'all' || activity.status === statusFilter;
+      const categoryMatch = categoryFilter === 'all' || activity.category === categoryFilter;
+      return statusMatch && categoryMatch;
+    });
   };
 
-  const filteredPhases = scheduleData?.phases.filter(phase => {
-    if (selectedPhase !== 'all' && phase._id !== selectedPhase) return false;
-    if (selectedStatus !== 'all' && phase.status !== selectedStatus) return false;
-    return true;
-  }) || [];
+  const canCreatePhases = ['super_admin', 'project_manager'].includes(userRole || '');
+  const backUrl = userRole === 'project_manager' ? `/manager/projects/${projectId}` : `/admin/projects/${projectId}`;
 
   if (loading) {
     return (
-      <div className="min-h-screen p-4 sm:p-6">
-        <div className="flex items-center justify-center min-h-96">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading project schedule...</p>
+      <div className="space-y-6 p-4 sm:p-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/3 mb-6"></div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            {[1, 2, 3, 4].map(i => (
+              <Card key={i}>
+                <CardContent className="p-4">
+                  <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
+                  <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!scheduleData) {
-    return (
-      <div className="min-h-screen p-4 sm:p-6">
-        <div className="flex items-center justify-center min-h-96">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Schedule Not Available</h2>
-            <p className="text-gray-600 mb-4">Project schedule could not be loaded.</p>
-            <Button asChild>
-              <Link href={`${getRoleBasePath()}/projects/${projectId}`}>
-                Back to Project
-              </Link>
-            </Button>
+          <div className="space-y-4">
+            {[1, 2].map(i => (
+              <Card key={i}>
+                <CardContent className="p-6">
+                  <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
+                  <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </div>
@@ -300,323 +396,459 @@ export default function ProjectSchedulePage() {
   }
 
   return (
-    <div className="min-h-screen">
-      <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-6 p-4 sm:p-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Link href={backUrl}>
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Project
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Project Schedule</h1>
+            <p className="text-gray-600">{scheduleData?.project?.title}</p>
+          </div>
+        </div>
         
-        {/* FIXED: Responsive Header */}
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-4">
-            <Link href={`${getRoleBasePath()}/projects/${projectId}`}>
-              <Button variant="outline" size="sm" className="flex-shrink-0">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Back to Project</span>
-                <span className="sm:hidden">Back</span>
-              </Button>
-            </Link>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 break-words">
-                Project Schedule
-              </h1>
-              <p className="text-sm sm:text-base text-gray-600 mt-1 truncate">
-                {scheduleData.project.title}
-              </p>
-            </div>
-          </div>
+        <div className="flex gap-3">
+          <Button onClick={fetchScheduleData} variant="outline" size="sm">
+            <RefreshCcw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
           
-          {/* FIXED: Responsive action buttons */}
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Button asChild className="w-full sm:w-auto">
-              <Link href={`${getRoleBasePath()}/site-schedule/daily`}>
-                <CalendarDays className="h-4 w-4 mr-2" />
-                Daily Activities
-              </Link>
-            </Button>
-            <Button variant="outline" className="w-full sm:w-auto">
-              <Download className="h-4 w-4 mr-2" />
-              Export Schedule
-            </Button>
-          </div>
-        </div>
-
-        {/* FIXED: Responsive Statistics Overview */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="text-center">
-                <p className="text-lg sm:text-2xl font-bold text-gray-900">
-                  {scheduleData.overallStats.totalActivities}
-                </p>
-                <p className="text-xs sm:text-sm text-gray-600">Total Activities</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="text-center">
-                <p className="text-lg sm:text-2xl font-bold text-green-600">
-                  {scheduleData.overallStats.completedActivities}
-                </p>
-                <p className="text-xs sm:text-sm text-gray-600">Completed</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="text-center">
-                <p className="text-lg sm:text-2xl font-bold text-blue-600">
-                  {scheduleData.overallStats.activeActivities}
-                </p>
-                <p className="text-xs sm:text-sm text-gray-600">Active</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="text-center">
-                <p className="text-lg sm:text-2xl font-bold text-red-600">
-                  {scheduleData.overallStats.delayedActivities}
-                </p>
-                <p className="text-xs sm:text-sm text-gray-600">Delayed</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="text-center">
-                <p className="text-lg sm:text-2xl font-bold text-purple-600">
-                  {scheduleData.overallStats.overallProgress}%
-                </p>
-                <p className="text-xs sm:text-sm text-gray-600">Progress</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="text-center">
-                <p className="text-lg sm:text-2xl font-bold text-orange-600">
-                  {scheduleData.overallStats.daysRemaining || 0}
-                </p>
-                <p className="text-xs sm:text-sm text-gray-600">Days Left</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* FIXED: Responsive Filters */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              <div className="flex-1 sm:max-w-xs">
-                <Select value={selectedPhase} onValueChange={setSelectedPhase}>
-                  <SelectTrigger className="text-sm">
-                    <SelectValue placeholder="Filter by phase" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Phases</SelectItem>
-                    {scheduleData.phases.map(phase => (
-                      <SelectItem key={phase._id} value={phase._id}>
-                        {phase.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="flex-1 sm:max-w-xs">
-                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-                  <SelectTrigger className="text-sm">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="upcoming">Upcoming</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="delayed">Delayed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* FIXED: Responsive Schedule Phases */}
-        <div className="space-y-4 sm:space-y-6">
-          {filteredPhases.length > 0 ? (
-            filteredPhases.map(phase => (
-              <Card key={phase._id}>
-                <CardHeader className="pb-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
-                        <CardTitle className="text-base sm:text-lg">{phase.name}</CardTitle>
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(phase.status)}
-                          <Badge className={getStatusColor(phase.status)}>
-                            {phase.status.replace('_', ' ').toUpperCase()}
-                          </Badge>
-                        </div>
-                      </div>
-                      {phase.description && (
-                        <p className="text-sm text-gray-600">{phase.description}</p>
-                      )}
-                      <p className="text-xs sm:text-sm text-gray-500 mt-1">
-                        {formatDateRange(phase.startDate, phase.endDate)}
-                      </p>
+          {canCreatePhases && (
+            <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Phase
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px]">
+                <form onSubmit={handleCreatePhase}>
+                  <DialogHeader>
+                    <DialogTitle>Create New Phase</DialogTitle>
+                    <DialogDescription>
+                      Add a new phase to organize project activities
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Phase Name *</Label>
+                      <Input
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) => handleFormChange('name', e.target.value)}
+                        className={formErrors.name ? 'border-red-500' : ''}
+                        placeholder="Enter phase name"
+                      />
+                      {formErrors.name && <p className="text-sm text-red-500">{formErrors.name}</p>}
                     </div>
                     
-                    <div className="flex-shrink-0">
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-gray-900">{phase.progress}%</p>
-                        <Progress value={phase.progress} className="w-20 h-2 mt-1" />
+                    <div className="space-y-2">
+                      <Label htmlFor="description">Description</Label>
+                      <Textarea
+                        id="description"
+                        value={formData.description}
+                        onChange={(e) => handleFormChange('description', e.target.value)}
+                        placeholder="Describe the phase objectives and scope"
+                        rows={3}
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="startDate">Start Date *</Label>
+                        <Input
+                          id="startDate"
+                          type="date"
+                          value={formData.startDate}
+                          onChange={(e) => handleFormChange('startDate', e.target.value)}
+                          className={formErrors.startDate ? 'border-red-500' : ''}
+                        />
+                        {formErrors.startDate && <p className="text-sm text-red-500">{formErrors.startDate}</p>}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="endDate">End Date *</Label>
+                        <Input
+                          id="endDate"
+                          type="date"
+                          value={formData.endDate}
+                          onChange={(e) => handleFormChange('endDate', e.target.value)}
+                          className={formErrors.endDate ? 'border-red-500' : ''}
+                        />
+                        {formErrors.endDate && <p className="text-sm text-red-500">{formErrors.endDate}</p>}
                       </div>
                     </div>
                   </div>
-                </CardHeader>
-                
-                <CardContent>
-                  <h4 className="font-medium text-sm sm:text-base mb-3">
-                    Activities ({phase.activities.length})
-                  </h4>
                   
-                  {phase.activities.length > 0 ? (
-                    <div className="space-y-3">
-                      {phase.activities.map(activity => (
-                        <div key={activity._id} className="border rounded-lg p-3 sm:p-4">
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                            <div className="min-w-0 flex-1 space-y-2">
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                                <h5 className="font-medium text-sm sm:text-base">{activity.title}</h5>
-                                <div className="flex items-center gap-2">
-                                  {getStatusIcon(activity.status)}
-                                  <Badge className={getStatusColor(activity.status)}>
-                                    {activity.status.replace('_', ' ')}
-                                  </Badge>
-                                  <Badge variant="outline" className={getPriorityColor(activity.priority)}>
-                                    {activity.priority}
-                                  </Badge>
-                                </div>
-                              </div>
-                              
-                              {activity.description && (
-                                <p className="text-xs sm:text-sm text-gray-600">{activity.description}</p>
-                              )}
-                              
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs sm:text-sm text-gray-500">
-                                <span><strong>Contractor:</strong> {activity.contractor}</span>
-                                {activity.supervisor && (
-                                  <span><strong>Supervisor:</strong> {activity.supervisor}</span>
-                                )}
-                                <span><strong>Category:</strong> {activity.category}</span>
-                                <span><strong>Planned:</strong> {formatDateRange(activity.plannedStartDate, activity.plannedEndDate)}</span>
-                                {activity.estimatedDuration && (
-                                  <span><strong>Duration:</strong> {activity.estimatedDuration} days</span>
-                                )}
-                                <span><strong>Progress:</strong> {activity.progress}%</span>
-                              </div>
-                            </div>
-                            
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <Button variant="outline" size="sm">
-                                <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                <span className="hidden sm:inline">View</span>
-                              </Button>
-                              <Button variant="outline" size="sm">
-                                <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                <span className="hidden sm:inline">Edit</span>
-                              </Button>
-                            </div>
-                          </div>
-                          
-                          {activity.progress > 0 && (
-                            <div className="mt-3">
-                              <Progress value={activity.progress} className="h-2" />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Activity className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                      <p className="text-sm text-gray-500">No activities scheduled for this phase</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))
-          ) : (
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={creating}>
+                      {creating ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        'Create Phase'
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+      </div>
+
+      {/* Statistics */}
+      {scheduleData?.overallStats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-blue-600">{scheduleData.overallStats.totalActivities}</div>
+              <div className="text-sm text-gray-600">Total Activities</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-green-600">{scheduleData.overallStats.completedActivities}</div>
+              <div className="text-sm text-gray-600">Completed</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-blue-500">{scheduleData.overallStats.activeActivities}</div>
+              <div className="text-sm text-gray-600">Active</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-red-500">{scheduleData.overallStats.delayedActivities}</div>
+              <div className="text-sm text-gray-600">Delayed</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-purple-600">{scheduleData.overallStats.overallProgress}%</div>
+              <div className="text-sm text-gray-600">Progress</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className={`text-2xl font-bold ${scheduleData.overallStats.onSchedule ? 'text-green-600' : 'text-red-600'}`}>
+                {scheduleData.overallStats.onSchedule ? 'ON' : 'OFF'}
+              </div>
+              <div className="text-sm text-gray-600">Schedule</div>
+            </CardContent>
+          </Card>
+          
+          {scheduleData.overallStats.daysRemaining !== undefined && (
             <Card>
-              <CardContent className="p-8 sm:p-12 text-center">
-                <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Schedule Data</h3>
-                <p className="text-gray-600 mb-4">
-                  Project schedule has not been created yet or no phases match your filters.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                  <Button asChild>
-                    <Link href={`${getRoleBasePath()}/site-schedule/daily`}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Activities
-                    </Link>
-                  </Button>
-                  <Button variant="outline" onClick={() => {
-                    setSelectedPhase('all');
-                    setSelectedStatus('all');
-                  }}>
-                    Clear Filters
-                  </Button>
-                </div>
+              <CardContent className="p-4 text-center">
+                <div className="text-2xl font-bold text-orange-600">{scheduleData.overallStats.daysRemaining}</div>
+                <div className="text-sm text-gray-600">Days Left</div>
               </CardContent>
             </Card>
           )}
         </div>
+      )}
 
-        {/* FIXED: Responsive Quick Actions */}
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex items-center gap-2">
+          <Filter className="h-4 w-4 text-gray-500" />
+          <span className="text-sm text-gray-700">Filters:</span>
+        </div>
+        
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="delayed">Delayed</SelectItem>
+          </SelectContent>
+        </Select>
+        
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="structural">Structural</SelectItem>
+            <SelectItem value="electrical">Electrical</SelectItem>
+            <SelectItem value="plumbing">Plumbing</SelectItem>
+            <SelectItem value="finishing">Finishing</SelectItem>
+            <SelectItem value="other">Other</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Project Schedule Phases */}
+      <div className="space-y-4">
+        {!scheduleData?.phases || scheduleData.phases.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <CalendarDays className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Schedule Phases</h3>
+              <p className="text-gray-600 mb-4">
+                This project doesn&apos;t have any schedule phases yet.
+              </p>
+              {canCreatePhases && (
+                <Button onClick={() => setCreateDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create First Phase
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          scheduleData.phases.map((phase) => {
+            const statusInfo = getStatusInfo(phase.status);
+            const StatusIcon = statusInfo.icon;
+            const isExpanded = expandedPhases.has(phase._id);
+            
+            return (
+              <Card key={phase._id} className="overflow-hidden">
+                <Collapsible 
+                  open={isExpanded} 
+                  onOpenChange={(open) => {
+                    const newExpanded = new Set(expandedPhases);
+                    if (open) {
+                      newExpanded.add(phase._id);
+                    } else {
+                      newExpanded.delete(phase._id);
+                    }
+                    setExpandedPhases(newExpanded);
+                  }}
+                >
+                  <div className="flex items-center justify-between p-6 hover:bg-gray-50 transition-colors">
+                    <CollapsibleTrigger asChild>
+                      <button className="flex items-center gap-4 flex-1 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-md">
+                        <div className="flex items-center gap-2">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-gray-500" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-gray-500" />
+                          )}
+                          <div className={`p-2 rounded-lg ${statusInfo.bgColor}`}>
+                            <StatusIcon className={`h-4 w-4 ${statusInfo.color}`} />
+                          </div>
+                        </div>
+                        <div className="text-left">
+                          <CardTitle className="text-lg">{phase.name}</CardTitle>
+                          <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
+                            <span className={statusInfo.color}>{statusInfo.label}</span>
+                            <span>•</span>
+                            <span>{formatDate(phase.startDate)} - {formatDate(phase.endDate)}</span>
+                            <span>•</span>
+                            <span>{phase.activities.length} activities</span>
+                          </div>
+                        </div>
+                      </button>
+                    </CollapsibleTrigger>
+                    
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <div className="text-sm font-medium">{phase.progress}% Complete</div>
+                        <Progress value={phase.progress} className="w-24 h-2 mt-1" />
+                      </div>
+                      
+                      {canCreatePhases && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit Phase
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Plus className="h-4 w-4 mr-2" />
+                              Add Activity
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-red-600">
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete Phase
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {phase.description && (
+                    <div className="px-6 pb-2">
+                      <p className="text-sm text-gray-600 ml-10">{phase.description}</p>
+                    </div>
+                  )}
+                  
+                  <CollapsibleContent>
+                    <CardContent className="pt-0">
+                      <div className="ml-10 space-y-3">
+                        {phase.activities.length === 0 ? (
+                          <div className="text-center py-8">
+                            <Activity className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-600">No activities in this phase</p>
+                            {canCreatePhases && (
+                              <Button variant="outline" size="sm" className="mt-2">
+                                <Plus className="h-3 w-3 mr-1" />
+                                Add Activity
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          phase.activities.map((activity) => {
+                            const activityStatusInfo = getStatusInfo(activity.status);
+                            const ActivityStatusIcon = activityStatusInfo.icon;
+                            
+                            return (
+                              <div key={activity._id} className="border rounded-lg p-4 bg-white">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-2">
+                                      <div className={`p-1.5 rounded ${activityStatusInfo.bgColor}`}>
+                                        <ActivityStatusIcon className={`h-3 w-3 ${activityStatusInfo.color}`} />
+                                      </div>
+                                      <div>
+                                        <h4 className="font-medium text-gray-900">{activity.title}</h4>
+                                        <div className="flex items-center gap-2 text-xs text-gray-600 mt-1">
+                                          <span>{activity.contractor}</span>
+                                          {activity.supervisor && (
+                                            <>
+                                              <span>•</span>
+                                              <span>Supervised by {activity.supervisor}</span>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
+                                    {activity.description && (
+                                      <p className="text-sm text-gray-600 mb-3 ml-8">{activity.description}</p>
+                                    )}
+                                    
+                                    <div className="flex items-center gap-4 ml-8 flex-wrap">
+                                      {getPriorityBadge(activity.priority)}
+                                      {getCategoryBadge(activity.category)}
+                                      
+                                      <div className="flex items-center gap-1 text-xs text-gray-600">
+                                        <Calendar className="h-3 w-3" />
+                                        <span>{formatDate(activity.plannedStartDate)} - {formatDate(activity.plannedEndDate)}</span>
+                                      </div>
+                                      
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-600">Progress:</span>
+                                        <Progress value={activity.progress} className="w-16 h-1" />
+                                        <span className="text-xs text-gray-600">{activity.progress}%</span>
+                                      </div>
+                                    </div>
+                                    
+                                    {activity.notes && (
+                                      <div className="mt-2 ml-8">
+                                        <p className="text-xs text-gray-500 italic">{activity.notes}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {canCreatePhases && (
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm">
+                                          <MoreVertical className="h-3 w-3" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem>
+                                          <Edit className="h-3 w-3 mr-2" />
+                                          Edit
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem className="text-red-600">
+                                          <Trash2 className="h-3 w-3 mr-2" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </CardContent>
+                  </CollapsibleContent>
+                </Collapsible>
+              </Card>
+            );
+          })
+        )}
+      </div>
+
+      {/* Upcoming Activities Sidebar */}
+      {scheduleData?.upcomingActivities && scheduleData.upcomingActivities.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base sm:text-lg">Quick Actions</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              Upcoming Activities (Next 14 Days)
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Button variant="outline" asChild className="h-auto p-4">
-                <Link href={`${getRoleBasePath()}/site-schedule/daily`}>
-                  <div className="text-center">
-                    <CalendarDays className="h-6 w-6 mx-auto mb-2" />
-                    <p className="text-sm font-medium">Daily Activities</p>
-                    <p className="text-xs text-gray-500">View today&apos;s tasks</p>
+            <div className="space-y-3">
+              {scheduleData.upcomingActivities.slice(0, 5).map((activity) => {
+                const statusInfo = getStatusInfo(activity.status);
+                const StatusIcon = statusInfo.icon;
+                
+                return (
+                  <div key={activity._id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50">
+                    <div className={`p-1 rounded ${statusInfo.bgColor}`}>
+                      <StatusIcon className={`h-3 w-3 ${statusInfo.color}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{activity.title}</p>
+                      <p className="text-xs text-gray-600">{formatDate(activity.plannedStartDate)}</p>
+                    </div>
+                    <div className="text-right">
+                      {getPriorityBadge(activity.priority)}
+                    </div>
                   </div>
-                </Link>
-              </Button>
+                );
+              })}
               
-              <Button variant="outline" asChild className="h-auto p-4">
-                <Link href={`${getRoleBasePath()}/projects/${projectId}/milestones`}>
-                  <div className="text-center">
-                    <BarChart3 className="h-6 w-6 mx-auto mb-2" />
-                    <p className="text-sm font-medium">Milestones</p>
-                    <p className="text-xs text-gray-500">Track key deadlines</p>
-                  </div>
-                </Link>
-              </Button>
-              
-              <Button variant="outline" asChild className="h-auto p-4">
-                <Link href={`${getRoleBasePath()}/daily-reports`}>
-                  <div className="text-center">
-                    <Users className="h-6 w-6 mx-auto mb-2" />
-                    <p className="text-sm font-medium">Reports</p>
-                    <p className="text-xs text-gray-500">Daily progress reports</p>
-                  </div>
-                </Link>
-              </Button>
+              {scheduleData.upcomingActivities.length > 5 && (
+                <div className="text-center pt-2">
+                  <Button variant="ghost" size="sm">
+                    View all {scheduleData.upcomingActivities.length} upcoming activities
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
-      </div>
+      )}
     </div>
   );
 }

@@ -126,6 +126,15 @@ module.exports = {
           from: { transform: 'translateX(-10px)', opacity: 0 },
           to: { transform: 'translateX(0)', opacity: 1 },
         },
+        "collapsible-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-collapsible-content-height)" },
+        },
+        "collapsible-up": {
+          from: { height: "var(--radix-collapsible-content-height)" },
+          to: { height: "0" },
+        },
+      
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -133,6 +142,8 @@ module.exports = {
         fadeIn: "fadeIn 0.3s ease-out",
         slideInFromTop: "slideInFromTop 0.3s ease-out",
         slideInFromLeft: "slideInFromLeft 0.3s ease-out",
+        "collapsible-down": "collapsible-down 0.2s ease-out",
+        "collapsible-up": "collapsible-up 0.2s ease-out",
       },
     },
   },
