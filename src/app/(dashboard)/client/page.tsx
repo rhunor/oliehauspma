@@ -25,6 +25,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+// FIXED: ONLY ADDITION - Import the floating AI chatbot
+import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
 
 // ✅ FIXED: Proper TypeScript interfaces for MongoDB documents
 interface ClientStats {
@@ -661,180 +663,185 @@ export default async function ClientDashboard() {
   const { stats, activeProject, recentUpdates, recentFiles } = await getClientDashboardData(session.user.id);
 
   return (
-    <div className="space-y-6">
-      {/* Enhanced Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-6 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">
-              Welcome back, {session.user.name}!
-            </h1>
-            <p className="text-blue-100">
-              Here&apos;s an overview of your project activities
-            </p>
+    <>
+      <div className="space-y-6">
+        {/* Enhanced Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">
+                Welcome back, {session.user.name}!
+              </h1>
+              <p className="text-blue-100">
+                Here&apos;s an overview of your project activities
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold">{stats.activeProjects}</p>
+              <p className="text-blue-100 text-sm">Active Projects</p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-2xl font-bold">{stats.activeProjects}</p>
-            <p className="text-blue-100 text-sm">Active Projects</p>
+        </div>
+
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Projects</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.totalProjects}</p>
+                </div>
+                <FolderOpen className="h-8 w-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Active Projects</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.activeProjects}</p>
+                </div>
+                <TrendingUp className="h-8 w-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Completed</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.completedProjects}</p>
+                </div>
+                <CheckCircle className="h-8 w-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Messages</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.recentMessages}</p>
+                </div>
+                <MessageCircle className="h-8 w-8 text-purple-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Enhanced Dashboard Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <DashboardCard
+            title="Daily Activities"
+            description="View daily progress reports and site activities"
+            href="/client/daily-reports"
+            icon={Activity}
+            color="green"
+            stats={{ value: stats.activeProjects, label: "Active Reports" }}
+          />
+          
+          <DashboardCard
+            title="Site Schedule"
+            description="Check project timeline and upcoming milestones"
+            href="/client/site-schedule"
+            icon={Calendar}
+            color="blue"
+            stats={{ value: stats.activeProjects, label: "Scheduled Projects" }}
+          />
+          
+          <DashboardCard
+            title="Projects"
+            description="Monitor overall project progress and updates"
+            href="/client/projects"
+            icon={FolderOpen}
+            color="purple"
+            stats={{ value: stats.totalProjects, label: "Total Projects" }}
+          />
+          
+          <DashboardCard
+            title="Team Messages"
+            description="Communicate with your project team"
+            href="/client/messages"
+            icon={MessageCircle}
+            color="orange"
+            stats={{ value: stats.recentMessages, label: "Recent Messages" }}
+          />
+          
+          <DashboardCard
+            title="Documents"
+            description="Access project files and documents"
+            href="/client/files"
+            icon={FileText}
+            color="blue"
+            stats={{ value: stats.totalFiles, label: "Files Available" }}
+          />
+
+          <DashboardCard
+            title="Tasks"
+            description="View assigned tasks and deadlines"
+            href="/client/tasks"
+            icon={CheckCircle}
+            color="green"
+            stats={{ value: stats.pendingTasks, label: "Pending Tasks" }}
+          />
+        </div>
+
+        {/* Dashboard Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Quick Actions and Active Project */}
+          <div className="lg:col-span-1 space-y-6">
+            <QuickActionsCard />
+            <ActiveProjectCard activeProject={activeProject} />
+          </div>
+
+          {/* Right Columns - Activities and Files */}
+          <div className="lg:col-span-2 space-y-6">
+            <RecentActivitiesCard recentUpdates={recentUpdates} />
+            <RecentFilesCard recentFiles={recentFiles} />
           </div>
         </div>
-      </div>
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Projects</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.totalProjects}</p>
+        {/* Additional Quick Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="pt-4 text-center">
+              <div className="text-2xl font-bold text-blue-600">{stats.completedTasks}</div>
+              <div className="text-sm text-gray-600">Completed Tasks</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="pt-4 text-center">
+              <div className="text-2xl font-bold text-orange-600">{stats.pendingTasks}</div>
+              <div className="text-sm text-gray-600">Pending Tasks</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="pt-4 text-center">
+              <div className="text-2xl font-bold text-purple-600">{stats.totalFiles}</div>
+              <div className="text-sm text-gray-600">Total Files</div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="pt-4 text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {stats.totalProjects > 0 ? Math.round((stats.completedProjects / stats.totalProjects) * 100) : 0}%
               </div>
-              <FolderOpen className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Active Projects</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.activeProjects}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.completedProjects}</p>
-              </div>
-              <CheckCircle className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Messages</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.recentMessages}</p>
-              </div>
-              <MessageCircle className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Enhanced Dashboard Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <DashboardCard
-          title="Daily Activities"
-          description="View daily progress reports and site activities"
-          href="/client/daily-reports"
-          icon={Activity}
-          color="green"
-          stats={{ value: stats.activeProjects, label: "Active Reports" }}
-        />
-        
-        <DashboardCard
-          title="Site Schedule"
-          description="Check project timeline and upcoming milestones"
-          href="/client/site-schedule"
-          icon={Calendar}
-          color="blue"
-          stats={{ value: stats.activeProjects, label: "Scheduled Projects" }}
-        />
-        
-        <DashboardCard
-          title="Projects"
-          description="Monitor overall project progress and updates"
-          href="/client/projects"
-          icon={FolderOpen}
-          color="purple"
-          stats={{ value: stats.totalProjects, label: "Total Projects" }}
-        />
-        
-        <DashboardCard
-          title="Team Messages"
-          description="Communicate with your project team"
-          href="/client/messages"
-          icon={MessageCircle}
-          color="orange"
-          stats={{ value: stats.recentMessages, label: "Recent Messages" }}
-        />
-        
-        <DashboardCard
-          title="Documents"
-          description="Access project files and documents"
-          href="/client/files"
-          icon={FileText}
-          color="blue"
-          stats={{ value: stats.totalFiles, label: "Files Available" }}
-        />
-
-        <DashboardCard
-          title="Tasks"
-          description="View assigned tasks and deadlines"
-          href="/client/tasks"
-          icon={CheckCircle}
-          color="green"
-          stats={{ value: stats.pendingTasks, label: "Pending Tasks" }}
-        />
-      </div>
-
-      {/* Dashboard Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Quick Actions and Active Project */}
-        <div className="lg:col-span-1 space-y-6">
-          <QuickActionsCard />
-          <ActiveProjectCard activeProject={activeProject} />
-        </div>
-
-        {/* Right Columns - Activities and Files */}
-        <div className="lg:col-span-2 space-y-6">
-          <RecentActivitiesCard recentUpdates={recentUpdates} />
-          <RecentFilesCard recentFiles={recentFiles} />
+              <div className="text-sm text-gray-600">Success Rate</div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {/* Additional Quick Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="text-2xl font-bold text-blue-600">{stats.completedTasks}</div>
-            <div className="text-sm text-gray-600">Completed Tasks</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="text-2xl font-bold text-orange-600">{stats.pendingTasks}</div>
-            <div className="text-sm text-gray-600">Pending Tasks</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="text-2xl font-bold text-purple-600">{stats.totalFiles}</div>
-            <div className="text-sm text-gray-600">Total Files</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="text-2xl font-bold text-green-600">
-              {stats.totalProjects > 0 ? Math.round((stats.completedProjects / stats.totalProjects) * 100) : 0}%
-            </div>
-            <div className="text-sm text-gray-600">Success Rate</div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+      {/* FIXED: ONLY ADDITION - Floating AI Chatbot positioned in bottom-right corner */}
+      <FloatingAIChatbot className="bottom-6 right-6" />
+    </>
   );
 }
