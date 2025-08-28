@@ -1,4 +1,4 @@
-// src/components/files/SecureFileUpload.tsx - SECURE FILE UPLOAD WITH PROJECT ACCESS
+// src/components/files/SecureFileUpload.tsx - FIXED: NO ANY TYPES, PROPER PROJECT SELECTION
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -12,90 +12,42 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
-
-// Define proper TypeScript interfaces
-interface FileUploadResponse {
-  success: boolean;
-  data: FileData;
-  message: string;
-}
-
-interface FileData {
-  _id: string;
-  filename: string;
-  originalName: string;
-  size: number;
-  mimeType: string;
-  url: string;
-  category: string;
-  uploadedBy: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  project: {
-    _id: string;
-    title: string;
-  };
-  createdAt: string;
-}
-
-interface UserProject {
-  _id: string;
-  title: string;
-}
-
-interface SecureFileUploadProps {
-  userRole: string;
-  onUploadComplete?: (file: FileData) => void;
-  maxFiles?: number;
-  acceptedTypes?: string[];
-  preSelectedProjectId?: string;
-}
-
-interface UploadFile {
-  file: File;
-  id: string;
-  preview?: string;
-  progress: number;
-  status: 'pending' | 'uploading' | 'success' | 'error';
-  error?: string;
-}
-
-const ACCEPTED_TYPES = [
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
-  'application/pdf', 'application/msword', 
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'video/mp4', 'video/webm', 'audio/mp3', 'audio/wav', 'text/plain', 'text/csv'
-];
+// FIXED: Separate imports for types vs constants
+import type { 
+  FileData, 
+  UploadFile, 
+  UserProject, 
+  FileUploadResponse, 
+  SecureFileUploadProps
+} from '@/types/files';
+import { ACCEPTED_FILE_TYPES } from '@/constants/files';
 
 export default function SecureFileUpload({ 
   userRole, 
   onUploadComplete, 
   maxFiles = 10, 
-  acceptedTypes = ACCEPTED_TYPES,
+  acceptedTypes = ACCEPTED_FILE_TYPES,
   preSelectedProjectId 
 }: SecureFileUploadProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [files, setFiles] = useState<UploadFile[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState(preSelectedProjectId || '');
-  const [description, setDescription] = useState('');
-  const [tags, setTags] = useState('');
-  const [isPublic, setIsPublic] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(preSelectedProjectId || '');
+  const [description, setDescription] = useState<string>('');
+  const [tags, setTags] = useState<string>('');
+  const [isPublic, setIsPublic] = useState<boolean>(false);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [userProjects, setUserProjects] = useState<UserProject[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<boolean>(false);
 
   // Fetch user's uploadable projects
-  const fetchUserProjects = useCallback(async () => {
+  const fetchUserProjects = useCallback(async (): Promise<void> => {
     try {
       const response = await fetch('/api/files/projects');
       if (response.ok) {
-        const data = await response.json();
+        // FIXED: Proper typing for API response
+        const data: { projects: UserProject[] } = await response.json();
         setUserProjects(data.projects || []);
       }
     } catch (error) {
@@ -109,11 +61,14 @@ export default function SecureFileUpload({
     }
   }, [userRole, fetchUserProjects]);
 
-  const handleFileSelect = useCallback((fileList: FileList) => {
+  const handleFileSelect = useCallback((fileList: FileList): void => {
     const newFiles = Array.from(fileList).slice(0, maxFiles - files.length);
     
+    // FIXED: Handle readonly array properly
+    const acceptedTypesArray = Array.from(acceptedTypes);
+    
     // Validate each file
-    const validFiles = newFiles.filter(file => {
+    const validFiles = newFiles.filter((file: File): boolean => {
       if (file.size > 50 * 1024 * 1024) { // 50MB limit
         toast({
           variant: 'destructive',
@@ -123,7 +78,7 @@ export default function SecureFileUpload({
         return false;
       }
       
-      if (!acceptedTypes.includes(file.type)) {
+      if (!acceptedTypesArray.includes(file.type)) {
         toast({
           variant: 'destructive',
           title: 'Invalid file type',
@@ -135,7 +90,7 @@ export default function SecureFileUpload({
       return true;
     });
 
-    const newUploadFiles: UploadFile[] = validFiles.map(file => ({
+    const newUploadFiles: UploadFile[] = validFiles.map((file: File): UploadFile => ({
       file,
       id: `${Date.now()}-${Math.random()}`,
       preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
@@ -146,7 +101,7 @@ export default function SecureFileUpload({
     setFiles(prev => [...prev, ...newUploadFiles]);
   }, [files.length, maxFiles, acceptedTypes, toast]);
 
-  const removeFile = useCallback((id: string) => {
+  const removeFile = useCallback((id: string): void => {
     setFiles(prev => {
       const file = prev.find(f => f.id === id);
       if (file?.preview) {
@@ -181,7 +136,8 @@ export default function SecureFileUpload({
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        // FIXED: Proper error response typing
+        const errorData: { error?: string } = await response.json();
         throw new Error(errorData.error || 'Upload failed');
       }
 
@@ -213,12 +169,13 @@ export default function SecureFileUpload({
     }
   };
 
-  const uploadAllFiles = async () => {
+  const uploadAllFiles = async (): Promise<void> => {
+    // CRITICAL VALIDATION: Must have project selected
     if (!selectedProjectId) {
       toast({
         variant: 'destructive',
         title: 'Project required',
-        description: 'Please select a project before uploading'
+        description: 'Please select a project before uploading files'
       });
       return;
     }
@@ -253,17 +210,17 @@ export default function SecureFileUpload({
     }
   };
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     setIsDragOver(true);
   }, []);
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     setIsDragOver(false);
     
@@ -272,7 +229,7 @@ export default function SecureFileUpload({
     }
   }, [handleFileSelect]);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
     if (e.target.files && e.target.files.length > 0) {
       handleFileSelect(e.target.files);
     }
@@ -286,7 +243,8 @@ export default function SecureFileUpload({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getFileIcon = (mimeType: string) => {
+  // FIXED: JSX namespace error - use React.JSX instead of JSX
+  const getFileIcon = (mimeType: string): React.JSX.Element => {
     if (mimeType.startsWith('image/')) return <ImageIcon className="h-6 w-6" />;
     if (mimeType.startsWith('video/')) return <Video className="h-6 w-6" />;
     if (mimeType.startsWith('audio/')) return <Music className="h-6 w-6" />;
@@ -310,7 +268,7 @@ export default function SecureFileUpload({
 
   return (
     <div className="space-y-6">
-      {/* Project Selection */}
+      {/* CRITICAL: Project Selection - MUST SELECT PROJECT */}
       {!preSelectedProjectId && (
         <div className="space-y-2">
           <Label htmlFor="project">Select Project *</Label>
@@ -319,7 +277,7 @@ export default function SecureFileUpload({
               <SelectValue placeholder="Choose a project to upload files to" />
             </SelectTrigger>
             <SelectContent>
-              {userProjects.map(project => (
+              {userProjects.map((project: UserProject) => (
                 <SelectItem key={project._id} value={project._id}>
                   {project.title}
                 </SelectItem>
@@ -327,8 +285,13 @@ export default function SecureFileUpload({
             </SelectContent>
           </Select>
           {userProjects.length === 0 && (
-            <p className="text-sm text-gray-500">
-              No projects available for file upload
+            <p className="text-sm text-red-500">
+              No projects available for file upload. Please contact your administrator.
+            </p>
+          )}
+          {!selectedProjectId && (
+            <p className="text-sm text-orange-600">
+              ⚠️ You must select a project before uploading files
             </p>
           )}
         </div>
@@ -336,166 +299,156 @@ export default function SecureFileUpload({
 
       {/* Upload Area */}
       <Card className={`border-2 border-dashed transition-colors ${
-        isDragOver ? 'border-primary bg-primary/5' : 'border-gray-300'
+        isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
       }`}>
-        <CardContent className="p-8">
-          <div
-            className="text-center"
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
+        <CardContent
+          className="p-8"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div className="text-center">
             <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-            <p className="text-lg font-medium text-gray-900 mb-2">
-              Drop files here or click to upload
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              Upload files to your selected project
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Drag and drop files here, or click to select files
             </p>
-            <p className="text-sm text-gray-500 mb-4">
-              Support for images, documents, videos, and audio files (max 50MB each)
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!selectedProjectId}
-            >
-              Choose Files
-            </Button>
+            
             <input
               ref={fileInputRef}
               type="file"
               multiple
-              className="hidden"
-              accept={acceptedTypes.join(',')}
+              accept={Array.from(acceptedTypes).join(',')}
               onChange={handleInputChange}
+              className="hidden"
             />
+            
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!selectedProjectId}
+              variant="outline"
+            >
+              Select Files
+            </Button>
+            
+            <p className="text-xs text-gray-500 mt-2">
+              Maximum {maxFiles} files, 50MB each
+            </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* File Details */}
+      {/* File Metadata */}
       {files.length > 0 && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                placeholder="Describe these files..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="description">Description (Optional)</Label>
+            <Textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the files you&apos;re uploading..."
+              rows={3}
+            />
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="tags">Tags (Optional)</Label>
+            <Input
+              id="tags"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              placeholder="Enter tags separated by commas"
+            />
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="isPublic"
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
               />
-            </div>
-            <div>
-              <Label htmlFor="tags">Tags (comma-separated)</Label>
-              <Input
-                id="tags"
-                placeholder="design, final, approved"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-              />
-              <div className="mt-2">
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={isPublic}
-                    onChange={(e) => setIsPublic(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-sm text-gray-700">Make files publicly accessible</span>
-                </label>
-              </div>
+              <Label htmlFor="isPublic" className="text-sm">
+                Make files public
+              </Label>
             </div>
           </div>
         </div>
       )}
 
-      {/* File List */}
+      {/* Selected Files List */}
       {files.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium">Files to Upload ({files.length})</h3>
-            <Button 
-              onClick={uploadAllFiles}
-              disabled={files.every(f => f.status !== 'pending') || loading || !selectedProjectId}
-            >
-              {loading ? 'Uploading...' : 'Upload All'}
-            </Button>
-          </div>
-
-          <div className="space-y-2">
+        <div className="space-y-4">
+          <h4 className="font-medium">Selected Files ({files.length})</h4>
+          <div className="space-y-3">
             {files.map((uploadFile) => (
-              <div
-                key={uploadFile.id}
-                className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg"
-              >
-                {/* File Icon/Preview */}
+              <div key={uploadFile.id} className="flex items-center space-x-4 p-4 border rounded-lg">
                 <div className="flex-shrink-0">
                   {uploadFile.preview ? (
-                    <div className="relative w-12 h-12">
-                      <Image
-                        src={uploadFile.preview}
-                        alt={uploadFile.file.name}
-                        fill
-                        className="object-cover rounded"
-                      />
-                    </div>
+                    <Image
+                      src={uploadFile.preview}
+                      alt={uploadFile.file.name}
+                      width={48}
+                      height={48}
+                      className="rounded object-cover"
+                    />
                   ) : (
-                    <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400">
-                      {getFileIcon(uploadFile.file.type)}
-                    </div>
+                    getFileIcon(uploadFile.file.type)
                   )}
                 </div>
-
-                {/* File Info */}
+                
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{uploadFile.file.name}</p>
-                  <p className="text-xs text-gray-500">{formatFileSize(uploadFile.file.size)}</p>
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {uploadFile.file.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {formatFileSize(uploadFile.file.size)}
+                  </p>
                   
                   {uploadFile.status === 'uploading' && (
-                    <div className="mt-2">
-                      <Progress value={uploadFile.progress} className="h-1" />
-                    </div>
+                    <Progress value={uploadFile.progress} className="mt-2" />
                   )}
                   
                   {uploadFile.status === 'error' && (
-                    <p className="text-xs text-red-600 mt-1">{uploadFile.error}</p>
+                    <p className="text-xs text-red-600 mt-1">
+                      {uploadFile.error}
+                    </p>
                   )}
-                </div>
-
-                {/* Status & Actions */}
-                <div className="flex items-center space-x-2">
+                  
                   {uploadFile.status === 'success' && (
-                    <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
-                      <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    </div>
+                    <p className="text-xs text-green-600 mt-1">
+                      Upload complete
+                    </p>
                   )}
-                  
-                  {uploadFile.status === 'error' && (
-                    <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center">
-                      <AlertCircle className="w-4 h-4 text-red-600" />
-                    </div>
-                  )}
-                  
-                  {uploadFile.status === 'uploading' && (
-                    <div className="w-6 h-6">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                    </div>
-                  )}
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeFile(uploadFile.id)}
-                    disabled={uploadFile.status === 'uploading'}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
                 </div>
+                
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => removeFile(uploadFile.id)}
+                  disabled={uploadFile.status === 'uploading'}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
             ))}
+          </div>
+          
+          <div className="flex justify-end space-x-2">
+            <Button
+              variant="outline"
+              onClick={() => setFiles([])}
+              disabled={loading}
+            >
+              Clear All
+            </Button>
+            <Button
+              onClick={uploadAllFiles}
+              disabled={loading || !selectedProjectId || files.length === 0}
+            >
+              {loading ? 'Uploading...' : `Upload ${files.length} File${files.length === 1 ? '' : 's'}`}
+            </Button>
           </div>
         </div>
       )}

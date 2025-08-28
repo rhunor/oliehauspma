@@ -1,4 +1,4 @@
-// src/components/files/FilesList.tsx - FIXED: Responsive with icon-only buttons
+// src/components/files/FilesListFixed.tsx - FIXED: No hydration errors for dates
 'use client';
 
 import { useState } from 'react';
@@ -81,6 +81,26 @@ export default function FilesList({ files, userRole }: FilesListProps) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  // FIXED: Server-safe date formatting to prevent hydration errors
+  const formatDateSafe = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid date';
+      
+      // FIXED: Use consistent ISO format conversion instead of toLocaleDateString()
+      const isoString = date.toISOString();
+      const datePart = isoString.split('T')[0]; // Gets YYYY-MM-DD
+      
+      // Convert YYYY-MM-DD to DD/MM/YYYY for better readability
+      const [year, month, day] = datePart.split('-');
+      return `${day}/${month}/${year}`;
+      
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
+  };
+
   const getFileIcon = (category: string, iconClass: string = "h-8 w-8") => {
     switch (category) {
       case 'image':
@@ -96,59 +116,67 @@ export default function FilesList({ files, userRole }: FilesListProps) {
     }
   };
 
-  const handleDownload = async (file: FileItem) => {
+  const handlePreview = async (file: FileItem) => {
     try {
       setLoading(true);
-      
-      const link = document.createElement('a');
-      link.href = file.url;
-      link.download = file.originalName;
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Update download count
-      try {
-        await fetch(`/api/files/${file._id}/download`, {
-          method: 'POST'
-        });
-      } catch (error) {
-        console.error('Error updating download count:', error);
-      }
-
-      toast({
-        title: 'Download started',
-        description: `Downloading ${file.originalName}`,
-      });
+      // Open file in new tab for preview
+      window.open(file.url, '_blank');
     } catch (error) {
-      console.error('Error downloading file:', error);
+      console.error('Error opening file:', error);
       toast({
         variant: 'destructive',
-        title: 'Download failed',
-        description: 'Failed to download the file',
+        title: 'Error',
+        description: 'Failed to open file for preview.'
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (fileId: string, fileName: string) => {
-    if (!confirm(`Are you sure you want to delete "${fileName}"? This action cannot be undone.`)) {
-      return;
+  const handleDownload = async (file: FileItem) => {
+    try {
+      setLoading(true);
+      
+      // Create temporary download link
+      const link = document.createElement('a');
+      link.href = file.url;
+      link.download = file.originalName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: 'Download started',
+        description: `Downloading ${file.originalName}...`
+      });
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to download file.'
+      });
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleDelete = async (fileId: string) => {
+    if (!confirm('Are you sure you want to delete this file?')) return;
 
     try {
       setLoading(true);
+      
       const response = await fetch(`/api/files/${fileId}`, {
         method: 'DELETE'
       });
 
       if (response.ok) {
         toast({
-          title: 'File deleted',
-          description: `${fileName} has been permanently deleted`,
+          title: 'Success',
+          description: 'File deleted successfully'
         });
+        // Refresh the page to update the list
         window.location.reload();
       } else {
         throw new Error('Failed to delete file');
@@ -157,31 +185,23 @@ export default function FilesList({ files, userRole }: FilesListProps) {
       console.error('Error deleting file:', error);
       toast({
         variant: 'destructive',
-        title: 'Delete failed',
-        description: 'Failed to delete the file',
+        title: 'Error',
+        description: 'Failed to delete file.'
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePreview = (file: FileItem) => {
-    if (file.category === 'image') {
-      window.open(file.url, '_blank');
-    } else if (file.category === 'document' && file.mimeType === 'application/pdf') {
-      window.open(file.url, '_blank');
-    } else {
-      handleDownload(file);
-    }
-  };
-
   if (files.length === 0) {
     return (
       <Card>
-        <CardContent className="p-8 sm:p-12 text-center">
-          <File className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Files Found</h3>
-          <p className="text-gray-600">No files have been uploaded yet.</p>
+        <CardContent className="p-8 text-center">
+          <File className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No files found</h3>
+          <p className="text-gray-600">
+            Upload some files to see them listed here.
+          </p>
         </CardContent>
       </Card>
     );
@@ -189,10 +209,10 @@ export default function FilesList({ files, userRole }: FilesListProps) {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Search and Filter Bar - Mobile Optimized */}
+      {/* Search and Filter - Mobile Optimized */}
       <Card>
-        <CardContent className="p-3 sm:p-4">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
@@ -219,7 +239,7 @@ export default function FilesList({ files, userRole }: FilesListProps) {
               </Select>
             </div>
           </div>
-        </CardContent>
+        </CardHeader>
       </Card>
 
       {/* Files Grid - Responsive */}
@@ -227,46 +247,47 @@ export default function FilesList({ files, userRole }: FilesListProps) {
         {filteredFiles.map((file) => (
           <Card key={file._id} className="group hover:shadow-lg transition-all duration-200">
             <CardContent className="p-3 sm:p-4">
-              {/* File Icon and Actions Row */}
+              {/* File Icon and Actions - Responsive */}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-shrink-0">
-                  {getFileIcon(file.category, "h-6 w-6 sm:h-8 sm:w-8")}
+                  {getFileIcon(file.category)}
                 </div>
                 
-                {/* Icon-Only Action Buttons */}
-                <div className="flex items-center gap-1">
+                {/* Action buttons - Icon only on mobile, with text on desktop */}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button
-                    variant="ghost"
                     size="sm"
-                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    variant="ghost"
                     onClick={() => handlePreview(file)}
                     disabled={loading}
+                    className="h-8 w-8 p-0 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
                     title="Preview file"
                   >
                     <Eye className="h-4 w-4" />
+                    <span className="hidden sm:inline ml-1">Preview</span>
                   </Button>
-                  
                   <Button
-                    variant="ghost"
                     size="sm"
-                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    variant="ghost"
                     onClick={() => handleDownload(file)}
                     disabled={loading}
+                    className="h-8 w-8 p-0 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
                     title="Download file"
                   >
                     <Download className="h-4 w-4" />
+                    <span className="hidden sm:inline ml-1">Download</span>
                   </Button>
-                  
-                  {(userRole === 'super_admin' || file.uploadedBy._id === userRole) && (
+                  {(userRole === 'super_admin' || userRole === 'project_manager') && (
                     <Button
-                      variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-500"
-                      onClick={() => handleDelete(file._id, file.originalName)}
+                      variant="ghost"
+                      onClick={() => handleDelete(file._id)}
                       disabled={loading}
+                      className="h-8 w-8 p-0 sm:h-auto sm:w-auto sm:px-2 sm:py-1 text-red-600 hover:text-red-700"
                       title="Delete file"
                     >
                       <Trash2 className="h-4 w-4" />
+                      <span className="hidden sm:inline ml-1">Delete</span>
                     </Button>
                   )}
                 </div>
@@ -291,8 +312,14 @@ export default function FilesList({ files, userRole }: FilesListProps) {
                   <span className="font-medium">Project:</span> {file.project.title}
                 </div>
                 
+                {/* CRITICAL FIX: Replace toLocaleDateString with server-safe formatting */}
                 <div className="flex items-center justify-between text-xs">
-                  <span>{new Date(file.createdAt).toLocaleDateString()}</span>
+                  <time 
+                    dateTime={file.createdAt} 
+                    suppressHydrationWarning
+                  >
+                    {formatDateSafe(file.createdAt)}
+                  </time>
                   <span>{file.downloadCount} downloads</span>
                 </div>
               </div>

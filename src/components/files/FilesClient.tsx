@@ -1,54 +1,14 @@
-// src/components/files/FilesClient.tsx - NEW CLIENT COMPONENT
+// src/components/files/FilesClient.tsx - FIXED WITH PROPER PROJECT SELECTION
 'use client';
 
 import { useState } from 'react';
-import FileUpload from '@/components/files/FileUpload';
-import FilesList from '@/components/files/FilesList';
+import SecureFileUpload from '@/components/files/SecureFileUpload';
+import FilesListAdapter from '@/components/files/FilesListAdapter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { File, Image as ImageIcon, Video, FileText, Download } from 'lucide-react';
-
-// Define proper TypeScript interfaces
-interface FileData {
-  _id: string;
-  filename: string;
-  originalName: string;
-  size: number;
-  mimeType: string;
-  url: string;
-  category: 'image' | 'video' | 'audio' | 'document' | 'other';
-  tags: string[];
-  description: string;
-  isPublic: boolean;
-  uploadedBy: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  project: {
-    _id: string;
-    title: string;
-  };
-  createdAt: string;
-  downloadCount: number;
-}
-
-interface FileStats {
-  total: number;
-  totalSize: number;
-  byCategory: Record<string, number>;
-}
-
-interface UserProject {
-  _id: string;
-  title: string;
-}
-
-interface FilesClientProps {
-  files: FileData[];
-  stats: FileStats;
-  userProjects: UserProject[];
-  userRole: string;
-}
+// FIXED: Separate imports for types vs constants
+import type { FileData, FileStats, UserProject, FilesClientProps } from '@/types/files';
+import { ACCEPTED_FILE_TYPES } from '@/constants/files';
 
 export default function FilesClient({ files, stats, userProjects, userRole }: FilesClientProps) {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -61,7 +21,7 @@ export default function FilesClient({ files, stats, userProjects, userRole }: Fi
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const handleUploadComplete = () => {
+  const handleUploadComplete = (file: FileData): void => {
     setRefreshKey(prev => prev + 1);
     // Refresh the page to show new files
     window.location.reload();
@@ -78,8 +38,8 @@ export default function FilesClient({ files, stats, userProjects, userRole }: Fi
         </div>
       </div>
 
-      {/* File Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Files</CardTitle>
@@ -88,7 +48,7 @@ export default function FilesClient({ files, stats, userProjects, userRole }: Fi
           <CardContent>
             <div className="text-2xl font-bold">{stats.total}</div>
             <p className="text-xs text-muted-foreground">
-              {formatFileSize(stats.totalSize)}
+              {formatFileSize(stats.totalSize)} total
             </p>
           </CardContent>
         </Card>
@@ -99,7 +59,9 @@ export default function FilesClient({ files, stats, userProjects, userRole }: Fi
             <ImageIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.byCategory.image || 0}</div>
+            <div className="text-2xl font-bold">
+              {stats.byCategory.image || 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               Photos & graphics
             </p>
@@ -112,22 +74,11 @@ export default function FilesClient({ files, stats, userProjects, userRole }: Fi
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.byCategory.document || 0}</div>
+            <div className="text-2xl font-bold">
+              {stats.byCategory.document || 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               PDFs & docs
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Videos</CardTitle>
-            <Video className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.byCategory.video || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Video files
             </p>
           </CardContent>
         </Card>
@@ -148,23 +99,42 @@ export default function FilesClient({ files, stats, userProjects, userRole }: Fi
         </Card>
       </div>
 
-      {/* File Upload Section */}
-      {userProjects.length > 0 && (
+      {/* CRITICAL FIX: Replace hardcoded FileUpload with SecureFileUpload for proper project selection */}
+      {userProjects.length > 0 && (userRole === 'super_admin' || userRole === 'project_manager') && (
         <Card>
           <CardHeader>
             <CardTitle>Upload Files</CardTitle>
+            <p className="text-sm text-gray-600">
+              Select a project and upload files with proper permissions
+            </p>
           </CardHeader>
           <CardContent>
-            <FileUpload 
-              projectId={userProjects[0]._id}
+            {/* FIXED: Use shared ACCEPTED_FILE_TYPES constant */}
+            <SecureFileUpload 
+              userRole={userRole}
               onUploadComplete={handleUploadComplete}
+              maxFiles={10}
+              acceptedTypes={ACCEPTED_FILE_TYPES}
             />
           </CardContent>
         </Card>
       )}
 
+      {/* Show message if no projects available */}
+      {userProjects.length === 0 && (userRole === 'super_admin' || userRole === 'project_manager') && (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Projects Available</h3>
+            <p className="text-gray-600">
+              You need at least one project assigned to upload files. Contact your administrator or create a project first.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Files List */}
-      <FilesList key={refreshKey} files={files} userRole={userRole} />
+      <FilesListAdapter key={refreshKey} files={files} userRole={userRole} />
     </div>
   );
 }
