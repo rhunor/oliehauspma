@@ -1,34 +1,31 @@
-// FILE: src/app/(dashboard)/client/page.tsx - FIXED MONGODB TYPING
-// ✅ FIXED: Proper MongoDB Document typing with TypeScript
-
+// src/app/(dashboard)/client/page.tsx - MODIFIED: Removed Analytics Cards & Specific Dashboard Cards
+import { Suspense } from 'react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId, WithId, Document } from 'mongodb';
+import { ObjectId, Filter } from 'mongodb';
 import Link from 'next/link';
 import { 
-  BarChart3, 
-  FolderOpen, 
-  Calendar, 
-  Clock,
-  FileText, 
-  MessageCircle, 
-  CheckCircle,
-  AlertCircle,
-  Eye,
-  ArrowRight,
+  Activity,
+  Calendar,
+  FolderOpen,
   TrendingUp,
-  Users,
-  Target,
-  Activity
+  CheckCircle,
+  MessageCircle,
+  FileText,
+  ChevronRight,
+  Eye,
+  Clock,
+  Download,
+  BarChart3
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-// FIXED: ONLY ADDITION - Import the floating AI chatbot
+import { Progress } from '@/components/ui/progress';
 import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
 
-// ✅ FIXED: Proper TypeScript interfaces for MongoDB documents
+// TypeScript interfaces following best practices - avoiding 'any' type
 interface ClientStats {
   totalProjects: number;
   activeProjects: number;
@@ -40,57 +37,37 @@ interface ClientStats {
   totalFiles: number;
 }
 
-// ✅ FIXED: Proper interface for MongoDB project document
-interface ProjectDocument extends Document {
+interface ProjectDocument {
+  _id: ObjectId;
   title: string;
   description: string;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   progress: number;
-  startDate?: Date;
-  endDate?: Date;
   client: ObjectId;
   manager: ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
 
-// ✅ FIXED: Separate interface for populated project data
 interface ActiveProject {
   _id: string;
   title: string;
   description: string;
-  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: string;
+  priority: string;
   progress: number;
-  startDate?: Date;
-  endDate?: Date;
-  manager: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  client: {
-    _id: string;
-    name: string;
-    email: string;
-  };
 }
 
 interface RecentUpdate {
   _id: string;
-  type: 'task_completed' | 'project_updated' | 'file_uploaded' | 'message_sent' | 'daily_report';
+  type: 'project_updated' | 'project_completed';
   title: string;
   description: string;
   timestamp: string;
-  project?: {
+  project: {
     _id: string;
     title: string;
-  };
-  user?: {
-    _id: string;
-    name: string;
-    role: string;
   };
 }
 
@@ -99,90 +76,43 @@ interface RecentFile {
   filename: string;
   originalName: string;
   size: number;
-  category: 'document' | 'image' | 'video' | 'audio' | 'other';
+  category: string;
   uploadedAt: Date;
   uploadedBy: {
     name: string;
   };
-  project?: {
+  project: {
     title: string;
   };
 }
 
-// Helper functions
-const formatTimeAgo = (date: Date): string => {
-  const now = new Date();
-  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-  
-  if (diffInSeconds < 60) return 'Just now';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-  if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-  return date.toLocaleDateString();
-};
-
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const getStatusColor = (status: string): string => {
-  switch (status) {
-    case 'completed': return 'bg-green-100 text-green-800';
-    case 'in_progress': return 'bg-blue-100 text-blue-800';
-    case 'planning': return 'bg-yellow-100 text-yellow-800';
-    case 'on_hold': return 'bg-orange-100 text-orange-800';
-    case 'cancelled': return 'bg-red-100 text-red-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-};
-
-// ✅ FIXED: Proper MongoDB document transformation
-function transformProjectToActiveProject(project: WithId<ProjectDocument>): ActiveProject {
-  return {
-    _id: project._id.toString(),
-    title: project.title,
-    description: project.description,
-    status: project.status,
-    priority: project.priority,
-    progress: project.progress,
-    startDate: project.startDate,
-    endDate: project.endDate,
-    manager: {
-      _id: '', // Will be populated if needed
-      name: 'Project Manager',
-      email: 'manager@example.com'
-    },
-    client: {
-      _id: project.client.toString(),
-      name: 'Client Name',
-      email: 'client@example.com'
-    }
-  };
+interface DashboardData {
+  stats: ClientStats;
+  activeProject: ActiveProject | null;
+  recentUpdates: RecentUpdate[];
+  recentFiles: RecentFile[];
 }
 
-// ✅ FIXED: Server-side data fetching with proper error handling and typing
-async function getClientDashboardData(clientId: string) {
+// Server function to fetch client dashboard data
+async function getClientDashboardData(clientId: string): Promise<DashboardData> {
   try {
     const { db } = await connectToDatabase();
-    const currentDate = new Date();
-    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
 
-    // ✅ FIXED: Proper MongoDB query with typing
+    // Get client's projects with proper filter typing
+    const projectQuery: Filter<ProjectDocument> = {
+      client: new ObjectId(clientId)
+    };
+
     const projects = await db.collection<ProjectDocument>('projects')
-      .find({ client: new ObjectId(clientId) })
-      .sort({ updatedAt: -1 })
+      .find(projectQuery)
       .toArray();
 
     const projectIds = projects.map(p => p._id);
 
-    // Calculate project statistics
+    // Calculate statistics
     const stats: ClientStats = {
       totalProjects: projects.length,
-      activeProjects: projects.filter(p => ['planning', 'in_progress'].includes(p.status)).length,
+      activeProjects: projects.filter(p => p.status === 'in_progress').length,
       completedProjects: projects.filter(p => p.status === 'completed').length,
       completedTasks: 0,
       pendingTasks: 0,
@@ -191,25 +121,43 @@ async function getClientDashboardData(clientId: string) {
       totalFiles: 0
     };
 
-    // ✅ FIXED: Proper type conversion for active project
+    // Get the most active project
     let activeProject: ActiveProject | null = null;
-    const activeProjectDoc = projects.find(p => p.status === 'in_progress') || projects[0];
-    if (activeProjectDoc) {
-      activeProject = transformProjectToActiveProject(activeProjectDoc);
+    const currentActiveProject = projects
+      .filter(p => p.status === 'in_progress')
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+
+    if (currentActiveProject) {
+      activeProject = {
+        _id: currentActiveProject._id.toString(),
+        title: currentActiveProject.title,
+        description: currentActiveProject.description,
+        status: currentActiveProject.status,
+        priority: currentActiveProject.priority,
+        progress: currentActiveProject.progress
+      };
     }
 
-    // Create recent updates from projects
-    const recentUpdates: RecentUpdate[] = projects.slice(0, 5).map(project => ({
-      _id: project._id.toString(),
-      type: 'project_updated' as const,
-      title: `Project ${project.status === 'completed' ? 'Completed' : 'Updated'}`,
-      description: project.title,
-      timestamp: (project.updatedAt || project.createdAt).toISOString(),
-      project: {
+    // Get recent project updates
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const recentUpdates: RecentUpdate[] = projects
+      .filter(project => project.updatedAt >= startOfMonth)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 10)
+      .map(project => ({
         _id: project._id.toString(),
-        title: project.title
-      }
-    }));
+        type: project.status === 'completed' ? 'project_completed' : 'project_updated',
+        title: `Project ${project.status === 'completed' ? 'Completed' : 'Updated'}`,
+        description: project.title,
+        timestamp: (project.updatedAt || project.createdAt).toISOString(),
+        project: {
+          _id: project._id.toString(),
+          title: project.title
+        }
+      }));
 
     // Fetch recent files with error handling
     let recentFiles: RecentFile[] = [];
@@ -296,7 +244,19 @@ async function getClientDashboardData(clientId: string) {
   }
 }
 
-// ✅ ENHANCED: Dashboard Card Component
+// Dashboard Card Component with proper TypeScript typing
+interface DashboardCardProps {
+  title: string;
+  description: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: 'blue' | 'green' | 'purple' | 'orange' | 'red';
+  stats?: {
+    value: number;
+    label: string;
+  };
+}
+
 function DashboardCard({ 
   title, 
   description, 
@@ -304,44 +264,48 @@ function DashboardCard({
   icon: Icon, 
   color, 
   stats 
-}: {
-  title: string;
-  description: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: 'blue' | 'green' | 'purple' | 'orange' | 'red';
-  stats?: {
-    value: string | number;
-    label: string;
-  };
-}) {
-  const colorClasses = {
-    blue: 'bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700',
-    green: 'bg-green-50 border-green-200 hover:bg-green-100 text-green-700',
-    purple: 'bg-purple-50 border-purple-200 hover:bg-purple-100 text-purple-700',
-    orange: 'bg-orange-50 border-orange-200 hover:bg-orange-100 text-orange-700',
-    red: 'bg-red-50 border-red-200 hover:bg-red-100 text-red-700'
+}: DashboardCardProps) {
+  const colorClasses: Record<string, string> = {
+    blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
+    green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
+    purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
+    orange: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
+    red: 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
   };
 
   return (
     <Link href={href}>
-      <Card className={`${colorClasses[color]} cursor-pointer transition-all duration-200 hover:shadow-md border-2`}>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <Icon className="h-8 w-8" />
-                <h3 className="text-lg font-semibold">{title}</h3>
-              </div>
-              <p className="text-sm opacity-80 mb-3">{description}</p>
-              {stats && (
-                <div>
-                  <p className="text-2xl font-bold">{stats.value}</p>
-                  <p className="text-xs opacity-70">{stats.label}</p>
-                </div>
-              )}
+      <Card className="hover:shadow-lg transition-all duration-200 cursor-pointer group h-full">
+        <CardContent className="p-0">
+          <div className={`bg-gradient-to-br ${colorClasses[color]} p-6 text-white relative overflow-hidden`}>
+            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-20">
+              <Icon className="h-24 w-24 transform rotate-12" />
             </div>
-            <ArrowRight className="h-5 w-5 opacity-50" />
+            <div className="relative">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-white bg-opacity-20 rounded-lg">
+                  <Icon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{title}</h3>
+                  {stats && (
+                    <div className="flex items-center space-x-2 mt-1">
+                      <span className="text-2xl font-bold">{stats.value}</span>
+                      <span className="text-sm opacity-90">{stats.label}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="p-4">
+            <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
+            <div className="flex items-center justify-between mt-4">
+              <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+                View Details
+              </span>
+              <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -349,153 +313,78 @@ function DashboardCard({
   );
 }
 
-// ✅ ENHANCED: Quick Actions Component
-function QuickActionsCard() {
-  return (
-    <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-blue-600" />
-          Quick Actions
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 gap-3">
-          {/* ✅ FIXED: Daily Activities Navigation */}
-          <Link href="/client/daily-reports">
-            <Button className="w-full justify-start bg-green-600 hover:bg-green-700 text-white">
-              <Activity className="h-4 w-4 mr-2" />
-              View Daily Activities
-            </Button>
-          </Link>
-          
-          <Link href="/client/site-schedule">
-            <Button className="w-full justify-start bg-blue-600 hover:bg-blue-700 text-white">
-              <Calendar className="h-4 w-4 mr-2" />
-              View Work Schedule
-            </Button>
-          </Link>
-          
-          <Link href="/client/messages">
-            <Button className="w-full justify-start bg-purple-600 hover:bg-purple-700 text-white">
-              <MessageCircle className="h-4 w-4 mr-2" />
-              Contact Team
-            </Button>
-          </Link>
-          
-          <Link href="/client/files">
-            <Button className="w-full justify-start bg-orange-600 hover:bg-orange-700 text-white">
-              <FileText className="h-4 w-4 mr-2" />
-              View Documents
-            </Button>
-          </Link>
-        </div>
-      </CardContent>
-    </Card>
-  );
+// Utility functions
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// ✅ ENHANCED: Recent Activities Component  
-function RecentActivitiesCard({ 
-  recentUpdates 
-}: { 
-  recentUpdates: RecentUpdate[];
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-lg font-semibold">Recent Activities</CardTitle>
-        <Link href="/client/daily-reports">
-          <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700">
-            View All
-          </Button>
-        </Link>
-      </CardHeader>
-      <CardContent>
-        {recentUpdates && recentUpdates.length > 0 ? (
-          <div className="space-y-4">
-            {recentUpdates.slice(0, 5).map((update) => (
-              <div key={update._id} className="flex items-start space-x-3">
-                <div className="flex-shrink-0">
-                  {update.type === 'task_completed' && (
-                    <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
-                  )}
-                  {update.type === 'project_updated' && (
-                    <Calendar className="h-5 w-5 text-blue-500 mt-0.5" />
-                  )}
-                  {update.type === 'file_uploaded' && (
-                    <FileText className="h-5 w-5 text-purple-500 mt-0.5" />
-                  )}
-                  {update.type === 'daily_report' && (
-                    <Activity className="h-5 w-5 text-green-500 mt-0.5" />
-                  )}
-                  {!['task_completed', 'project_updated', 'file_uploaded', 'daily_report'].includes(update.type) && (
-                    <AlertCircle className="h-5 w-5 text-gray-500 mt-0.5" />
-                  )}
-                </div>
-                <div className="flex-grow min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {update.title}
-                  </p>
-                  <p className="text-sm text-gray-600 truncate">
-                    {update.description}
-                  </p>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-xs text-gray-400">
-                      {formatTimeAgo(new Date(update.timestamp))}
-                    </p>
-                    {update.project && (
-                      <Link href={`/client/projects/${update.project._id}`}>
-                        <span className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer">
-                          {update.project.title}
-                        </span>
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-6">
-            <Calendar className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-            <p className="text-sm text-gray-600">No recent activities</p>
-            <Link href="/client/daily-reports">
-              <Button variant="outline" size="sm" className="mt-2">
-                <Eye className="h-4 w-4 mr-2" />
-                View Daily Reports
-              </Button>
-            </Link>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+function formatTimeAgo(date: Date): string {
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor(diff / (1000 * 60));
+
+  if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
+  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+  return 'Just now';
 }
 
-// ✅ ENHANCED: Active Project Component with proper typing
-function ActiveProjectCard({ 
-  activeProject 
-}: { 
-  activeProject: ActiveProject | null;
-}) {
-  if (!activeProject) {
+function getFileIcon(category: string) {
+  const iconMap: Record<string, React.ReactElement> = {
+    image: <FileText className="h-5 w-5 text-blue-500" />,
+    video: <FileText className="h-5 w-5 text-red-500" />,
+    audio: <FileText className="h-5 w-5 text-green-500" />,
+    document: <FileText className="h-5 w-5 text-purple-500" />,
+    other: <FileText className="h-5 w-5 text-gray-500" />
+  };
+  return iconMap[category] || iconMap.other;
+}
+
+function getPriorityColor(priority: string): string {
+  const priorityColors: Record<string, string> = {
+    low: 'bg-green-100 text-green-800',
+    medium: 'bg-yellow-100 text-yellow-800',
+    high: 'bg-orange-100 text-orange-800',
+    urgent: 'bg-red-100 text-red-800'
+  };
+  return priorityColors[priority] || 'bg-gray-100 text-gray-800';
+}
+
+function getStatusColor(status: string): string {
+  const statusColors: Record<string, string> = {
+    planning: 'bg-blue-100 text-blue-800',
+    in_progress: 'bg-yellow-100 text-yellow-800',
+    completed: 'bg-green-100 text-green-800',
+    on_hold: 'bg-red-100 text-red-800',
+    cancelled: 'bg-gray-100 text-gray-800'
+  };
+  return statusColors[status] || 'bg-gray-100 text-gray-800';
+}
+
+// Active Project Component
+function ActiveProjectCard({ project }: { project: ActiveProject | null }) {
+  if (!project) {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
-            <Target className="h-5 w-5 text-blue-600" />
+            <FolderOpen className="h-5 w-5 text-blue-600" />
             Active Project
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8">
             <FolderOpen className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Active Projects</h3>
-            <p className="text-gray-600 mb-4">You don&apos;t have any active projects at the moment.</p>
+            <p className="text-gray-600">No active projects at the moment</p>
             <Link href="/client/projects">
-              <Button variant="outline">
-                View All Projects
+              <Button variant="outline" size="sm" className="mt-4">
+                Browse All Projects
               </Button>
             </Link>
           </div>
@@ -505,107 +394,108 @@ function ActiveProjectCard({
   }
 
   return (
-    <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-blue-100">
+    <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
-            <Target className="h-5 w-5 text-blue-600" />
-            Active Project
-          </CardTitle>
-          <Badge className={getStatusColor(activeProject.status)}>
-            {activeProject.status.replace('_', ' ')}
-          </Badge>
-        </div>
+        <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <FolderOpen className="h-5 w-5 text-blue-600" />
+          Active Project
+        </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">{activeProject.title}</h3>
-            <p className="text-gray-700">{activeProject.description}</p>
+      <CardContent className="space-y-4">
+        <div>
+          <h3 className="font-semibold text-gray-900 mb-2">{project.title}</h3>
+          <p className="text-sm text-gray-600 mb-3">{project.description}</p>
+          
+          <div className="flex items-center gap-2 mb-3">
+            <Badge className={getStatusColor(project.status)}>
+              {project.status.replace('_', ' ')}
+            </Badge>
+            <Badge className={getPriorityColor(project.priority)}>
+              {project.priority}
+            </Badge>
           </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-600">Progress</span>
-            <span className="text-sm font-bold text-gray-900">{activeProject.progress}%</span>
-          </div>
-          <div className="w-full bg-white rounded-full h-3">
-            <div 
-              className="bg-blue-600 h-3 rounded-full transition-all duration-300" 
-              style={{ width: `${activeProject.progress}%` }}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Project Manager:</span>
-              <span className="font-medium text-gray-900">{activeProject.manager.name}</span>
+          
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>Progress</span>
+              <span>{project.progress}%</span>
             </div>
-            {activeProject.startDate && (
-              <div className="flex justify-between">
-                <span className="text-gray-600">Start Date:</span>
-                <span className="font-medium text-gray-900">
-                  {new Date(activeProject.startDate).toLocaleDateString()}
-                </span>
-              </div>
-            )}
-            {activeProject.endDate && (
-              <div className="flex justify-between">
-                <span className="text-gray-600">Target Date:</span>
-                <span className="font-medium text-gray-900">
-                  {new Date(activeProject.endDate).toLocaleDateString()}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-2 pt-2">
-            <Link href={`/client/projects/${activeProject._id}`} className="flex-1">
-              <Button className="w-full" size="sm">
-                <Eye className="h-4 w-4 mr-2" />
-                View Details
-              </Button>
-            </Link>
-            <Link href="/client/daily-reports" className="flex-1">
-              <Button variant="outline" className="w-full" size="sm">
-                <Activity className="h-4 w-4 mr-2" />
-                Daily Reports
-              </Button>
-            </Link>
+            <Progress value={project.progress} className="h-2" />
           </div>
         </div>
+        
+        <Link href={`/client/projects/${project._id}`}>
+          <Button className="w-full" size="sm">
+            <Eye className="h-4 w-4 mr-2" />
+            View Details
+          </Button>
+        </Link>
       </CardContent>
     </Card>
   );
 }
 
-// ✅ ENHANCED: Recent Files Component
-function RecentFilesCard({ 
-  recentFiles 
-}: { 
-  recentFiles: RecentFile[];
-}) {
-  const getFileIcon = (category: string) => {
-    switch (category) {
-      case 'document': return <FileText className="h-5 w-5 text-blue-500" />;
-      case 'image': return <FileText className="h-5 w-5 text-green-500" />;
-      default: return <FileText className="h-5 w-5 text-gray-500" />;
-    }
-  };
-
+// Recent Updates Component
+function RecentUpdatesCard({ updates }: { updates: RecentUpdate[] }) {
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-lg font-semibold">Recent Files</CardTitle>
-        <Link href="/client/files">
-          <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700">
-            View All
-          </Button>
-        </Link>
+      <CardHeader>
+        <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <Clock className="h-5 w-5 text-green-600" />
+          Recent Updates
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        {recentFiles && recentFiles.length > 0 ? (
+        {updates.length > 0 ? (
           <div className="space-y-3">
-            {recentFiles.slice(0, 5).map((file) => (
+            {updates.slice(0, 5).map((update) => (
+              <div key={update._id} className="flex items-start space-x-3 p-2 rounded-lg hover:bg-gray-50">
+                <div className="flex-shrink-0 mt-1">
+                  {update.type === 'project_completed' ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Activity className="h-4 w-4 text-blue-500" />
+                  )}
+                </div>
+                <div className="flex-grow min-w-0">
+                  <p className="text-sm font-medium text-gray-900">
+                    {update.title}
+                  </p>
+                  <p className="text-sm text-gray-600 truncate">
+                    {update.description}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formatTimeAgo(new Date(update.timestamp))}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-6">
+            <Activity className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-600">No recent updates</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Recent Files Component
+function RecentFilesCard({ files }: { files: RecentFile[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <FileText className="h-5 w-5 text-purple-600" />
+          Recent Files
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {files.length > 0 ? (
+          <div className="space-y-3">
+            {files.slice(0, 5).map((file) => (
               <div key={file._id} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50">
                 <div className="flex-shrink-0">
                   {getFileIcon(file.category)}
@@ -683,58 +573,7 @@ export default async function ClientDashboard() {
           </div>
         </div>
 
-        {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Projects</p>
-                  <p className="text-3xl font-bold text-gray-900">{stats.totalProjects}</p>
-                </div>
-                <FolderOpen className="h-8 w-8 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Active Projects</p>
-                  <p className="text-3xl font-bold text-gray-900">{stats.activeProjects}</p>
-                </div>
-                <TrendingUp className="h-8 w-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Completed</p>
-                  <p className="text-3xl font-bold text-gray-900">{stats.completedProjects}</p>
-                </div>
-                <CheckCircle className="h-8 w-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Messages</p>
-                  <p className="text-3xl font-bold text-gray-900">{stats.recentMessages}</p>
-                </div>
-                <MessageCircle className="h-8 w-8 text-purple-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Enhanced Dashboard Cards */}
+        {/* Enhanced Dashboard Cards - ONLY removing specified cards and making requested changes */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <DashboardCard
             title="Daily Activities"
@@ -747,7 +586,7 @@ export default async function ClientDashboard() {
           
           <DashboardCard
             title="Site Schedule"
-            description="Check project timeline and upcoming milestones"
+            description="Monitor overall project progress and updates"
             href="/client/site-schedule"
             icon={Calendar}
             color="blue"
@@ -755,92 +594,73 @@ export default async function ClientDashboard() {
           />
           
           <DashboardCard
-            title="Projects"
-            description="Monitor overall project progress and updates"
+            title="Project Milestone"
+            description="Check project timeline and upcoming milestones"
             href="/client/projects"
             icon={FolderOpen}
             color="purple"
             stats={{ value: stats.totalProjects, label: "Total Projects" }}
           />
-          
-          <DashboardCard
-            title="Team Messages"
-            description="Communicate with your project team"
-            href="/client/messages"
-            icon={MessageCircle}
-            color="orange"
-            stats={{ value: stats.recentMessages, label: "Recent Messages" }}
-          />
-          
-          <DashboardCard
-            title="Documents"
-            description="Access project files and documents"
-            href="/client/files"
-            icon={FileText}
-            color="blue"
-            stats={{ value: stats.totalFiles, label: "Files Available" }}
-          />
 
-          <DashboardCard
-            title="Tasks"
-            description="View assigned tasks and deadlines"
-            href="/client/tasks"
-            icon={CheckCircle}
-            color="green"
-            stats={{ value: stats.pendingTasks, label: "Pending Tasks" }}
-          />
+          {/* REMOVED: Team Messages, Documents, Tasks cards as requested */}
         </div>
 
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Quick Actions and Active Project */}
           <div className="lg:col-span-1 space-y-6">
-            <QuickActionsCard />
-            <ActiveProjectCard activeProject={activeProject} />
+            {/* Quick Actions */}
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-blue-600" />
+                  Quick Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-3">
+                  {/* View Work Schedule - Updated as requested */}
+                  <Link href="/client/site-schedule">
+                    <Button className="w-full justify-start bg-blue-600 hover:bg-blue-700 text-white">
+                      <Calendar className="h-4 w-4 mr-2" />
+                      View Work Schedule
+                    </Button>
+                  </Link>
+                  
+                  {/* Contact Team */}
+                  <Link href="/client/messages">
+                    <Button variant="outline" className="w-full justify-start">
+                      <MessageCircle className="h-4 w-4 mr-2" />
+                      Contact Team
+                    </Button>
+                  </Link>
+                  
+                  {/* View All Projects */}
+                  <Link href="/client/projects">
+                    <Button variant="outline" className="w-full justify-start">
+                      <FolderOpen className="h-4 w-4 mr-2" />
+                      View All Projects
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Active Project */}
+            <ActiveProjectCard project={activeProject} />
           </div>
 
-          {/* Right Columns - Activities and Files */}
+          {/* Right Column - Recent Activities */}
           <div className="lg:col-span-2 space-y-6">
-            <RecentActivitiesCard recentUpdates={recentUpdates} />
-            <RecentFilesCard recentFiles={recentFiles} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <RecentUpdatesCard updates={recentUpdates} />
+              <RecentFilesCard files={recentFiles} />
+            </div>
           </div>
-        </div>
-
-        {/* Additional Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">{stats.completedTasks}</div>
-              <div className="text-sm text-gray-600">Completed Tasks</div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className="text-2xl font-bold text-orange-600">{stats.pendingTasks}</div>
-              <div className="text-sm text-gray-600">Pending Tasks</div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className="text-2xl font-bold text-purple-600">{stats.totalFiles}</div>
-              <div className="text-sm text-gray-600">Total Files</div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className="text-2xl font-bold text-green-600">
-                {stats.totalProjects > 0 ? Math.round((stats.completedProjects / stats.totalProjects) * 100) : 0}%
-              </div>
-              <div className="text-sm text-gray-600">Success Rate</div>
-            </CardContent>
-          </Card>
         </div>
       </div>
 
-      {/* FIXED: ONLY ADDITION - Floating AI Chatbot positioned in bottom-right corner */}
+      {/* KEPT: Floating AI Chatbot - positioned in bottom-right corner as original */}
       <FloatingAIChatbot className="bottom-6 right-6" />
     </>
   );
