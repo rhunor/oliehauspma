@@ -1,542 +1,666 @@
-// src/app/(dashboard)/client/daily-reports/page.tsx - FIXED: Fully Responsive Mobile-First
-"use client";
+// src/app/(dashboard)/client/daily-reports/page.tsx - ENHANCED WITH INCIDENT & RISK FEATURES
+'use client';
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { 
-  FileText, 
-  Calendar, 
-  Filter, 
+  Calendar,
+  FileText,
   Download,
   Eye,
-  ArrowLeft,
-  Search,
-  CheckCircle,
-  Clock,
   AlertTriangle,
-  Image as ImageIcon,
-  User,
-  MapPin,
-  X
+  Shield,
+  Plus,
+  Clock,
+  CheckCircle,
+  TrendingUp,
+  Filter,
+  Search
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 
-interface DailyActivity {
-  title: string;
-  status: 'completed' | 'in_progress' | 'pending' | 'delayed';
-  description?: string;
-  contractor?: string;
-  supervisor?: string;
-  category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
-  progress?: number;
-}
+// Import our types
+import type { IncidentReport } from '@/lib/types/incident';
+import type { RiskRegisterItem } from '@/lib/types/risk';
 
+// Enhanced interfaces
 interface DailyReport {
   _id: string;
   projectId: string;
   projectTitle: string;
   date: string;
-  activities: DailyActivity[];
+  activities: Activity[];
   summary: {
-    completed: number;
-    inProgress: number;
-    pending: number;
-    delayed: number;
     totalActivities: number;
-    totalHours?: number;
-    crewSize?: number;
-    weatherConditions?: string;
+    completedActivities: number;
+    weatherConditions: string;
+    crewCount: number;
+    equipmentUsed: string[];
+    safetyIncidents: number;
+    delays: string[];
+    notes: string;
   };
-  photos: string[];
-  notes?: string;
+  incidents: IncidentReport[];
+  risks: RiskRegisterItem[];
+  attachments: Array<{
+    filename: string;
+    url: string;
+    type: string;
+    size: number;
+  }>;
   createdBy: string;
+  createdByName: string;
   createdAt: string;
   updatedAt: string;
-  approved: boolean;
 }
 
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'completed': return 'bg-green-100 text-green-800';
-    case 'in_progress': return 'bg-blue-100 text-blue-800';
-    case 'pending': return 'bg-yellow-100 text-yellow-800';
-    case 'delayed': return 'bg-red-100 text-red-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-};
+interface Activity {
+  _id: string;
+  title: string;
+  description: string;
+  contractor: string;
+  supervisor?: string;
+  startTime: string;
+  endTime: string;
+  status: 'completed' | 'in_progress' | 'delayed' | 'cancelled';
+  progress: number;
+  equipmentUsed: string[];
+  crewSize: number;
+  notes?: string;
+  photos?: string[];
+}
 
-const getCategoryIcon = (category?: string) => {
-  const iconClass = "h-4 w-4 text-gray-400";
-  switch (category) {
-    case 'structural': return <MapPin className={iconClass} />;
-    case 'electrical': return <AlertTriangle className={iconClass} />;
-    case 'plumbing': return <Clock className={iconClass} />;
-    case 'finishing': return <CheckCircle className={iconClass} />;
-    default: return <FileText className={iconClass} />;
-  }
-};
+interface Project {
+  _id: string;
+  title: string;
+  status: string;
+  manager: {
+    name: string;
+    email: string;
+  };
+}
 
-export default function ClientDailyReportsPage() {
+export default function EnhancedDailyReportsPage() {
   const { data: session } = useSession();
   const { toast } = useToast();
-  
-  const [reports, setReports] = useState<DailyReport[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState('all');
-  const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const reportsPerPage = 10;
 
+  // State management
+  const [reports, setReports] = useState<DailyReport[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedProject, setSelectedProject] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showIncidentDialog, setShowIncidentDialog] = useState(false);
+  const [showRiskDialog, setShowRiskDialog] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
+
+  // Fetch data
   useEffect(() => {
-    if (session?.user) {
+    if (session?.user?.id) {
       fetchReports();
+      fetchProjects();
     }
-  }, [session, page, dateFilter]);
+  }, [session, selectedProject, dateFilter]);
 
   const fetchReports = async () => {
     try {
       setLoading(true);
+      const params = new URLSearchParams();
+      if (selectedProject !== 'all') params.append('projectId', selectedProject);
+      if (dateFilter !== 'all') params.append('dateFilter', dateFilter);
       
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: reportsPerPage.toString(),
-        client: 'true'
-      });
-
-      if (dateFilter && dateFilter !== 'all') {
-        const today = new Date();
-        let startDate: Date | null = null;
-        
-        switch (dateFilter) {
-          case 'today':
-            startDate = new Date(today.setHours(0, 0, 0, 0));
-            break;
-          case 'week':
-            startDate = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-            break;
-          case 'month':
-            startDate = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-            break;
-          default:
-            startDate = null;
-        }
-        
-        if (startDate) {
-          params.append('startDate', startDate.toISOString());
-        }
-      }
-
-      const response = await fetch(`/api/daily-reports?${params.toString()}`);
+      const response = await fetch(`/api/daily-reports?${params}`);
+      const data = await response.json();
       
-      if (response.ok) {
-        const data = await response.json();
+      if (data.success) {
         setReports(data.data.reports || []);
-        setTotalPages(data.data.pagination?.pages || 1);
       } else {
         toast({
-          variant: "destructive",
           title: "Error",
-          description: "Failed to load daily reports"
+          description: data.error || "Failed to fetch reports",
+          variant: "destructive"
         });
       }
     } catch (error) {
-      console.error('Error fetching daily reports:', error);
+      console.error('Error fetching reports:', error);
       toast({
-        variant: "destructive",
         title: "Error",
-        description: "An error occurred while loading reports"
+        description: "Failed to fetch daily reports",
+        variant: "destructive"
       });
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter reports based on search term
+  const fetchProjects = async () => {
+    try {
+      const response = await fetch('/api/projects');
+      const data = await response.json();
+      
+      if (data.success) {
+        setProjects(data.data.projects || []);
+      }
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+    }
+  };
+
+  // Filter reports based on search
   const filteredReports = reports.filter(report => {
-    const matchesSearch = report.projectTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         report.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         report.createdBy.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = searchQuery === '' || 
+      report.projectTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      report.summary.notes.toLowerCase().includes(searchQuery.toLowerCase());
     
     return matchesSearch;
   });
 
-  const formatDate = (dateString: string) => {
+  // Calculate statistics
+  const stats = {
+    totalReports: filteredReports.length,
+    totalIncidents: filteredReports.reduce((sum, r) => sum + (r.incidents?.length || 0), 0),
+    totalRisks: filteredReports.reduce((sum, r) => sum + (r.risks?.length || 0), 0),
+    averageProgress: filteredReports.length > 0 
+      ? Math.round(filteredReports.reduce((sum, r) => {
+          const completed = r.summary.completedActivities;
+          const total = r.summary.totalActivities;
+          return sum + (total > 0 ? (completed / total) * 100 : 0);
+        }, 0) / filteredReports.length)
+      : 0
+  };
+
+  const getStatusColor = (status: string): string => {
+    const colors: Record<string, string> = {
+      completed: 'bg-green-100 text-green-800',
+      in_progress: 'bg-blue-100 text-blue-800',
+      delayed: 'bg-red-100 text-red-800',
+      cancelled: 'bg-gray-100 text-gray-800'
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getSeverityColor = (severity: string): string => {
+    const colors: Record<string, string> = {
+      low: 'bg-green-100 text-green-800',
+      medium: 'bg-yellow-100 text-yellow-800',
+      high: 'bg-orange-100 text-orange-800',
+      critical: 'bg-red-100 text-red-800'
+    };
+    return colors[severity] || 'bg-gray-100 text-gray-800';
+  };
+
+  const formatDate = (dateString: string): string => {
     return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
+      weekday: 'short',
       year: 'numeric',
-      month: 'long',
+      month: 'short',
       day: 'numeric'
     });
   };
 
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const calculateCompletionPercentage = (summary: DailyReport['summary']) => {
-    if (summary.totalActivities === 0) return 0;
-    return Math.round((summary.completed / summary.totalActivities) * 100);
-  };
-
   if (loading) {
     return (
-      <div className="min-h-screen p-4 sm:p-6">
-        {/* FIXED: Mobile-first loading state */}
-        <div className="flex items-center justify-center min-h-96">
-          <div className="text-center max-w-sm mx-auto">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-sm sm:text-base text-gray-600">Loading daily reports...</p>
-          </div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading daily reports...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen">
-      {/* FIXED: Mobile-first responsive container */}
-      <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
-        
-        {/* FIXED: Responsive Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Link href="/client">
-              <Button variant="outline" size="sm" className="flex-shrink-0">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Back to Dashboard</span>
-                <span className="sm:hidden">Back</span>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Daily Reports</h1>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">
+            Progress updates, incidents, and risk assessments
+          </p>
+        </div>
+      </div>
+
+      {/* Enhanced Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Reports</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.totalReports}</p>
+              </div>
+              <FileText className="h-8 w-8 text-blue-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Incidents Reported</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.totalIncidents}</p>
+              </div>
+              <AlertTriangle className="h-8 w-8 text-red-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Active Risks</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.totalRisks}</p>
+              </div>
+              <Shield className="h-8 w-8 text-orange-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Avg Progress</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.averageProgress}%</p>
+              </div>
+              <TrendingUp className="h-8 w-8 text-purple-600" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Search</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search reports..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Project</label>
+              <Select value={selectedProject} onValueChange={setSelectedProject}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Projects" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Projects</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project._id} value={project._id}>
+                      {project.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Date Range</label>
+              <Select value={dateFilter} onValueChange={setDateFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Dates" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Dates</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">This Week</SelectItem>
+                  <SelectItem value="month">This Month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Actions</label>
+              <Button 
+                onClick={() => {
+                  setSelectedProject('all');
+                  setDateFilter('all');
+                  setSearchQuery('');
+                }}
+                variant="outline"
+                className="w-full"
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                Clear Filters
               </Button>
-            </Link>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 truncate">Daily Reports</h1>
-              <p className="text-xs sm:text-sm text-gray-600 mt-1">View daily progress reports from your project teams</p>
             </div>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* FIXED: Responsive Search and Filters */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Filter className="h-4 w-4 sm:h-5 sm:w-5" />
-              Search &amp; Filter Reports
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              {/* Search */}
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search reports..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 text-sm sm:text-base"
-                  />
-                </div>
-              </div>
-
-              {/* Date Filter */}
-              <div className="w-full sm:w-48">
-                <Select value={dateFilter} onValueChange={setDateFilter}>
-                  <SelectTrigger className="text-sm sm:text-base">
-                    <SelectValue placeholder="Filter by date" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Reports</SelectItem>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="week">Last Week</SelectItem>
-                    <SelectItem value="month">Last Month</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* FIXED: Responsive Reports List */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <CardTitle className="text-base sm:text-lg">Project Reports ({filteredReports.length})</CardTitle>
-              {filteredReports.length > 0 && (
-                <Button variant="outline" size="sm" className="w-full sm:w-auto">
-                  <Download className="h-4 w-4 mr-2" />
-                  Export All
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          
-          <CardContent className="p-0">
-            {filteredReports.length > 0 ? (
-              <div className="divide-y divide-gray-200">
-                {filteredReports.map((report) => (
-                  <div key={report._id} className="p-4 sm:p-6 hover:bg-gray-50 transition-colors">
-                    {/* FIXED: Mobile-first report card layout */}
-                    <div className="space-y-3 sm:space-y-4">
-                      
-                      {/* Header row - responsive layout */}
-                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
-                              {report.projectTitle}
-                            </h3>
-                            <Badge className={report.approved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
-                              {report.approved ? 'Approved' : 'Pending'}
-                            </Badge>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-                              {formatDate(report.date)}
-                            </span>
-                            <span className="hidden sm:inline">•</span>
-                            <span className="flex items-center gap-1">
-                              <User className="h-3 w-3 sm:h-4 sm:w-4" />
-                              {report.createdBy}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        {/* Action button - responsive positioning */}
-                        <div className="flex-shrink-0">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedReport(report)}
-                            className="w-full sm:w-auto"
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* FIXED: Responsive activity summary grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                        <div className="text-center p-2 sm:p-3 bg-gray-50 rounded-lg">
-                          <p className="text-lg sm:text-2xl font-bold text-gray-700">{report.summary.totalActivities}</p>
-                          <p className="text-xs text-gray-600">Total</p>
-                        </div>
-                        <div className="text-center p-2 sm:p-3 bg-green-50 rounded-lg">
-                          <p className="text-lg sm:text-2xl font-bold text-green-700">{report.summary.completed}</p>
-                          <p className="text-xs text-green-600">Completed</p>
-                        </div>
-                        <div className="text-center p-2 sm:p-3 bg-blue-50 rounded-lg">
-                          <p className="text-lg sm:text-2xl font-bold text-blue-700">{report.summary.inProgress}</p>
-                          <p className="text-xs text-blue-600">In Progress</p>
-                        </div>
-                        <div className="text-center p-2 sm:p-3 bg-purple-50 rounded-lg">
-                          <p className="text-lg sm:text-2xl font-bold text-purple-700">{calculateCompletionPercentage(report.summary)}%</p>
-                          <p className="text-xs text-purple-600">Complete</p>
-                        </div>
-                      </div>
-
-                      {/* FIXED: Responsive additional info grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs sm:text-sm">
-                        {report.summary.crewSize && (
-                          <div className="flex items-center gap-2">
-                            <User className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
-                            <span className="text-gray-600">Crew Size: {report.summary.crewSize}</span>
-                          </div>
-                        )}
-                        
-                        {report.summary.totalHours && (
-                          <div className="flex items-center gap-2">
-                            <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
-                            <span className="text-gray-600">Hours Worked: {report.summary.totalHours}</span>
-                          </div>
-                        )}
-                        
-                        {report.photos.length > 0 && (
-                          <div className="flex items-center gap-2">
-                            <ImageIcon className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
-                            <span className="text-gray-600">{report.photos.length} Photos</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Notes preview */}
-                      {report.notes && (
-                        <div className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-xs sm:text-sm text-gray-700 line-clamp-2">{report.notes}</p>
-                        </div>
-                      )}
-                    </div>
+      {/* Reports List */}
+      <div className="grid grid-cols-1 gap-6">
+        {filteredReports.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-12">
+              <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No reports found</h3>
+              <p className="text-gray-600 mb-4">
+                {reports.length === 0 
+                  ? "No daily reports have been submitted yet."
+                  : "Try adjusting your filters to see more reports."
+                }
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          filteredReports.map((report) => (
+            <Card key={report._id} className="hover:shadow-lg transition-shadow">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-lg">{report.projectTitle}</CardTitle>
+                    <p className="text-sm text-gray-600">{formatDate(report.date)}</p>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 sm:p-12 text-center">
-                <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">No Reports Found</h3>
-                <p className="text-sm text-gray-600">
-                  {searchTerm ? 'Try adjusting your search criteria.' : 'Daily reports will appear here once created.'}
-                </p>
-              </div>
-            )}
-          </CardContent>
-
-          {/* FIXED: Responsive pagination */}
-          {totalPages > 1 && (
-            <div className="border-t px-4 py-3 sm:px-6 sm:py-4">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                <p className="text-xs sm:text-sm text-gray-700 text-center sm:text-left">
-                  Showing page {page} of {totalPages}
-                </p>
-                
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage(Math.max(1, page - 1))}
-                    disabled={page === 1}
-                    className="text-xs sm:text-sm"
-                  >
-                    Previous
-                  </Button>
-                  
-                  {/* Page numbers - hide on small screens when many pages */}
-                  <div className="hidden sm:flex items-center gap-1">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      const pageNum = i + 1;
-                      return (
-                        <Button
-                          key={pageNum}
-                          variant={pageNum === page ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setPage(pageNum)}
-                          className="w-8 h-8 p-0 text-xs"
-                        >
-                          {pageNum}
-                        </Button>
-                      );
-                    })}
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {report.summary.completedActivities}/{report.summary.totalActivities} activities
+                    </Badge>
+                    {report.incidents && report.incidents.length > 0 && (
+                      <Badge className="bg-red-100 text-red-800 text-xs">
+                        {report.incidents.length} incident{report.incidents.length !== 1 ? 's' : ''}
+                      </Badge>
+                    )}
+                    {report.risks && report.risks.length > 0 && (
+                      <Badge className="bg-orange-100 text-orange-800 text-xs">
+                        {report.risks.length} risk{report.risks.length !== 1 ? 's' : ''}
+                      </Badge>
+                    )}
                   </div>
-                  
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage(Math.min(totalPages, page + 1))}
-                    disabled={page === totalPages}
-                    className="text-xs sm:text-sm"
-                  >
-                    Next
-                  </Button>
                 </div>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        {/* FIXED: Responsive Detailed Report Modal */}
-        {selectedReport && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-              <div className="sticky top-0 bg-white border-b p-4 sm:p-6 flex items-center justify-between">
-                <div className="min-w-0 flex-1 pr-4">
-                  <h2 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">
-                    Daily Report - {formatDate(selectedReport.date)}
-                  </h2>
-                  <p className="text-sm sm:text-base text-gray-600 truncate">{selectedReport.projectTitle}</p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedReport(null)}
-                  className="flex-shrink-0"
-                >
-                  <X className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Close</span>
-                </Button>
-              </div>
-
-              <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-                {/* Activities List */}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Activities Summary */}
                 <div>
-                  <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-3 sm:mb-4">
-                    Activities ({selectedReport.activities.length})
-                  </h3>
-                  
-                  <div className="space-y-3">
-                    {selectedReport.activities.map((activity, index) => (
-                      <div key={index} className="border rounded-lg p-3 sm:p-4">
-                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
-                          <h4 className="font-medium text-gray-900 text-sm sm:text-base">{activity.title}</h4>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {getCategoryIcon(activity.category)}
-                            <Badge className={getStatusColor(activity.status)}>
-                              {activity.status.replace('_', ' ')}
-                            </Badge>
-                          </div>
+                  <h4 className="font-medium text-gray-900 mb-2">Daily Activities</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {report.activities.slice(0, 2).map((activity) => (
+                      <div key={activity._id} className="p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="font-medium text-sm">{activity.title}</p>
+                          <Badge className={`text-xs ${getStatusColor(activity.status)}`}>
+                            {activity.status.replace('_', ' ')}
+                          </Badge>
                         </div>
-                        
-                        {activity.description && (
-                          <p className="text-xs sm:text-sm text-gray-600 mb-2">{activity.description}</p>
-                        )}
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm text-gray-500">
-                          {activity.contractor && (
-                            <span>Contractor: {activity.contractor}</span>
-                          )}
-                          {activity.supervisor && (
-                            <span>Supervisor: {activity.supervisor}</span>
-                          )}
-                        </div>
+                        <p className="text-xs text-gray-600 mb-1">
+                          Contractor: {activity.contractor}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          Progress: {activity.progress}%
+                        </p>
                       </div>
                     ))}
                   </div>
+                  {report.activities.length > 2 && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      +{report.activities.length - 2} more activities
+                    </p>
+                  )}
                 </div>
 
-                {/* Photos Section */}
-                {selectedReport.photos.length > 0 && (
+                {/* Incidents Section */}
+                {report.incidents && report.incidents.length > 0 && (
                   <div>
-                    <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-3 sm:mb-4">
-                      Photos ({selectedReport.photos.length})
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-                      {selectedReport.photos.map((photo, index) => (
-                        <div key={index} className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
-                          <img
-                            src={photo}
-                            alt={`Report photo ${index + 1}`}
-                            className="w-full h-full object-cover hover:scale-105 transition-transform cursor-pointer"
-                            onClick={() => window.open(photo, '_blank')}
-                          />
+                    <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      Incident Reports
+                    </h4>
+                    <div className="space-y-2">
+                      {report.incidents.slice(0, 2).map((incident) => (
+                        <div key={incident._id} className="p-3 bg-red-50 rounded-lg border border-red-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="font-medium text-sm text-red-900">{incident.title}</p>
+                            <div className="flex items-center gap-2">
+                              <Badge className={`text-xs ${getSeverityColor(incident.severity)}`}>
+                                {incident.severity}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {incident.category}
+                              </Badge>
+                            </div>
+                          </div>
+                          <p className="text-xs text-red-700 mb-1">
+                            {incident.description.length > 100 
+                              ? incident.description.substring(0, 100) + '...' 
+                              : incident.description}
+                          </p>
+                          <p className="text-xs text-red-600">
+                            Status: {incident.status} • Reported by: {incident.reportedByName}
+                          </p>
                         </div>
                       ))}
+                      {report.incidents.length > 2 && (
+                        <p className="text-sm text-red-600 mt-2">
+                          +{report.incidents.length - 2} more incidents
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {/* Notes Section */}
-                {selectedReport.notes && (
+                {/* Risk Register Section */}
+                {report.risks && report.risks.length > 0 && (
                   <div>
-                    <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-3">Additional Notes</h3>
-                    <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                      <p className="text-sm sm:text-base text-gray-700 whitespace-pre-wrap">{selectedReport.notes}</p>
+                    <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-orange-600" />
+                      Risk Register
+                    </h4>
+                    <div className="space-y-2">
+                      {report.risks.slice(0, 2).map((risk) => (
+                        <div key={risk._id} className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="font-medium text-sm text-orange-900">
+                              {risk.riskCode}: {risk.riskDescription.length > 50 
+                                ? risk.riskDescription.substring(0, 50) + '...' 
+                                : risk.riskDescription}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <Badge className="text-xs bg-orange-100 text-orange-800">
+                                Score: {risk.riskScore}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {risk.category}
+                              </Badge>
+                            </div>
+                          </div>
+                          <p className="text-xs text-orange-700 mb-1">
+                            Probability: {risk.probability} • Impact: {risk.impact}
+                          </p>
+                          <p className="text-xs text-orange-600">
+                            Status: {risk.status} • Owner: {risk.ownerName}
+                          </p>
+                        </div>
+                      ))}
+                      {report.risks.length > 2 && (
+                        <p className="text-sm text-orange-600 mt-2">
+                          +{report.risks.length - 2} more risks
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
-          </div>
+
+                {/* Summary */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Summary</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-600">Weather</p>
+                      <p className="font-medium">{report.summary.weatherConditions}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Crew Count</p>
+                      <p className="font-medium">{report.summary.crewCount} workers</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Safety Incidents</p>
+                      <p className="font-medium">{report.summary.safetyIncidents}</p>
+                    </div>
+                  </div>
+                  {report.summary.notes && (
+                    <div className="mt-3">
+                      <p className="text-gray-600 text-sm">Notes</p>
+                      <p className="text-sm">{report.summary.notes}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <Clock className="h-4 w-4" />
+                    <span>Updated {formatDate(report.updatedAt)}</span>
+                    <span>by {report.createdByName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm">
+                      <Eye className="h-4 w-4 mr-1" />
+                      View Details
+                    </Button>
+                    <Button variant="outline" size="sm">
+                      <Download className="h-4 w-4 mr-1" />
+                      Export
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
         )}
       </div>
+
+      {/* Quick Action Dialogs for Adding Incidents and Risks */}
+      <div className="fixed bottom-6 right-6 flex flex-col gap-3">
+        {/* Add Incident Report Button */}
+        <Dialog open={showIncidentDialog} onOpenChange={setShowIncidentDialog}>
+          <DialogTrigger asChild>
+            <Button className="rounded-full h-12 w-12 bg-red-600 hover:bg-red-700 shadow-lg">
+              <AlertTriangle className="h-6 w-6" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Quick Incident Report</DialogTitle>
+              <DialogDescription>
+                Report a safety or operational incident. For detailed reports, use the full incident form.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="text-center py-8">
+                <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                <p className="text-gray-600 mb-4">
+                  Quick incident reporting will be available soon.
+                </p>
+                <div className="flex gap-2">
+                  <Link href="/client/incidents/new">
+                    <Button className="bg-red-600 hover:bg-red-700">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Full Incident Report
+                    </Button>
+                  </Link>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowIncidentDialog(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Risk Register Button */}
+        <Dialog open={showRiskDialog} onOpenChange={setShowRiskDialog}>
+          <DialogTrigger asChild>
+            <Button className="rounded-full h-12 w-12 bg-orange-600 hover:bg-orange-700 shadow-lg">
+              <Shield className="h-6 w-6" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Quick Risk Assessment</DialogTitle>
+              <DialogDescription>
+                Register a new project risk. For detailed assessments, use the full risk register form.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="text-center py-8">
+                <Shield className="h-12 w-12 text-orange-500 mx-auto mb-4" />
+                <p className="text-gray-600 mb-4">
+                  Quick risk registration will be available soon.
+                </p>
+                <div className="flex gap-2">
+                  <Link href="/client/risks/new">
+                    <Button className="bg-orange-600 hover:bg-orange-700">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Full Risk Assessment
+                    </Button>
+                  </Link>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowRiskDialog(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Info Banner */}
+      <Card className="bg-blue-50 border-blue-200">
+        <CardContent className="pt-6">
+          <div className="flex items-start gap-3">
+            <FileText className="h-5 w-5 text-blue-600 mt-0.5" />
+            <div>
+              <h4 className="font-medium text-blue-900 mb-1">Enhanced Daily Reports</h4>
+              <p className="text-sm text-blue-700">
+                Daily reports now include integrated incident reporting and risk register features. 
+                Click the floating action buttons to quickly report incidents or register risks.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

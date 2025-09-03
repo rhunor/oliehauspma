@@ -1,67 +1,59 @@
-// src/app/api/tasks/[id]/comments/route.ts - Fixed MongoDB $push TypeScript Error
+// src/app/api/tasks/[id]/comments/route.ts - ENHANCED COMMENTS API (FIXED)
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { taskCommentSchema } from '@/lib/validation';
-import { ObjectId, Filter, UpdateFilter } from 'mongodb';
+import { ObjectId, Filter } from 'mongodb';
 
-interface TaskCommentsPageProps {
-  params: Promise<{ id: string }>;
+// Import our enhanced comment types
+import type { TaskComment } from '@/lib/types/comments';
+
+// Enhanced comment validation schema
+interface CreateCommentRequest {
+  content: string;
+  isInternal?: boolean;
+  mentions?: string[];
+  attachments?: Array<{
+    filename: string;
+    url: string;
+    type: string;
+    size: number;
+  }>;
+  parentCommentId?: string;
 }
 
-// Define proper interfaces for MongoDB documents
-interface TaskDocument {
-  _id: ObjectId;
-  projectId: ObjectId;
-  comments?: CommentDocument[];
-  updatedAt?: Date;
+// Interface for route params
+interface CommentRouteParams {
+  params: Promise<{
+    id: string;
+  }>;
 }
 
+// Enhanced comment document for MongoDB
 interface CommentDocument {
-  _id: ObjectId;
+  _id?: ObjectId;
+  taskId: ObjectId;
   content: string;
   authorId: ObjectId;
+  isInternal: boolean;
+  mentions?: ObjectId[];
+  attachments?: Array<{
+    filename: string;
+    url: string;
+    type: string;
+    size: number;
+  }>;
+  parentCommentId?: ObjectId;
+  edited: boolean;
+  editedAt?: Date;
   createdAt: Date;
-  isInternal: boolean;
+  updatedAt: Date;
 }
 
-interface UserDocument {
-  _id: ObjectId;
-  name: string;
-  avatar?: string;
-  role: string;
-}
-
-interface ProjectDocument {
-  _id: ObjectId;
-  client?: ObjectId;
-  manager?: ObjectId;
-}
-
-// Aggregation result interfaces
-interface TaskWithCommentsResult extends TaskDocument {
-  commentAuthors?: UserDocument[];
-}
-
-interface TransformedComment {
-  _id: string;
-  content: string;
-  authorId: string;
-  author: {
-    _id: string;
-    name: string;
-    avatar?: string;
-    role: string;
-  } | null;
-  createdAt: string;
-  isInternal: boolean;
-}
-
-// GET /api/tasks/[id]/comments - Get task comments
+// GET /api/tasks/[id]/comments - Get task comments with threading
 export async function GET(
   request: NextRequest,
-  { params }: TaskCommentsPageProps
+  { params }: CommentRouteParams
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -85,66 +77,91 @@ export async function GET(
     const userId = new ObjectId(session.user.id);
 
     // Check if user has access to this task
-    const accessFilter: Filter<TaskDocument> = { _id: new ObjectId(id) };
+    const taskFilter: Filter<Record<string, unknown>> = { _id: new ObjectId(id) };
     
     if (session.user.role === 'client') {
-      const clientProjects = await db.collection<ProjectDocument>('projects')
+      // Get client's projects first
+      const clientProjects = await db.collection('projects')
         .find({ client: userId }, { projection: { _id: 1 } })
         .toArray();
       const projectIds = clientProjects.map(p => p._id);
-      accessFilter.projectId = { $in: projectIds };
+      taskFilter.projectId = { $in: projectIds };
     } else if (session.user.role === 'project_manager') {
-      const managerProjects = await db.collection<ProjectDocument>('projects')
+      // Get manager's projects first
+      const managerProjects = await db.collection('projects')
         .find({ manager: userId }, { projection: { _id: 1 } })
         .toArray();
       const projectIds = managerProjects.map(p => p._id);
-      accessFilter.projectId = { $in: projectIds };
+      taskFilter.projectId = { $in: projectIds };
     }
 
-    // Get task with comments using aggregation
-    const taskResults = await db.collection<TaskDocument>('tasks').aggregate<TaskWithCommentsResult>([
-      { $match: accessFilter },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'comments.authorId',
-          foreignField: '_id',
-          as: 'commentAuthors',
-          pipeline: [{ $project: { name: 1, avatar: 1, role: 1 } }]
-        }
-      }
-    ]).toArray();
-
-    if (taskResults.length === 0) {
+    const task = await db.collection('tasks').findOne(taskFilter);
+    
+    if (!task) {
       return NextResponse.json({ 
         success: false, 
         error: 'Task not found or access denied' 
       }, { status: 404 });
     }
 
-    const taskData = taskResults[0];
-    
-    // Transform comments with author details
-    const transformedComments: TransformedComment[] = (taskData.comments || []).map((comment: CommentDocument) => {
-      const author = taskData.commentAuthors?.find((a: UserDocument) => 
-        a._id.toString() === comment.authorId.toString()
-      );
+    // Get all comments for this task
+    const comments = await db.collection<CommentDocument>('comments')
+      .find({ taskId: new ObjectId(id) })
+      .sort({ createdAt: 1 })
+      .toArray();
+
+    // Get all comment authors
+    const authorIds = [...new Set(comments.map(c => c.authorId.toString()))];
+    const authors = await db.collection('users')
+      .find({ _id: { $in: authorIds.map(id => new ObjectId(id)) } })
+      .project({ name: 1, role: 1, avatar: 1 })
+      .toArray();
+
+    // Transform comments with author details and threading
+    const transformedComments: TaskComment[] = comments.map(comment => {
+      const author = authors.find(a => a._id.toString() === comment.authorId.toString());
       
       return {
-        ...comment,
-        _id: comment._id.toString(),
+        _id: comment._id!.toString(),
+        taskId: comment.taskId.toString(),
+        content: comment.content,
         authorId: comment.authorId.toString(),
-        author: author ? {
-          ...author,
-          _id: author._id.toString()
-        } : null,
-        createdAt: comment.createdAt.toISOString()
+        authorName: author?.name || 'Unknown User',
+        authorRole: (author?.role as 'client' | 'project_manager' | 'super_admin') || 'client',
+        isInternal: comment.isInternal,
+        mentions: comment.mentions?.map(m => m.toString()) || [],
+        attachments: comment.attachments || [],
+        parentCommentId: comment.parentCommentId?.toString(),
+        edited: comment.edited,
+        editedAt: comment.editedAt?.toISOString(),
+        createdAt: comment.createdAt.toISOString(),
+        updatedAt: comment.updatedAt.toISOString()
       };
-    }).sort((a: TransformedComment, b: TransformedComment) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    });
+
+    // Filter internal comments for clients
+    const filteredComments = session.user.role === 'client' 
+      ? transformedComments.filter(c => !c.isInternal)
+      : transformedComments;
+
+    // Organize into threads
+    const topLevelComments = filteredComments.filter(c => !c.parentCommentId);
+    const commentThreads = topLevelComments.map(comment => {
+      const replies = filteredComments.filter(c => c.parentCommentId === comment._id);
+      return {
+        comment,
+        replies,
+        replyCount: replies.length
+      };
+    });
 
     return NextResponse.json({
       success: true,
-      data: transformedComments
+      data: {
+        comments: filteredComments,
+        threads: commentThreads,
+        totalCount: filteredComments.length
+      }
     });
 
   } catch (error: unknown) {
@@ -157,10 +174,10 @@ export async function GET(
   }
 }
 
-// POST /api/tasks/[id]/comments - Add comment to task
+// POST /api/tasks/[id]/comments - Add enhanced comment to task
 export async function POST(
   request: NextRequest,
-  { params }: TaskCommentsPageProps
+  { params }: CommentRouteParams
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -180,44 +197,44 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const body = await request.json();
+    const body: CreateCommentRequest = await request.json();
     
-    // Validate input
-    const validation = taskCommentSchema.safeParse({
-      ...body,
-      taskId: id
-    });
-    
-    if (!validation.success) {
+    // Validate content
+    if (!body.content || body.content.trim().length < 1) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Validation failed', 
-        details: validation.error.issues 
+        error: 'Comment content is required' 
       }, { status: 400 });
     }
 
-    const data = validation.data;
+    if (body.content.length > 1000) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Comment content must be less than 1000 characters' 
+      }, { status: 400 });
+    }
+
     const { db } = await connectToDatabase();
     const userId = new ObjectId(session.user.id);
 
     // Check if user has access to this task
-    const accessFilter: Filter<TaskDocument> = { _id: new ObjectId(id) };
+    const taskFilter: Filter<Record<string, unknown>> = { _id: new ObjectId(id) };
     
     if (session.user.role === 'client') {
-      const clientProjects = await db.collection<ProjectDocument>('projects')
+      const clientProjects = await db.collection('projects')
         .find({ client: userId }, { projection: { _id: 1 } })
         .toArray();
       const projectIds = clientProjects.map(p => p._id);
-      accessFilter.projectId = { $in: projectIds };
+      taskFilter.projectId = { $in: projectIds };
     } else if (session.user.role === 'project_manager') {
-      const managerProjects = await db.collection<ProjectDocument>('projects')
+      const managerProjects = await db.collection('projects')
         .find({ manager: userId }, { projection: { _id: 1 } })
         .toArray();
       const projectIds = managerProjects.map(p => p._id);
-      accessFilter.projectId = { $in: projectIds };
+      taskFilter.projectId = { $in: projectIds };
     }
 
-    const task = await db.collection<TaskDocument>('tasks').findOne(accessFilter);
+    const task = await db.collection('tasks').findOne(taskFilter);
     
     if (!task) {
       return NextResponse.json({ 
@@ -226,52 +243,103 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Create comment object
-    const comment: CommentDocument = {
-      _id: new ObjectId(),
-      content: data.content,
-      authorId: userId,
-      createdAt: new Date(),
-      isInternal: body.isInternal || false
-    };
+    // Validate parent comment if provided
+    if (body.parentCommentId) {
+      if (!ObjectId.isValid(body.parentCommentId)) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Invalid parent comment ID' 
+        }, { status: 400 });
+      }
 
-    // Use proper UpdateFilter type for MongoDB $push operator
-    const updateOperation: UpdateFilter<TaskDocument> = {
-      $push: { 
-        comments: comment 
-      },
-      $set: { updatedAt: new Date() }
-    };
+      const parentComment = await db.collection('comments').findOne({
+        _id: new ObjectId(body.parentCommentId),
+        taskId: new ObjectId(id)
+      });
 
-    // Add comment to task
-    const result = await db.collection<TaskDocument>('tasks').updateOne(
-      { _id: new ObjectId(id) },
-      updateOperation
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Task not found' 
-      }, { status: 404 });
+      if (!parentComment) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Parent comment not found' 
+        }, { status: 404 });
+      }
     }
 
-    // Get author details for response
-    const author = await db.collection<UserDocument>('users').findOne(
+    // Validate mentions if provided
+    let mentionIds: ObjectId[] = [];
+    if (body.mentions && body.mentions.length > 0) {
+      // Validate mention user IDs
+      const validMentions = body.mentions.filter(mention => ObjectId.isValid(mention));
+      if (validMentions.length > 0) {
+        mentionIds = validMentions.map(mention => new ObjectId(mention));
+        
+        // Verify mentioned users exist
+        const mentionedUsers = await db.collection('users')
+          .find({ _id: { $in: mentionIds } })
+          .toArray();
+        
+        mentionIds = mentionedUsers.map(user => user._id);
+      }
+    }
+
+    // Get user details for response
+    const user = await db.collection('users').findOne(
       { _id: userId },
-      { projection: { name: 1, avatar: 1, role: 1 } }
+      { projection: { name: 1, role: 1, avatar: 1 } }
     );
 
-    const responseComment: TransformedComment = {
-      ...comment,
-      _id: comment._id.toString(),
-      authorId: comment.authorId.toString(),
-      author: author ? {
-        ...author,
-        _id: author._id.toString()
-      } : null,
-      createdAt: comment.createdAt.toISOString()
+    // Create comment document
+    const commentDoc: CommentDocument = {
+      taskId: new ObjectId(id),
+      content: body.content.trim(),
+      authorId: userId,
+      isInternal: body.isInternal || false,
+      mentions: mentionIds.length > 0 ? mentionIds : undefined,
+      attachments: body.attachments || [],
+      parentCommentId: body.parentCommentId ? new ObjectId(body.parentCommentId) : undefined,
+      edited: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
+
+    // Insert comment
+    const result = await db.collection<CommentDocument>('comments').insertOne(commentDoc);
+
+    // Transform for response
+    const responseComment: TaskComment = {
+      _id: result.insertedId.toString(),
+      taskId: commentDoc.taskId.toString(),
+      content: commentDoc.content,
+      authorId: commentDoc.authorId.toString(),
+      authorName: user?.name || 'Unknown User',
+      authorRole: (user?.role as 'client' | 'project_manager' | 'super_admin') || 'client',
+      isInternal: commentDoc.isInternal,
+      mentions: commentDoc.mentions?.map(m => m.toString()) || [],
+      attachments: commentDoc.attachments || [],
+      parentCommentId: commentDoc.parentCommentId?.toString(),
+      edited: commentDoc.edited,
+      editedAt: commentDoc.editedAt?.toISOString(),
+      createdAt: commentDoc.createdAt.toISOString(),
+      updatedAt: commentDoc.updatedAt.toISOString()
+    };
+
+    // TODO: Send notifications to mentioned users
+    if (mentionIds.length > 0) {
+      // This would integrate with your notification system
+      console.log('Sending notifications to mentioned users:', mentionIds);
+    }
+
+    // Update task's last activity
+    await db.collection('tasks').updateOne(
+      { _id: new ObjectId(id) },
+      { 
+        $set: { 
+          updatedAt: new Date(),
+          lastCommentAt: new Date()
+        },
+        $inc: { commentCount: 1 }
+      }
+    );
 
     return NextResponse.json({
       success: true,

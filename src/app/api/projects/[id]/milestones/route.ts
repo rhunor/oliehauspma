@@ -1,325 +1,222 @@
-// src/app/api/projects/[id]/milestones/route.ts - NEW MILESTONES API
+// src/app/api/projects/[id]/milestones/route.ts - MILESTONE API ENDPOINT (FIXED)
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId, Filter } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
-// Define milestone document structure
-interface MilestoneDocument {
-  _id: ObjectId; // Remove optional - always required for our use case
-  title: string;
-  description: string;
-  dueDate: Date;
-  status: 'upcoming' | 'in_progress' | 'completed' | 'overdue';
-  progress: number;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  dependencies: string[];
-  assignedTo?: ObjectId;
-  completedDate?: Date;
-  createdAt: Date;
-  updatedAt: Date;
+// Import our types and utilities
+import type { MilestoneDocument } from '@/lib/types/milestone';
+import { 
+  calculateMilestoneProgress, 
+  isValidMilestonePhase, 
+  transformMilestoneForResponse 
+} from '@/lib/utils/milestones';
+
+// Interface for route params
+interface MilestoneRouteParams {
+  params: Promise<{
+    id: string;
+  }>;
 }
 
-// Define project document structure
-interface ProjectDocument {
-  _id: ObjectId;
-  title: string;
-  client: ObjectId;
-  manager: ObjectId;
-  milestones: MilestoneDocument[];
-}
-
-// Define user document structure
-interface UserDocument {
-  _id: ObjectId;
-  name: string;
-  email: string;
-  role: string;
-}
-
-// Define milestone response structure
-interface MilestoneResponse {
-  _id: string;
-  title: string;
-  description: string;
-  dueDate: string;
-  status: 'upcoming' | 'in_progress' | 'completed' | 'overdue';
-  progress: number;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  dependencies: string[];
-  assignedTo?: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  completedDate?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Define create milestone request
+// Interface for create milestone request
 interface CreateMilestoneRequest {
+  phase: 'construction' | 'installation' | 'styling';
   title: string;
   description: string;
-  dueDate: string;
-  priority?: 'low' | 'medium' | 'high' | 'critical';
-  assignedTo?: string;
-  dependencies?: string[];
-}
-
-interface MilestonesPageProps {
-  params: Promise<{ id: string }>;
-}
-
-async function validateProjectAccess(
-  projectId: string,
-  userId: string,
-  userRole: string
-): Promise<ProjectDocument | null> {
-  const { db } = await connectToDatabase();
-
-  if (!ObjectId.isValid(projectId)) {
-    return null;
-  }
-
-  const projectFilter: Filter<ProjectDocument> = { _id: new ObjectId(projectId) };
-
-  // Role-based access control
-  if (userRole === 'client') {
-    projectFilter.client = new ObjectId(userId);
-  } else if (userRole === 'project_manager') {
-    projectFilter.manager = new ObjectId(userId);
-  }
-  // super_admin can access all projects
-
-  return await db.collection<ProjectDocument>('projects').findOne(projectFilter);
+  notes?: string;
 }
 
 // GET /api/projects/[id]/milestones - Get project milestones
 export async function GET(
   request: NextRequest,
-  { params }: MilestonesPageProps
+  { params }: MilestoneRouteParams
 ) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json({
-        success: false,
-        error: 'Unauthorized'
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Unauthorized' 
       }, { status: 401 });
     }
 
-    const { id: projectId } = await params;
-    const project = await validateProjectAccess(projectId, session.user.id, session.user.role);
-
-    if (!project) {
-      return NextResponse.json({
-        success: false,
-        error: 'Project not found or access denied'
-      }, { status: 404 });
+    const { id } = await params;
+    
+    if (!ObjectId.isValid(id)) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Invalid project ID' 
+      }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
+    const userId = new ObjectId(session.user.id);
 
-    // Get milestones with assigned user details
-    const milestones = project.milestones || [];
-    const transformedMilestones: MilestoneResponse[] = [];
+    // Check if user has access to this project
+    const projectFilter: Record<string, unknown> = { _id: new ObjectId(id) };
+    
+    if (session.user.role === 'client') {
+      projectFilter.client = userId;
+    } else if (session.user.role === 'project_manager') {
+      projectFilter.manager = userId;
+    }
+    // Super admin has access to all projects
 
-    for (const milestone of milestones) {
-      let assignedUser = null;
-      if (milestone.assignedTo) {
-        assignedUser = await db.collection<UserDocument>('users')
-          .findOne({ _id: milestone.assignedTo }, { projection: { password: 0 } });
-      }
-
-      // Update status based on current date
-      let status = milestone.status;
-      const now = new Date();
-      const dueDate = new Date(milestone.dueDate);
-
-      if (status === 'completed') {
-        status = 'completed';
-      } else if (dueDate < now) {
-        status = 'overdue';
-      } else if (status === 'in_progress') {
-        status = 'in_progress';
-      } else {
-        status = 'upcoming';
-      }
-
-      transformedMilestones.push({
-        _id: milestone._id.toString(), // Now guaranteed to exist
-        title: milestone.title,
-        description: milestone.description,
-        dueDate: milestone.dueDate.toISOString(),
-        status,
-        progress: milestone.progress,
-        priority: milestone.priority,
-        dependencies: milestone.dependencies || [],
-        assignedTo: assignedUser ? {
-          _id: assignedUser._id.toString(),
-          name: assignedUser.name,
-          email: assignedUser.email
-        } : undefined,
-        completedDate: milestone.completedDate?.toISOString(),
-        createdAt: milestone.createdAt.toISOString(),
-        updatedAt: milestone.updatedAt.toISOString()
-      });
+    const project = await db.collection('projects').findOne(projectFilter);
+    if (!project) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Project not found or access denied' 
+      }, { status: 404 });
     }
 
-    // Sort by due date
-    transformedMilestones.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    // Get milestones for this project
+    const milestones = await db.collection<MilestoneDocument>('milestones')
+      .find({ projectId: new ObjectId(id) })
+      .sort({ createdAt: 1 })
+      .toArray();
+
+    // Transform for response using utility function
+    const transformedMilestones = milestones.map(transformMilestoneForResponse);
+
+    // Calculate progress using utility function
+    const progressData = calculateMilestoneProgress(milestones);
 
     return NextResponse.json({
       success: true,
       data: {
-        projectId,
-        projectTitle: project.title,
-        milestones: transformedMilestones
+        milestones: transformedMilestones,
+        progress: progressData
       }
     });
 
   } catch (error: unknown) {
-    console.error('Error fetching milestones:', error);
+    console.error('Error fetching project milestones:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({
-      success: false,
-      error: errorMessage
+    return NextResponse.json({ 
+      success: false, 
+      error: errorMessage 
     }, { status: 500 });
   }
 }
 
-// POST /api/projects/[id]/milestones - Create new milestone
+// POST /api/projects/[id]/milestones - Create project milestone (Admin/Manager only)
 export async function POST(
   request: NextRequest,
-  { params }: MilestonesPageProps
+  { params }: MilestoneRouteParams
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({
-        success: false,
-        error: 'Unauthorized'
+    if (!session?.user?.id || (session.user.role !== 'super_admin' && session.user.role !== 'project_manager')) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Unauthorized - Admin or Manager access required' 
       }, { status: 401 });
     }
 
-    // Only project managers and super admins can create milestones
-    if (!['project_manager', 'super_admin'].includes(session.user.role)) {
-      return NextResponse.json({
-        success: false,
-        error: 'Insufficient permissions to create milestones'
-      }, { status: 403 });
+    const { id } = await params;
+    
+    if (!ObjectId.isValid(id)) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Invalid project ID' 
+      }, { status: 400 });
     }
 
-    const { id: projectId } = await params;
-    const project = await validateProjectAccess(projectId, session.user.id, session.user.role);
+    const body: CreateMilestoneRequest = await request.json();
+    
+    // Validate required fields
+    if (!body.phase || !body.title || !body.description) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Missing required fields: phase, title, description' 
+      }, { status: 400 });
+    }
 
+    // Validate phase using utility function
+    if (!isValidMilestonePhase(body.phase)) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Invalid phase. Must be: construction, installation, or styling' 
+      }, { status: 400 });
+    }
+
+    const { db } = await connectToDatabase();
+    const userId = new ObjectId(session.user.id);
+
+    // Check if user has access to this project
+    const projectFilter: Record<string, unknown> = { _id: new ObjectId(id) };
+    
+    if (session.user.role === 'project_manager') {
+      projectFilter.manager = userId;
+    }
+
+    const project = await db.collection('projects').findOne(projectFilter);
     if (!project) {
-      return NextResponse.json({
-        success: false,
-        error: 'Project not found or access denied'
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Project not found or access denied' 
       }, { status: 404 });
     }
 
-    const body = await request.json() as CreateMilestoneRequest;
+    // Check if milestone for this phase already exists
+    const existingMilestone = await db.collection('milestones').findOne({
+      projectId: new ObjectId(id),
+      phase: body.phase
+    });
 
-    // Validate required fields
-    if (!body.title?.trim()) {
-      return NextResponse.json({
-        success: false,
-        error: 'Title is required'
-      }, { status: 400 });
+    if (existingMilestone) {
+      return NextResponse.json({ 
+        success: false, 
+        error: `Milestone for ${body.phase} phase already exists` 
+      }, { status: 409 });
     }
 
-    if (!body.dueDate) {
-      return NextResponse.json({
-        success: false,
-        error: 'Due date is required'
-      }, { status: 400 });
-    }
-
-    // Validate assigned user if provided
-    const { db } = await connectToDatabase();
-    let assignedToObjectId: ObjectId | undefined;
-    
-    if (body.assignedTo) {
-      if (!ObjectId.isValid(body.assignedTo)) {
-        return NextResponse.json({
-          success: false,
-          error: 'Invalid assigned user ID'
-        }, { status: 400 });
-      }
-
-      const assignedUser = await db.collection<UserDocument>('users')
-        .findOne({ _id: new ObjectId(body.assignedTo), isActive: true });
-
-      if (!assignedUser) {
-        return NextResponse.json({
-          success: false,
-          error: 'Assigned user not found or inactive'
-        }, { status: 400 });
-      }
-
-      assignedToObjectId = new ObjectId(body.assignedTo);
-    }
-
-    // Create new milestone
-    const newMilestone: MilestoneDocument = {
-      _id: new ObjectId(),
-      title: body.title.trim(),
-      description: body.description?.trim() || '',
-      dueDate: new Date(body.dueDate),
-      status: 'upcoming',
-      progress: 0,
-      priority: body.priority || 'medium',
-      dependencies: body.dependencies || [],
-      assignedTo: assignedToObjectId,
+    // Create milestone
+    const milestoneDoc: MilestoneDocument = {
+      projectId: new ObjectId(id),
+      phase: body.phase,
+      title: body.title,
+      description: body.description,
+      status: 'pending',
+      notes: body.notes,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    // Add milestone to project
-    const result = await db.collection<ProjectDocument>('projects').updateOne(
-      { _id: new ObjectId(projectId) },
-      {
-        $push: { milestones: newMilestone },
-        $set: { updatedAt: new Date() }
-      }
-    );
+    const result = await db.collection<MilestoneDocument>('milestones').insertOne(milestoneDoc);
 
-    if (result.matchedCount === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Failed to create milestone'
-      }, { status: 500 });
-    }
-
-    // Return created milestone
-    const createdMilestone: MilestoneResponse = {
-      _id: newMilestone._id.toString(), // Now guaranteed to exist
-      title: newMilestone.title,
-      description: newMilestone.description,
-      dueDate: newMilestone.dueDate.toISOString(),
-      status: newMilestone.status,
-      progress: newMilestone.progress,
-      priority: newMilestone.priority,
-      dependencies: newMilestone.dependencies,
-      createdAt: newMilestone.createdAt.toISOString(),
-      updatedAt: newMilestone.updatedAt.toISOString()
+    // Create response object with inserted ID
+    const createdMilestone = {
+      _id: result.insertedId.toString(),
+      projectId: milestoneDoc.projectId.toString(),
+      phase: milestoneDoc.phase,
+      title: milestoneDoc.title,
+      description: milestoneDoc.description,
+      status: milestoneDoc.status,
+      completedDate: milestoneDoc.completedDate?.toISOString(),
+      completedBy: milestoneDoc.completedBy?.toString(),
+      notes: milestoneDoc.notes,
+      createdAt: milestoneDoc.createdAt.toISOString(),
+      updatedAt: milestoneDoc.updatedAt.toISOString()
     };
 
     return NextResponse.json({
       success: true,
-      data: createdMilestone
+      data: {
+        milestone: createdMilestone,
+        message: 'Milestone created successfully'
+      }
     }, { status: 201 });
 
   } catch (error: unknown) {
     console.error('Error creating milestone:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({
-      success: false,
-      error: errorMessage
+    return NextResponse.json({ 
+      success: false, 
+      error: errorMessage 
     }, { status: 500 });
   }
 }
