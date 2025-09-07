@@ -1,608 +1,332 @@
-// src/app/(dashboard)/admin/page.tsx - ENHANCED WITH REAL DATABASE DATA - COMPLETE VERSION
+// src/app/(dashboard)/admin/page.tsx - UPDATED: Mobile-first design with app-style cards
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth';
+import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId } from 'mongodb';
+import { ObjectId, Filter } from 'mongodb';
+import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { 
-  Users, 
-  FolderOpen, 
   Activity, 
-  MessageSquare, 
-  CheckCircle,
+  Calendar, 
+  Target, 
+  ChevronRight, 
   Clock,
-  TrendingUp,
+  CheckCircle,
   AlertTriangle,
+  Shield,
   FileText,
-  
-  DollarSign,
+  MessageSquare,
+  Users,
+  TrendingUp,
+  FolderOpen,
+  PlusCircle,
   BarChart3,
-  List
+  Settings,
+  Database
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { formatDate, formatTimeAgo } from '@/lib/utils';
+import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
 
-// Enhanced CN utility function following best practices
-function cn(...inputs: (string | undefined | null | boolean)[]): string {
-  return twMerge(clsx(inputs));
+// Helper function to format time from date string (proper TypeScript)
+function formatTime(dateString: string): string {
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid time';
+    
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, '0');
+    
+    return `${displayHours}:${displayMinutes} ${ampm}`;
+  } catch (error) {
+    console.error('Error formatting time:', error);
+    return 'Invalid time';
+  }
 }
 
-// Define proper TypeScript interfaces for type safety
-interface User {
-  _id: ObjectId;
-  name: string;
-  email: string;
-  role: 'super_admin' | 'project_manager' | 'client';
-  isActive: boolean;
-  createdAt: Date;
-  lastLoginAt?: Date;
-}
-
-interface Project {
-  _id: ObjectId;
-  title: string;
-  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  progress: number;
-  budget?: number;
-  startDate?: Date;
-  endDate?: Date;
-  client: ObjectId;
-  manager: ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface Task {
-  _id: ObjectId;
-  title: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  deadline?: Date;
-  projectId: ObjectId;
-  assignedTo?: ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface Message {
-  _id: ObjectId;
-  content: string;
-  senderId: ObjectId;
-  recipientId: ObjectId;
-  projectId?: ObjectId;
-  isRead: boolean;
-  createdAt: Date;
-}
-
-interface File {
-  _id: ObjectId;
-  filename: string;
-  originalName: string;
-  size: number;
-  projectId: ObjectId;
-  uploadedBy: ObjectId;
-  category: 'image' | 'video' | 'audio' | 'document' | 'other';
-  createdAt: Date;
-}
-
-// Enhanced dashboard stats interface
-interface DashboardStats {
-  // User statistics
+// Proper TypeScript interfaces
+interface AdminStats {
+  totalProjects: number;
+  activeProjects: number;
+  completedProjects: number;
   totalUsers: number;
-  activeUsers: number;
-  newUsersThisMonth: number;
+  totalClients: number;
+  totalManagers: number;
+  totalAdmins: number;
+  recentActivities: Array<{
+    _id: string;
+    type: string;
+    title: string;
+    description: string;
+    timestamp: Date;
+  }>;
   usersByRole: {
     super_admin: number;
     project_manager: number;
     client: number;
   };
-
-  // Project statistics
-  totalProjects: number;
-  activeProjects: number;
-  completedProjects: number;
-  projectsOnHold: number;
-  completionRate: number;
-  averageProgress: number;
-  totalBudget: number;
-  projectsByStatus: {
-    planning: number;
-    in_progress: number;
-    completed: number;
-    on_hold: number;
-    cancelled: number;
-  };
-
-  // Task statistics
-  totalTasks: number;
-  completedTasks: number;
-  pendingTasks: number;
-  overdueTasks: number;
-  taskCompletionRate: number;
-
-  // Communication statistics
-  totalMessages: number;
-  unreadMessages: number;
-  messagesThisWeek: number;
-
-  // File statistics
-  totalFiles: number;
-  totalStorageUsed: number;
-  filesUploadedThisMonth: number;
-
-  // Recent activities
-  recentActivities: ActivityItem[];
-  
-  // System performance
+  projectsByStatus: Record<string, number>;
   systemHealth: {
-    uptime: number;
+    status: 'healthy' | 'warning' | 'error';
+    uptime: string;
     responseTime: number;
-    errorRate: number;
   };
 }
 
-interface ActivityItem {
+interface RecentUser {
   _id: string;
-  type: 'user_created' | 'project_created' | 'project_completed' | 'task_completed' | 'message_sent' | 'file_uploaded';
+  name: string;
+  email: string;
+  role: string;
+  createdAt: string;
+  isActive: boolean;
+}
+
+interface SystemMetric {
+  _id: string;
+  name: string;
+  value: number;
+  unit: string;
+  status: 'good' | 'warning' | 'critical';
+  timestamp: string;
+}
+
+interface DashboardData {
+  stats: AdminStats;
+  recentUsers: RecentUser[];
+  systemMetrics: SystemMetric[];
+}
+
+// MongoDB document interfaces (proper typing)
+interface ProjectDocument {
+  _id: ObjectId;
   title: string;
   description: string;
-  timestamp: string;
-  user: {
-    _id: string;
-    name: string;
-    role: string;
-  };
-  project?: {
-    _id: string;
-    title: string;
-  };
-  metadata?: Record<string, unknown>;
+  status: string;
+  priority: string;
+  progress: number;
+  client: ObjectId;
+  manager: ObjectId;
+  startDate?: Date;
+  endDate?: Date;
+  budget?: number;
+  tags?: string[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-// Server-side data fetching function with comprehensive error handling
-async function getDashboardData(): Promise<DashboardStats> {
-  try {
-    const { db } = await connectToDatabase();
-    const currentDate = new Date();
-    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const startOfWeek = new Date(currentDate.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    // Execute all database queries in parallel for better performance
-    const [
-      userStats,
-      projectStats,
-      taskStats,
-      messageStats,
-      fileStats,
-      recentActivities
-    ] = await Promise.all([
-      // User Statistics with proper aggregation
-      db.collection<User>('users').aggregate([
-        {
-          $group: {
-            _id: null,
-            totalUsers: { $sum: 1 },
-            activeUsers: {
-              $sum: {
-                $cond: [{ $eq: ['$isActive', true] }, 1, 0]
-              }
-            },
-            newUsersThisMonth: {
-              $sum: {
-                $cond: [
-                  { $gte: ['$createdAt', startOfMonth] },
-                  1,
-                  0
-                ]
-              }
-            },
-            superAdmins: {
-              $sum: {
-                $cond: [{ $eq: ['$role', 'super_admin'] }, 1, 0]
-              }
-            },
-            projectManagers: {
-              $sum: {
-                $cond: [{ $eq: ['$role', 'project_manager'] }, 1, 0]
-              }
-            },
-            clients: {
-              $sum: {
-                $cond: [{ $eq: ['$role', 'client'] }, 1, 0]
-              }
-            }
-          }
-        }
-      ]).toArray(),
-
-      // Project Statistics with enhanced metrics
-      db.collection<Project>('projects').aggregate([
-        {
-          $group: {
-            _id: null,
-            totalProjects: { $sum: 1 },
-            activeProjects: {
-              $sum: {
-                $cond: [
-                  { $in: ['$status', ['planning', 'in_progress']] },
-                  1,
-                  0
-                ]
-              }
-            },
-            completedProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'completed'] }, 1, 0]
-              }
-            },
-            projectsOnHold: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'on_hold'] }, 1, 0]
-              }
-            },
-            averageProgress: { $avg: '$progress' },
-            totalBudget: { $sum: '$budget' },
-            planningProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'planning'] }, 1, 0]
-              }
-            },
-            inProgressProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0]
-              }
-            },
-            cancelledProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0]
-              }
-            }
-          }
-        }
-      ]).toArray(),
-
-      // Task Statistics with deadline tracking
-      db.collection<Task>('tasks').aggregate([
-        {
-          $group: {
-            _id: null,
-            totalTasks: { $sum: 1 },
-            completedTasks: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'completed'] }, 1, 0]
-              }
-            },
-            pendingTasks: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'pending'] }, 1, 0]
-              }
-            },
-            overdueTasks: {
-              $sum: {
-                $cond: [
-                  {
-                    $and: [
-                      { $ne: ['$status', 'completed'] },
-                      { $lt: ['$deadline', currentDate] },
-                      { $ne: ['$deadline', null] }
-                    ]
-                  },
-                  1,
-                  0
-                ]
-              }
-            }
-          }
-        }
-      ]).toArray(),
-
-      // Message Statistics with temporal analysis
-      db.collection<Message>('messages').aggregate([
-        {
-          $group: {
-            _id: null,
-            totalMessages: { $sum: 1 },
-            unreadMessages: {
-              $sum: {
-                $cond: [{ $eq: ['$isRead', false] }, 1, 0]
-              }
-            },
-            messagesThisWeek: {
-              $sum: {
-                $cond: [
-                  { $gte: ['$createdAt', startOfWeek] },
-                  1,
-                  0
-                ]
-              }
-            }
-          }
-        }
-      ]).toArray(),
-
-      // File Statistics with storage analysis
-      db.collection<File>('files').aggregate([
-        {
-          $group: {
-            _id: null,
-            totalFiles: { $sum: 1 },
-            totalStorageUsed: { $sum: '$size' },
-            filesUploadedThisMonth: {
-              $sum: {
-                $cond: [
-                  { $gte: ['$createdAt', startOfMonth] },
-                  1,
-                  0
-                ]
-              }
-            }
-          }
-        }
-      ]).toArray(),
-
-      // Recent Activities with proper joins
-      db.collection('projects').aggregate([
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'manager',
-            foreignField: '_id',
-            as: 'managerData',
-            pipeline: [{ $project: { name: 1, role: 1 } }]
-          }
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'client',
-            foreignField: '_id',
-            as: 'clientData',
-            pipeline: [{ $project: { name: 1, role: 1 } }]
-          }
-        },
-        {
-          $addFields: {
-            manager: { $arrayElemAt: ['$managerData', 0] },
-            client: { $arrayElemAt: ['$clientData', 0] }
-          }
-        },
-        { $sort: { updatedAt: -1 } },
-        { $limit: 10 },
-        {
-          $project: {
-            _id: 1,
-            title: 1,
-            status: 1,
-            progress: 1,
-            manager: 1,
-            client: 1,
-            updatedAt: 1,
-            createdAt: 1
-          }
-        }
-      ]).toArray()
-    ]);
-
-    // Process the aggregated data with proper error handling
-    const userStatsData = userStats[0] || {
-      totalUsers: 0,
-      activeUsers: 0,
-      newUsersThisMonth: 0,
-      superAdmins: 0,
-      projectManagers: 0,
-      clients: 0
-    };
-
-    const projectStatsData = projectStats[0] || {
-      totalProjects: 0,
-      activeProjects: 0,
-      completedProjects: 0,
-      projectsOnHold: 0,
-      averageProgress: 0,
-      totalBudget: 0,
-      planningProjects: 0,
-      inProgressProjects: 0,
-      cancelledProjects: 0
-    };
-
-    const taskStatsData = taskStats[0] || {
-      totalTasks: 0,
-      completedTasks: 0,
-      pendingTasks: 0,
-      overdueTasks: 0
-    };
-
-    const messageStatsData = messageStats[0] || {
-      totalMessages: 0,
-      unreadMessages: 0,
-      messagesThisWeek: 0
-    };
-
-    const fileStatsData = fileStats[0] || {
-      totalFiles: 0,
-      totalStorageUsed: 0,
-      filesUploadedThisMonth: 0
-    };
-
-    // Calculate derived metrics
-    const completionRate = projectStatsData.totalProjects > 0 
-      ? (projectStatsData.completedProjects / projectStatsData.totalProjects) * 100 
-      : 0;
-
-    const taskCompletionRate = taskStatsData.totalTasks > 0
-      ? (taskStatsData.completedTasks / taskStatsData.totalTasks) * 100
-      : 0;
-
-    // Transform recent activities with proper type safety
-    const transformedActivities: ActivityItem[] = recentActivities.map((activity) => ({
-      _id: activity._id.toString(),
-      type: activity.status === 'completed' ? 'project_completed' : 'project_created',
-      title: activity.status === 'completed' ? 'Project Completed' : 'Project Created',
-      description: `${activity.title} ${activity.status === 'completed' ? 'has been completed' : 'has been created'}`,
-      timestamp: activity.updatedAt?.toISOString() || activity.createdAt?.toISOString() || new Date().toISOString(),
-      user: {
-        _id: activity.manager?._id?.toString() || 'unknown',
-        name: activity.manager?.name || 'Unknown User',
-        role: activity.manager?.role || 'project_manager'
-      },
-      project: {
-        _id: activity._id.toString(),
-        title: activity.title
-      },
-      metadata: {
-        progress: activity.progress,
-        status: activity.status
-      }
-    }));
-
-    // Return comprehensive dashboard statistics
-    return {
-      // User statistics
-      totalUsers: userStatsData.totalUsers,
-      activeUsers: userStatsData.activeUsers,
-      newUsersThisMonth: userStatsData.newUsersThisMonth,
-      usersByRole: {
-        super_admin: userStatsData.superAdmins,
-        project_manager: userStatsData.projectManagers,
-        client: userStatsData.clients
-      },
-
-      // Project statistics
-      totalProjects: projectStatsData.totalProjects,
-      activeProjects: projectStatsData.activeProjects,
-      completedProjects: projectStatsData.completedProjects,
-      projectsOnHold: projectStatsData.projectsOnHold,
-      completionRate: Math.round(completionRate * 100) / 100,
-      averageProgress: Math.round((projectStatsData.averageProgress || 0) * 100) / 100,
-      totalBudget: projectStatsData.totalBudget || 0,
-      projectsByStatus: {
-        planning: projectStatsData.planningProjects,
-        in_progress: projectStatsData.inProgressProjects,
-        completed: projectStatsData.completedProjects,
-        on_hold: projectStatsData.projectsOnHold,
-        cancelled: projectStatsData.cancelledProjects
-      },
-
-      // Task statistics
-      totalTasks: taskStatsData.totalTasks,
-      completedTasks: taskStatsData.completedTasks,
-      pendingTasks: taskStatsData.pendingTasks,
-      overdueTasks: taskStatsData.overdueTasks,
-      taskCompletionRate: Math.round(taskCompletionRate * 100) / 100,
-
-      // Communication statistics
-      totalMessages: messageStatsData.totalMessages,
-      unreadMessages: messageStatsData.unreadMessages,
-      messagesThisWeek: messageStatsData.messagesThisWeek,
-
-      // File statistics
-      totalFiles: fileStatsData.totalFiles,
-      totalStorageUsed: fileStatsData.totalStorageUsed,
-      filesUploadedThisMonth: fileStatsData.filesUploadedThisMonth,
-
-      // Recent activities
-      recentActivities: transformedActivities,
-
-      // System health (simulated for demo - replace with real monitoring)
-      systemHealth: {
-        uptime: 99.9,
-        responseTime: 120,
-        errorRate: 0.1
-      }
-    };
-
-  } catch (error) {
-    console.error('Error fetching dashboard data:', error);
-    
-    // Return default stats structure on error to prevent crashes
-    return {
-      totalUsers: 0,
-      activeUsers: 0,
-      newUsersThisMonth: 0,
-      usersByRole: { super_admin: 0, project_manager: 0, client: 0 },
-      totalProjects: 0,
-      activeProjects: 0,
-      completedProjects: 0,
-      projectsOnHold: 0,
-      completionRate: 0,
-      averageProgress: 0,
-      totalBudget: 0,
-      projectsByStatus: { planning: 0, in_progress: 0, completed: 0, on_hold: 0, cancelled: 0 },
-      totalTasks: 0,
-      completedTasks: 0,
-      pendingTasks: 0,
-      overdueTasks: 0,
-      taskCompletionRate: 0,
-      totalMessages: 0,
-      unreadMessages: 0,
-      messagesThisWeek: 0,
-      totalFiles: 0,
-      totalStorageUsed: 0,
-      filesUploadedThisMonth: 0,
-      recentActivities: [],
-      systemHealth: { uptime: 0, responseTime: 0, errorRate: 100 }
-    };
-  }
+interface UserDocument {
+  _id: ObjectId;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-// Utility functions for formatting
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('en-NG', {
-    style: 'currency',
-    currency: 'NGN',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
+// Mobile App Style Dashboard Card Component (NEW - for mobile only)
+interface MobileDashboardCardProps {
+  title: string;
+  description: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'pink';
+  stats?: {
+    value: number | string;
+    label: string;
+  };
+  subtitle?: string;
+  isEmpty?: boolean;
+  emptyMessage?: string;
+}
 
-const formatFileSize = (bytes: number): string => {
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  if (bytes === 0) return '0 Bytes';
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
-};
+function MobileDashboardCard({ 
+  title, 
+  description, 
+  href, 
+  icon: Icon, 
+  color, 
+  stats,
+  subtitle,
+  isEmpty = false,
+  emptyMessage 
+}: MobileDashboardCardProps) {
+  const colorClasses: Record<string, { bg: string; icon: string; text: string }> = {
+    blue: { 
+      bg: 'bg-blue-50 hover:bg-blue-100', 
+      icon: 'text-blue-600', 
+      text: 'text-blue-700' 
+    },
+    green: { 
+      bg: 'bg-green-50 hover:bg-green-100', 
+      icon: 'text-green-600', 
+      text: 'text-green-700' 
+    },
+    purple: { 
+      bg: 'bg-purple-50 hover:bg-purple-100', 
+      icon: 'text-purple-600', 
+      text: 'text-purple-700' 
+    },
+    orange: { 
+      bg: 'bg-orange-50 hover:bg-orange-100', 
+      icon: 'text-orange-600', 
+      text: 'text-orange-700' 
+    },
+    red: { 
+      bg: 'bg-red-50 hover:bg-red-100', 
+      icon: 'text-red-600', 
+      text: 'text-red-700' 
+    },
+    pink: { 
+      bg: 'bg-pink-50 hover:bg-pink-100', 
+      icon: 'text-pink-600', 
+      text: 'text-pink-700' 
+    }
+  };
 
-const formatTimeAgo = (date: string): string => {
-  const now = new Date();
-  const past = new Date(date);
-  const diffInMs = now.getTime() - past.getTime();
-  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
-  const diffInDays = Math.floor(diffInHours / 24);
+  const colors = colorClasses[color];
 
-  if (diffInDays > 0) {
-    return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
-  } else if (diffInHours > 0) {
-    return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
-  } else {
-    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-    return `${diffInMinutes} minute${diffInMinutes > 1 ? 's' : ''} ago`;
-  }
-};
+  return (
+    <Link href={href}>
+      <Card className={`${colors.bg} border-0 hover:shadow-md transition-all duration-200 cursor-pointer group h-full lg:hidden`}>
+        <CardContent className="p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className={`p-3 rounded-full bg-white shadow-sm`}>
+                <Icon className={`h-8 w-8 ${colors.icon}`} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className={`font-bold text-lg ${colors.text}`}>{title}</h3>
+                {subtitle && (
+                  <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+                )}
+              </div>
+            </div>
+          </div>
 
-const getActivityIcon = (type: string) => {
+          <div className="space-y-3">
+            {isEmpty ? (
+              <div className="text-center py-8">
+                <div className="text-gray-400 mb-2">
+                  <Icon className="h-12 w-12 mx-auto opacity-50" />
+                </div>
+                <p className="text-gray-500 text-sm font-medium">{emptyMessage}</p>
+              </div>
+            ) : (
+              <>
+                {stats && (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={`text-2xl font-bold ${colors.text}`}>{stats.value}</p>
+                      <p className="text-sm text-gray-600">{stats.label}</p>
+                    </div>
+                  </div>
+                )}
+                
+                <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// Original Dashboard Card Component (preserved for desktop)
+interface DashboardCardProps {
+  title: string;
+  description: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: 'blue' | 'green' | 'purple' | 'orange' | 'red';
+  stats?: {
+    value: number;
+    label: string;
+  };
+}
+
+function DashboardCard({ 
+  title, 
+  description, 
+  href, 
+  icon: Icon, 
+  color, 
+  stats 
+}: DashboardCardProps) {
+  const colorClasses: Record<string, string> = {
+    blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
+    green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
+    purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
+    orange: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
+    red: 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
+  };
+
+  return (
+    <Link href={href}>
+      <Card className="hover:shadow-lg transition-all duration-200 cursor-pointer group h-full hidden lg:block">
+        <CardContent className="p-0">
+          <div className={`bg-gradient-to-br ${colorClasses[color]} p-6 text-white relative overflow-hidden`}>
+            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-20">
+              <Icon className="h-24 w-24 transform rotate-12" />
+            </div>
+            <div className="relative">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-white bg-opacity-20 rounded-lg">
+                  <Icon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{title}</h3>
+                  {stats && (
+                    <div className="flex items-center space-x-2 mt-1">
+                      <span className="text-2xl font-bold">{stats.value}</span>
+                      <span className="text-sm opacity-90">{stats.label}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="p-4">
+            <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
+            <div className="flex items-center justify-between mt-4">
+              <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+                View Details
+              </span>
+              <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// Helper functions for activity icons and status colors
+function getActivityIcon(type: string) {
   switch (type) {
     case 'user_created':
-      return <Users className="h-4 w-4 text-blue-500" />;
+      return <Users className="h-4 w-4 text-green-500" />;
     case 'project_created':
-      return <FolderOpen className="h-4 w-4 text-green-500" />;
+      return <FolderOpen className="h-4 w-4 text-blue-500" />;
     case 'project_completed':
-      return <CheckCircle className="h-4 w-4 text-purple-500" />;
-    case 'task_completed':
-      return <CheckCircle className="h-4 w-4 text-green-600" />;
-    case 'message_sent':
-      return <MessageSquare className="h-4 w-4 text-orange-500" />;
-    case 'file_uploaded':
-      return <FileText className="h-4 w-4 text-indigo-500" />;
+      return <CheckCircle className="h-4 w-4 text-green-500" />;
+    case 'system_alert':
+      return <AlertTriangle className="h-4 w-4 text-red-500" />;
     default:
       return <Activity className="h-4 w-4 text-gray-500" />;
   }
-};
+}
 
-const getStatusColor = (status: string): string => {
+function getStatusColor(status: string): string {
   switch (status) {
     case 'completed':
       return 'bg-green-100 text-green-800 border-green-200';
@@ -617,10 +341,161 @@ const getStatusColor = (status: string): string => {
     default:
       return 'bg-gray-100 text-gray-800 border-gray-200';
   }
-};
+}
 
-// Loading component for better UX
-function DashboardLoading() {
+// Database functions (proper TypeScript, following project patterns)
+async function getAdminDashboardData(): Promise<DashboardData> {
+  try {
+    const { db } = await connectToDatabase();
+
+    // Get all projects
+    const projects = await db.collection<ProjectDocument>('projects')
+      .find({})
+      .toArray();
+
+    // Get all users
+    const users = await db.collection<UserDocument>('users')
+      .find({})
+      .toArray();
+
+    // Calculate statistics
+    const stats: AdminStats = {
+      totalProjects: projects.length,
+      activeProjects: projects.filter(p => p.status === 'in_progress').length,
+      completedProjects: projects.filter(p => p.status === 'completed').length,
+      totalUsers: users.length,
+      totalClients: users.filter(u => u.role === 'client').length,
+      totalManagers: users.filter(u => u.role === 'project_manager').length,
+      totalAdmins: users.filter(u => u.role === 'super_admin').length,
+      recentActivities: [],
+      usersByRole: {
+        super_admin: users.filter(u => u.role === 'super_admin').length,
+        project_manager: users.filter(u => u.role === 'project_manager').length,
+        client: users.filter(u => u.role === 'client').length
+      },
+      projectsByStatus: projects.reduce((acc, project) => {
+        acc[project.status] = (acc[project.status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>),
+      systemHealth: {
+        status: 'healthy' as const,
+        uptime: '99.9%',
+        responseTime: 150
+      }
+    };
+
+    // Get recent activities from project and user updates
+    const recentActivities = [];
+    
+    // Add recent project updates
+    const recentProjectUpdates = projects
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 5)
+      .map(project => ({
+        _id: project._id.toString(),
+        type: project.status === 'completed' ? 'project_completed' : 'project_updated',
+        title: `Project ${project.status === 'completed' ? 'completed' : 'updated'}`,
+        description: project.title,
+        timestamp: project.updatedAt
+      }));
+
+    // Add recent user registrations
+    const recentUserCreations = users
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 3)
+      .map(user => ({
+        _id: user._id.toString(),
+        type: 'user_created',
+        title: 'New user registered',
+        description: `${user.name} (${user.role})`,
+        timestamp: user.createdAt
+      }));
+
+    stats.recentActivities = [...recentProjectUpdates, ...recentUserCreations]
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, 10);
+
+    // Get recent users
+    const recentUsers: RecentUser[] = users
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 10)
+      .map(user => ({
+        _id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt.toISOString(),
+        isActive: user.isActive
+      }));
+
+    // Mock system metrics
+    const systemMetrics: SystemMetric[] = [
+      {
+        _id: '1',
+        name: 'Database Performance',
+        value: 98,
+        unit: '%',
+        status: 'good' as const,
+        timestamp: new Date().toISOString()
+      },
+      {
+        _id: '2',
+        name: 'Server Response Time',
+        value: 150,
+        unit: 'ms',
+        status: 'good' as const,
+        timestamp: new Date().toISOString()
+      },
+      {
+        _id: '3',
+        name: 'Active Connections',
+        value: 45,
+        unit: 'connections',
+        status: 'good' as const,
+        timestamp: new Date().toISOString()
+      }
+    ];
+
+    return {
+      stats,
+      recentUsers,
+      systemMetrics
+    };
+
+  } catch (error) {
+    console.error('Error fetching admin dashboard data:', error);
+    
+    // Return default values on error
+    return {
+      stats: {
+        totalProjects: 0,
+        activeProjects: 0,
+        completedProjects: 0,
+        totalUsers: 0,
+        totalClients: 0,
+        totalManagers: 0,
+        totalAdmins: 0,
+        recentActivities: [],
+        usersByRole: {
+          super_admin: 0,
+          project_manager: 0,
+          client: 0
+        },
+        projectsByStatus: {},
+        systemHealth: {
+          status: 'healthy' as const,
+          uptime: '99.9%',
+          responseTime: 150
+        }
+      },
+      recentUsers: [],
+      systemMetrics: []
+    };
+  }
+}
+
+// Loading component
+function AdminDashboardLoading() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -663,283 +538,487 @@ async function AdminDashboard() {
     );
   }
 
-  const stats = await getDashboardData();
+  const {
+    stats,
+    recentUsers,
+    systemMetrics
+  } = await getAdminDashboardData();
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600 mt-1">Welcome back, {session.user.name}. Here&apos;s what&apos;s happening with your projects.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs">
-            <Activity className="h-3 w-3 mr-1" />
-            System Healthy
-          </Badge>
-          <Badge variant="secondary" className="text-xs">
-            Last updated: {new Date().toLocaleTimeString()}
-          </Badge>
-        </div>
-      </div>
-
-      {/* Key Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {/* Total Users */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Users</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.totalUsers}</p>
-                <p className="text-xs text-green-600 mt-1">
-                  +{stats.newUsersThisMonth} this month
-                </p>
-              </div>
-              <Users className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Total Projects */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Projects</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.totalProjects}</p>
-                <p className="text-xs text-blue-600 mt-1">
-                  {stats.activeProjects} active
-                </p>
-              </div>
-              <FolderOpen className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Completion Rate */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Completion Rate</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.completionRate}%</p>
-                <div className="mt-2">
-                  <Progress value={stats.completionRate} className="h-2" />
-                </div>
-              </div>
-              <TrendingUp className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Total Budget */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Budget</p>
-                <p className="text-lg sm:text-xl font-bold text-gray-900">
-                  {formatCurrency(stats.totalBudget)}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Across all projects
-                </p>
-              </div>
-              <DollarSign className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Secondary Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {/* Tasks Overview */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Tasks</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalTasks}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs text-green-600">{stats.completedTasks} done</span>
-                  {stats.overdueTasks > 0 && (
-                    <span className="text-xs text-red-600">{stats.overdueTasks} overdue</span>
-                  )}
-                </div>
-              </div>
-              <List className="h-8 w-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Messages */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Messages</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalMessages}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  {stats.unreadMessages > 0 && (
-                    <Badge variant="destructive" className="text-xs">
-                      {stats.unreadMessages} unread
-                    </Badge>
-                  )}
-                  <span className="text-xs text-gray-500">
-                    {stats.messagesThisWeek} this week
-                  </span>
-                </div>
-              </div>
-              <MessageSquare className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Files */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Files</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalFiles}</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {formatFileSize(stats.totalStorageUsed)} used
-                </p>
-              </div>
-              <FileText className="h-8 w-8 text-indigo-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* System Health */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">System Health</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.systemHealth.uptime}%</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {stats.systemHealth.responseTime}ms avg response
-                </p>
-              </div>
-              <BarChart3 className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts and Recent Activity Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Project Status Distribution */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Project Status Overview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {Object.entries(stats.projectsByStatus).map(([status, count]) => (
-                <div key={status} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Badge 
-                      variant="outline" 
-                      className={cn("text-xs", getStatusColor(status))}
-                    >
-                      {status.replace('_', ' ').toUpperCase()}
-                    </Badge>
-                    <span className="text-sm font-medium">{count} projects</span>
-                  </div>
-                  <div className="flex-1 mx-4">
-                    <Progress 
-                      value={stats.totalProjects > 0 ? (count / stats.totalProjects) * 100 : 0} 
-                      className="h-2"
-                    />
-                  </div>
-                  <span className="text-xs text-gray-500 min-w-[3rem] text-right">
-                    {stats.totalProjects > 0 ? Math.round((count / stats.totalProjects) * 100) : 0}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Recent Activities */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              Recent Activities
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {stats.recentActivities.length > 0 ? (
-              stats.recentActivities.slice(0, 5).map((activity) => (
-                <div key={activity._id} className="flex items-start gap-3">
-                  <div className="flex-shrink-0 mt-1">
-                    {getActivityIcon(activity.type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {activity.title}
-                    </p>
-                    <p className="text-xs text-gray-500 truncate">
-                      {activity.description}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {formatTimeAgo(activity.timestamp)}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-4">
-                <Clock className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">No recent activities</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* User Distribution */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            User Distribution
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{stats.usersByRole.super_admin}</div>
-              <div className="text-sm text-gray-500">Super Admins</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{stats.usersByRole.project_manager}</div>
-              <div className="text-sm text-gray-500">Project Managers</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{stats.usersByRole.client}</div>
-              <div className="text-sm text-gray-500">Clients</div>
+    <>
+      <div className="space-y-6">
+        {/* Header with Mobile-First Design */}
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              <span className="lg:hidden">Home</span>
+              <span className="hidden lg:block">Admin Dashboard</span>
+            </h1>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">
+              <span className="lg:hidden">Welcome back, {session.user.name?.split(' ')[0]}!</span>
+              <span className="hidden lg:block">System overview and management console</span>
+            </p>
+          </div>
+          
+          {/* System Status Indicator */}
+          <div className="lg:flex-shrink-0">
+            <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg ${
+              stats.systemHealth.status === 'healthy' 
+                ? 'bg-green-100 text-green-800' 
+                : stats.systemHealth.status === 'warning'
+                ? 'bg-yellow-100 text-yellow-800'
+                : 'bg-red-100 text-red-800'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                stats.systemHealth.status === 'healthy' 
+                  ? 'bg-green-500' 
+                  : stats.systemHealth.status === 'warning'
+                  ? 'bg-yellow-500'
+                  : 'bg-red-500'
+              }`}></div>
+              <span className="text-sm font-medium">System {stats.systemHealth.status}</span>
             </div>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+
+        {/* Mobile Cards - NEW: Mobile app style cards (mobile only) */}
+        <div className="lg:hidden space-y-4">
+          {/* Primary Cards - Always visible */}
+          <div className="grid grid-cols-1 gap-4">
+            {/* User Management Card */}
+            <MobileDashboardCard
+              title="User Management"
+              description="Manage users, roles, and permissions across the platform"
+              href="/admin/users"
+              icon={Users}
+              color="blue"
+              stats={{ 
+                value: stats.totalUsers, 
+                label: "Total Users" 
+              }}
+              subtitle="System Administration"
+            />
+
+            {/* Project Overview Card */}
+            <MobileDashboardCard
+              title="Project Overview"
+              description="Monitor all projects and their current status"
+              href="/admin/projects"
+              icon={FolderOpen}
+              color="green"
+              stats={{ 
+                value: stats.activeProjects, 
+                label: "Active Projects" 
+              }}
+              subtitle="Project Management"
+            />
+          </div>
+
+          {/* Secondary Cards - Shown when scrolling */}
+          <div className="grid grid-cols-1 gap-4 pt-2">
+            {/* System Analytics Card */}
+            <MobileDashboardCard
+              title="System Analytics"
+              description="View comprehensive system metrics and reports"
+              href="/admin/analytics"
+              icon={BarChart3}
+              color="purple"
+              stats={{ 
+                value: `${stats.systemHealth.responseTime}ms`, 
+                label: "Avg Response Time" 
+              }}
+              subtitle="Performance Metrics"
+            />
+
+            {/* System Settings Card */}
+            <MobileDashboardCard
+              title="System Settings"
+              description="Configure global settings and preferences"
+              href="/admin/settings"
+              icon={Settings}
+              color="orange"
+              stats={{ 
+                value: stats.systemHealth.uptime, 
+                label: "System Uptime" 
+              }}
+              subtitle="Configuration"
+            />
+
+            {/* File Management Card */}
+            <MobileDashboardCard
+              title="File Management"
+              description="Monitor and manage uploaded files across projects"
+              href="/admin/files"
+              icon={FileText}
+              color="pink"
+              subtitle="Document Management"
+            />
+
+            {/* Database Management Card */}
+            <MobileDashboardCard
+              title="Database Health"
+              description="Monitor database performance and integrity"
+              href="/admin/database"
+              icon={Database}
+              color="red"
+              stats={{ 
+                value: "98%", 
+                label: "DB Performance" 
+              }}
+              subtitle="System Health"
+            />
+          </div>
+        </div>
+
+        {/* Enhanced Header for desktop */}
+        <div className="hidden lg:block bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-3xl font-bold mb-2">
+                Welcome back, {session.user.name}!
+              </h2>
+              <p className="text-purple-100">
+                Oversee all system operations and maintain platform performance
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold">{stats.totalUsers}</p>
+              <p className="text-purple-100 text-sm">Total Users</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Updated Dashboard Cards with new features (desktop only) */}
+        <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <DashboardCard
+            title="User Management"
+            description="Manage users, roles, and permissions across the platform"
+            href="/admin/users"
+            icon={Users}
+            color="blue"
+            stats={{ value: stats.totalUsers, label: "Total Users" }}
+          />
+          
+          <DashboardCard
+            title="System Analytics"
+            description="Monitor system performance, usage metrics, and reports"
+            href="/admin/analytics"
+            icon={BarChart3}
+            color="green"
+            stats={{ value: stats.totalProjects, label: "Total Projects" }}
+          />
+          
+          <DashboardCard
+            title="Project Overview"
+            description="View and manage all projects across the platform"
+            href="/admin/projects"
+            icon={FolderOpen}
+            color="purple"
+            stats={{ value: stats.activeProjects, label: "Active Projects" }}
+          />
+        </div>
+
+        {/* Key Metrics Cards - Mobile responsive grid */}
+        <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+          {/* Total Users */}
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Users</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.totalUsers}</p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    {stats.totalClients} clients, {stats.totalManagers} managers
+                  </p>
+                </div>
+                <Users className="h-8 w-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Active Projects */}
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Active Projects</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.activeProjects}</p>
+                  <p className="text-xs text-green-600 mt-1">
+                    {stats.completedProjects} completed
+                  </p>
+                </div>
+                <FolderOpen className="h-8 w-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* System Health */}
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="w-full">
+                  <p className="text-sm font-medium text-gray-600">System Health</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.systemHealth.uptime}</p>
+                  <div className="mt-2">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span className="text-xs text-green-600">Healthy</span>
+                    </div>
+                  </div>
+                </div>
+                <Shield className="h-8 w-8 text-purple-600 ml-4" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Response Time */}
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Avg Response</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.systemHealth.responseTime}ms</p>
+                  <p className="text-xs text-green-600 mt-1">
+                    Performance good
+                  </p>
+                </div>
+                <TrendingUp className="h-8 w-8 text-orange-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Dashboard Grid - DESKTOP ONLY */}
+        <div className="hidden lg:grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - System Overview */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* User Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  User Distribution
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Project Managers</span>
+                    <span className="font-semibold text-green-600">{stats.usersByRole.project_manager}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Clients</span>
+                    <span className="font-semibold text-purple-600">{stats.usersByRole.client}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Project Status Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-green-600" />
+                  Project Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {Object.entries(stats.projectsByStatus).map(([status, count]) => (
+                    <div key={status} className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Badge className={getStatusColor(status)}>
+                          {status.replace('_', ' ')}
+                        </Badge>
+                      </div>
+                      <span className="font-semibold text-gray-900">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-blue-600" />
+                  Quick Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Link href="/admin/users/new">
+                  <Button className="w-full justify-start bg-blue-600 hover:bg-blue-700 text-white">
+                    <PlusCircle className="h-4 w-4 mr-2" />
+                    Create New User
+                  </Button>
+                </Link>
+                
+                <Link href="/admin/analytics">
+                  <Button variant="outline" className="w-full justify-start">
+                    <BarChart3 className="h-4 w-4 mr-2" />
+                    View Analytics
+                  </Button>
+                </Link>
+
+                <Link href="/admin/settings">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Settings className="h-4 w-4 mr-2" />
+                    System Settings
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column - Recent Activity */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Recent Activities */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-green-600" />
+                  Recent Activities
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {stats.recentActivities.length > 0 ? (
+                  <div className="space-y-4">
+                    {stats.recentActivities.slice(0, 6).map((activity) => (
+                      <div key={activity._id} className="flex items-start gap-3">
+                        <div className="flex-shrink-0 mt-1">
+                          {getActivityIcon(activity.type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {activity.title}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {activity.description}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            {formatTimeAgo(activity.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <Clock className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">No recent activities</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent Users */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Users className="h-5 w-5 text-purple-600" />
+                  Recent Users
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {recentUsers.length > 0 ? (
+                  <div className="space-y-3">
+                    {recentUsers.slice(0, 5).map((user) => (
+                      <div key={user._id} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50">
+                        <div className="flex-shrink-0">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <span className="text-xs font-medium text-blue-600">
+                              {user.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-grow min-w-0">
+                          <Link href={`/admin/users/${user._id}`}>
+                            <p className="text-sm font-medium text-gray-900 truncate hover:text-blue-600">
+                              {user.name}
+                            </p>
+                          </Link>
+                          <div className="flex items-center space-x-2">
+                            <p className="text-xs text-gray-500 truncate">
+                              {user.email}
+                            </p>
+                            <Badge variant="secondary" className="text-xs">
+                              {user.role.replace('_', ' ')}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Joined {formatTimeAgo(new Date(user.createdAt))}
+                          </p>
+                        </div>
+                        <div className="flex-shrink-0">
+                          <div className={`w-2 h-2 rounded-full ${
+                            user.isActive ? 'bg-green-500' : 'bg-gray-300'
+                          }`}></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <Users className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600">No recent users</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* System Metrics */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-orange-600" />
+                  System Metrics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {systemMetrics.map((metric) => (
+                    <div key={metric._id} className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">{metric.name}</p>
+                        <p className="text-xs text-gray-500">
+                          Last updated: {formatTimeAgo(new Date(metric.timestamp))}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-lg font-bold text-gray-900">
+                          {metric.value}{metric.unit}
+                        </span>
+                        <div className={`w-2 h-2 rounded-full ${
+                          metric.status === 'good' ? 'bg-green-500' :
+                          metric.status === 'warning' ? 'bg-yellow-500' :
+                          'bg-red-500'
+                        }`}></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      {/* Floating AI Chatbot */}
+      <Suspense fallback={null}>
+        <div className="fixed bottom-4 right-4 z-[1000]">
+          <FloatingAIChatbot />
+        </div>
+      </Suspense>
+    </>
   );
 }
 
 // Main exported component with proper error boundaries
 export default async function AdminDashboardPage() {
   return (
-    <Suspense fallback={<DashboardLoading />}>
+    <Suspense fallback={<AdminDashboardLoading />}>
       <AdminDashboard />
     </Suspense>
   );
-}
+} 

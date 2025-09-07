@@ -1,4 +1,4 @@
-// src/components/dashboard/layout.tsx - PROPER FIX: Original code with modal={false} solution
+// src/components/dashboard/layout.tsx - UPDATED: Move existing nav items to bottom navigation on mobile
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -32,7 +32,8 @@ import {
   X,
   Wifi,
   WifiOff,
-  Power
+  Power,
+  MoreHorizontal
 } from 'lucide-react';
 
 interface NavItem {
@@ -57,6 +58,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const socket = useSocket();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [messageStats, setMessageStats] = useState<MessageStats>({ unreadCount: 0 });
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const userRole = session?.user?.role || '';
   const userName = session?.user?.name || '';
@@ -104,7 +106,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     loadMessageStats();
   }, [loadMessageStats]);
 
-  // Navigation items based on user role
+  // EXISTING Navigation items based on user role (PRESERVED)
   const getNavItems = (): NavItem[] => {
     const baseRoute = userRole === "super_admin" ? "/admin" : 
                      userRole === "project_manager" ? "/manager" : "/client";
@@ -187,9 +189,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   };
 
+  // Get bottom navigation items (first 4 + More for overflow)
+  const getBottomNavItems = () => {
+    const primaryItems = navItems.slice(0, 4); // First 4 items
+    const overflowItems = navItems.slice(4); // Remaining items
+    
+    return {
+      primaryItems,
+      overflowItems,
+      hasOverflow: overflowItems.length > 0
+    };
+  };
+
+  const { primaryItems, overflowItems, hasOverflow } = getBottomNavItems();
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Mobile sidebar overlay */}
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Mobile sidebar overlay - Only visible on larger screens now */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
@@ -197,10 +213,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         />
       )}
 
-      {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:flex lg:flex-shrink-0 ${
-        isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`}>
+      {/* Desktop Sidebar - Hidden on mobile, shown on desktop */}
+      <div className={`hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-50 lg:w-64 lg:bg-white lg:shadow-lg lg:flex lg:flex-col`}>
         <div className="flex flex-col w-full">
           {/* Sidebar header */}
           <div className="flex items-center justify-between h-16 px-6 bg-white border-b">
@@ -214,15 +228,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <p className="text-sm font-medium text-gray-900">Project Manager</p>
               </div>
             </div>
-            <button
-              onClick={() => setIsSidebarOpen(false)}
-              className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100"
-            >
-              <X className="h-6 w-6" />
-            </button>
           </div>
 
-          {/* Navigation */}
+          {/* Desktop Navigation */}
           <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
             {navItems.map((item) => {
               const isActive = pathname === item.href || 
@@ -237,7 +245,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       ? 'bg-blue-50 border-r-2 border-blue-500 text-blue-700'
                       : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
                   }`}
-                  onClick={() => setIsSidebarOpen(false)}
                 >
                   <item.icon
                     className={`mr-3 h-5 w-5 flex-shrink-0 ${
@@ -286,27 +293,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top navigation - ORIGINAL CODE STRUCTURE */}
-        <header className="sticky top-0 z-40 bg-white shadow-sm border-b">
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
+        {/* Top navigation - Updated for mobile-first */}
+        <header className="sticky top-0 z-40 bg-white shadow-sm border-b lg:block">
           <div className="flex h-16 items-center justify-between px-4 lg:px-6">
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
-            >
-              <Menu className="h-6 w-6" />
-            </button>
-
-            <div className="flex-1">
-              {/* Search or other content can go here */}
+            {/* Mobile: Logo and app name, Desktop: Search */}
+            <div className="flex items-center lg:flex-1">
+              <div className="lg:hidden flex items-center">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                  <span className="text-white font-bold text-lg">P</span>
+                </div>
+                <span className="font-semibold text-gray-900">Project Manager</span>
+              </div>
+              {/* Desktop search can go here */}
             </div>
 
             {/* Right section - Notifications and User menu */}
             <div className="flex items-center space-x-4">
               <NotificationBell />
 
-              {/* CRITICAL FIX: User menu with modal={false} to prevent scroll blocking */}
+              {/* User menu */}
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">
@@ -317,36 +323,24 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
-                
-                {/* SOLUTION: modal={false} goes on DropdownMenu component above */}
-                <DropdownMenuContent 
-                  className="w-56" 
-                  align="end" 
-                  forceMount
-                >
-                  <div className="flex items-center justify-start gap-2 p-2">
-                    <div className="flex flex-col space-y-1 leading-none">
-                      <p className="font-medium">{userName}</p>
-                      <p className="text-xs text-gray-500">{userEmail}</p>
-                      <Badge variant="secondary" className="w-fit text-xs">
-                        {userRole.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      </Badge>
-                    </div>
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <div className="flex flex-col space-y-1 p-2">
+                    <p className="text-sm font-medium leading-none">{userName}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                      {userEmail}
+                    </p>
                   </div>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href={getSettingsRoute()} className="flex items-center">
+                    <Link href={getSettingsRoute()}>
                       <Settings className="mr-2 h-4 w-4" />
-                      Settings
+                      <span>Settings</span>
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem 
-                    onClick={handleSignOut}
-                    className="text-red-600 focus:text-red-600"
-                  >
+                  <DropdownMenuItem onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />
-                    Sign out
+                    <span>Log out</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -354,12 +348,81 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-auto">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+        {/* Main content */}
+        <main className="flex-1 overflow-auto pb-20 lg:pb-6">
+          <div className="px-4 py-6 lg:px-6">
             {children}
           </div>
         </main>
+
+        {/* Mobile Bottom Navigation - EXISTING NAV ITEMS */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 shadow-lg">
+          <div className="px-2 py-2 pb-safe">
+            <div className="flex items-center justify-around">
+              {/* Primary Navigation Items (First 4) */}
+              {primaryItems.map((item) => {
+                const isActive = pathname === item.href || 
+                               (item.href !== '/' && item.href !== '#' && pathname.startsWith(item.href));
+                
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className="flex flex-col items-center justify-center min-w-0 flex-1 py-2 px-1 text-xs touch-manipulation relative"
+                  >
+                    {/* Badge for notifications */}
+                    {item.badge && item.badge > 0 && (
+                      <div className="absolute -top-1 -right-1 z-10">
+                        <Badge variant="destructive" className="h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs">
+                          {item.badge > 99 ? '99+' : item.badge}
+                        </Badge>
+                      </div>
+                    )}
+                    
+                    <item.icon className={`h-6 w-6 mb-1 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                    <span className={`truncate text-xs ${isActive ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>
+                      {item.name}
+                    </span>
+                  </Link>
+                );
+              })}
+
+              {/* More Menu (if there are overflow items) */}
+              {hasOverflow && (
+                <DropdownMenu modal={false} open={showMoreMenu} onOpenChange={setShowMoreMenu}>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex flex-col items-center justify-center min-w-0 flex-1 py-2 px-1 text-xs touch-manipulation">
+                      <MoreHorizontal className="h-6 w-6 mb-1 text-gray-500" />
+                      <span className="truncate text-xs text-gray-500">More</span>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56" align="end" side="top">
+                    {overflowItems.map((navItem) => (
+                      <DropdownMenuItem key={navItem.name} asChild>
+                        <Link href={navItem.href} onClick={() => setShowMoreMenu(false)}>
+                          <navItem.icon className="mr-2 h-4 w-4" />
+                          <span>{navItem.name}</span>
+                          {navItem.badge && navItem.badge > 0 && (
+                            <Badge variant="secondary" className="ml-auto">
+                              {navItem.badge > 99 ? '99+' : navItem.badge}
+                            </Badge>
+                          )}
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href={getSettingsRoute()} onClick={() => setShowMoreMenu(false)}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        <span>Settings</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

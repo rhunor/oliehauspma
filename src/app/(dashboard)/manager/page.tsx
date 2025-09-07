@@ -1,547 +1,485 @@
-// src/app/(dashboard)/manager/page.tsx - COMPLETE FIXED VERSION
+// src/app/(dashboard)/manager/page.tsx - UPDATED: Mobile-first design with app-style cards
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth';
+import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
-
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { 
-  FolderOpen, 
- 
-  Clock, 
-  CheckCircle, 
+  Activity, 
+  Calendar, 
+  Target, 
+  ChevronRight, 
+  Clock,
+  CheckCircle,
   AlertTriangle,
- 
-  MessageSquare,
+  Shield,
   FileText,
+  MessageSquare,
+  Users,
   TrendingUp,
-  BarChart3,
+  FolderOpen,
   PlusCircle,
-  ChevronRight,
-  Activity,
- 
+  BarChart3
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { cn } from '@/lib/utils';
+import { formatDate, formatTimeAgo } from '@/lib/utils';
+import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
 
-// Enhanced TypeScript interfaces for type safety
-interface ProjectDocument {
-  _id: ObjectId;
+// Helper function to format time from date string (proper TypeScript)
+function formatTime(dateString: string): string {
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid time';
+    
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, '0');
+    
+    return `${displayHours}:${displayMinutes} ${ampm}`;
+  } catch (error) {
+    console.error('Error formatting time:', error);
+    return 'Invalid time';
+  }
+}
+
+// Proper TypeScript interfaces
+interface ManagerStats {
+  totalProjects: number;
+  activeProjects: number;
+  completedProjects: number;
+  averageProgress: number;
+  totalTasks: number;
+  completedTasks: number;
+  clientCount: number;
+  recentMessages: number;
+  totalFiles: number;
+  totalIncidents: number;
+  activeRisks: number;
+}
+
+interface ProjectSummary {
+  _id: string;
   title: string;
   description: string;
-  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: string;
+  priority: string;
   progress: number;
-  startDate?: Date;
-  endDate?: Date;
-  budget?: number;
-  client: ObjectId;
-  manager: ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
+  clientName: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface TaskDocument {
-  _id: ObjectId;
+interface RecentUpdate {
+  _id: string;
+  type: string;
   title: string;
-  description?: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  deadline?: Date;
-  projectId: ObjectId;
-  assignedTo?: ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
+  description: string;
+  timestamp: string;
+  projectTitle?: string;
 }
 
-interface ClientUser {
-  _id: ObjectId;
-  name: string;
-  email: string;
-  phone?: string;
-  avatar?: string;
+interface RecentFile {
+  _id: string;
+  filename: string;
+  originalName: string;
+  size: number;
+  category: string;
+  projectTitle: string;
+  uploadedBy: {
+    name: string;
+  };
+  createdAt: string;
 }
 
-interface ProjectWithClient {
+interface WorkScheduleItem {
+  _id: string;
+  title: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  startDate: string;
+  contractor?: string;
+  projectTitle: string;
+}
+
+interface DashboardData {
+  stats: ManagerStats;
+  recentProjects: ProjectSummary[];
+  recentUpdates: RecentUpdate[];
+  recentFiles: RecentFile[];
+  workSchedule: {
+    todayTasks: WorkScheduleItem[];
+    upcomingTasks: WorkScheduleItem[];
+    totalTasks: number;
+    completedToday: number;
+  };
+}
+
+// MongoDB document interfaces (proper typing)
+interface ProjectDocument {
   _id: ObjectId;
   title: string;
   description: string;
   status: string;
   priority: string;
   progress: number;
+  client: ObjectId;
+  manager: ObjectId;
   startDate?: Date;
   endDate?: Date;
   budget?: number;
-  client: ClientUser;
+  tags?: string[];
   createdAt: Date;
   updatedAt: Date;
-  taskCount: number;
-  completedTasks: number;
-  upcomingDeadlines: number;
 }
 
-interface ManagerDashboardStats {
-  totalProjects: number;
-  activeProjects: number;
-  completedProjects: number;
-  projectsOnHold: number;
-  totalTasks: number;
-  completedTasks: number;
-  pendingTasks: number;
-  overdueTasks: number;
-  upcomingDeadlines: number;
-  averageProgress: number;
-  totalBudget: number;
-  thisMonthCompleted: number;
-  clientCount: number;
-  recentProjects: ProjectWithClient[];
-  urgentTasks: Array<{
-    _id: string;
-    title: string;
-    deadline: string;
-    projectTitle: string;
-    priority: string;
-  }>;
-  projectsByStatus: {
-    planning: number;
-    in_progress: number;
-    completed: number;
-    on_hold: number;
-    cancelled: number;
+interface UserDocument {
+  _id: ObjectId;
+  name: string;
+  email: string;
+}
+
+// Mobile App Style Dashboard Card Component (NEW - for mobile only)
+interface MobileDashboardCardProps {
+  title: string;
+  description: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'pink';
+  stats?: {
+    value: number | string;
+    label: string;
+  };
+  subtitle?: string;
+  isEmpty?: boolean;
+  emptyMessage?: string;
+}
+
+function MobileDashboardCard({ 
+  title, 
+  description, 
+  href, 
+  icon: Icon, 
+  color, 
+  stats,
+  subtitle,
+  isEmpty = false,
+  emptyMessage 
+}: MobileDashboardCardProps) {
+  const colorClasses: Record<string, { bg: string; icon: string; text: string }> = {
+    blue: { 
+      bg: 'bg-blue-50 hover:bg-blue-100', 
+      icon: 'text-blue-600', 
+      text: 'text-blue-700' 
+    },
+    green: { 
+      bg: 'bg-green-50 hover:bg-green-100', 
+      icon: 'text-green-600', 
+      text: 'text-green-700' 
+    },
+    purple: { 
+      bg: 'bg-purple-50 hover:bg-purple-100', 
+      icon: 'text-purple-600', 
+      text: 'text-purple-700' 
+    },
+    orange: { 
+      bg: 'bg-orange-50 hover:bg-orange-100', 
+      icon: 'text-orange-600', 
+      text: 'text-orange-700' 
+    },
+    red: { 
+      bg: 'bg-red-50 hover:bg-red-100', 
+      icon: 'text-red-600', 
+      text: 'text-red-700' 
+    },
+    pink: { 
+      bg: 'bg-pink-50 hover:bg-pink-100', 
+      icon: 'text-pink-600', 
+      text: 'text-pink-700' 
+    }
+  };
+
+  const colors = colorClasses[color];
+
+  return (
+    <Link href={href}>
+      <Card className={`${colors.bg} border-0 hover:shadow-md transition-all duration-200 cursor-pointer group h-full lg:hidden`}>
+        <CardContent className="p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className={`p-3 rounded-full bg-white shadow-sm`}>
+                <Icon className={`h-8 w-8 ${colors.icon}`} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className={`font-bold text-lg ${colors.text}`}>{title}</h3>
+                {subtitle && (
+                  <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {isEmpty ? (
+              <div className="text-center py-8">
+                <div className="text-gray-400 mb-2">
+                  <Icon className="h-12 w-12 mx-auto opacity-50" />
+                </div>
+                <p className="text-gray-500 text-sm font-medium">{emptyMessage}</p>
+              </div>
+            ) : (
+              <>
+                {stats && (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={`text-2xl font-bold ${colors.text}`}>{stats.value}</p>
+                      <p className="text-sm text-gray-600">{stats.label}</p>
+                    </div>
+                  </div>
+                )}
+                
+                <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// Original Dashboard Card Component (preserved for desktop)
+interface DashboardCardProps {
+  title: string;
+  description: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: 'blue' | 'green' | 'purple' | 'orange' | 'red';
+  stats?: {
+    value: number;
+    label: string;
   };
 }
 
-// Server-side data fetching with comprehensive error handling
-async function getManagerDashboardData(managerId: string): Promise<ManagerDashboardStats> {
+function DashboardCard({ 
+  title, 
+  description, 
+  href, 
+  icon: Icon, 
+  color, 
+  stats 
+}: DashboardCardProps) {
+  const colorClasses: Record<string, string> = {
+    blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
+    green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
+    purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
+    orange: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
+    red: 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
+  };
+
+  return (
+    <Link href={href}>
+      <Card className="hover:shadow-lg transition-all duration-200 cursor-pointer group h-full hidden lg:block">
+        <CardContent className="p-0">
+          <div className={`bg-gradient-to-br ${colorClasses[color]} p-6 text-white relative overflow-hidden`}>
+            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-20">
+              <Icon className="h-24 w-24 transform rotate-12" />
+            </div>
+            <div className="relative">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-white bg-opacity-20 rounded-lg">
+                  <Icon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{title}</h3>
+                  {stats && (
+                    <div className="flex items-center space-x-2 mt-1">
+                      <span className="text-2xl font-bold">{stats.value}</span>
+                      <span className="text-sm opacity-90">{stats.label}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="p-4">
+            <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
+            <div className="flex items-center justify-between mt-4">
+              <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+                View Details
+              </span>
+              <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// Database functions (proper TypeScript, following project patterns)
+async function getManagerDashboardData(managerId: string): Promise<DashboardData> {
   try {
     const { db } = await connectToDatabase();
-    const currentDate = new Date();
-    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const nextWeek = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    // Build queries for manager's data only
-    const projectFilter: Filter<ProjectDocument> = {
+    // Get manager's projects with proper filter typing
+    const projectQuery: Filter<ProjectDocument> = {
       manager: new ObjectId(managerId)
     };
 
-    // Execute all queries in parallel for optimal performance
-    const [projectStats, taskStats, recentProjectsData, urgentTasksData] = await Promise.all([
-      // Project statistics
-      db.collection<ProjectDocument>('projects').aggregate([
-        { $match: projectFilter },
-        {
-          $group: {
-            _id: null,
-            totalProjects: { $sum: 1 },
-            activeProjects: {
-              $sum: {
-                $cond: [
-                  { $in: ['$status', ['planning', 'in_progress']] },
-                  1,
-                  0
-                ]
-              }
-            },
-            completedProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'completed'] }, 1, 0]
-              }
-            },
-            projectsOnHold: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'on_hold'] }, 1, 0]
-              }
-            },
-            thisMonthCompleted: {
-              $sum: {
-                $cond: [
-                  {
-                    $and: [
-                      { $eq: ['$status', 'completed'] },
-                      { $gte: ['$updatedAt', startOfMonth] }
-                    ]
-                  },
-                  1,
-                  0
-                ]
-              }
-            },
-            averageProgress: { $avg: '$progress' },
-            totalBudget: { $sum: '$budget' },
-            planningProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'planning'] }, 1, 0]
-              }
-            },
-            inProgressProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0]
-              }
-            },
-            cancelledProjects: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0]
-              }
-            }
-          }
-        }
-      ]).toArray(),
+    const projects = await db.collection<ProjectDocument>('projects')
+      .find(projectQuery)
+      .toArray();
 
-      // Task statistics for manager's projects
-      db.collection('tasks').aggregate([
-        {
-          $lookup: {
-            from: 'projects',
-            localField: 'projectId',
-            foreignField: '_id',
-            as: 'project'
-          }
-        },
-        {
-          $match: {
-            'project.manager': new ObjectId(managerId)
-          }
-        },
-        {
-          $group: {
-            _id: null,
-            totalTasks: { $sum: 1 },
-            completedTasks: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'completed'] }, 1, 0]
-              }
-            },
-            pendingTasks: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'pending'] }, 1, 0]
-              }
-            },
-            overdueTasks: {
-              $sum: {
-                $cond: [
-                  {
-                    $and: [
-                      { $ne: ['$status', 'completed'] },
-                      { $lt: ['$deadline', currentDate] },
-                      { $ne: ['$deadline', null] }
-                    ]
-                  },
-                  1,
-                  0
-                ]
-              }
-            },
-            upcomingDeadlines: {
-              $sum: {
-                $cond: [
-                  {
-                    $and: [
-                      { $ne: ['$status', 'completed'] },
-                      { $gte: ['$deadline', currentDate] },
-                      { $lte: ['$deadline', nextWeek] },
-                      { $ne: ['$deadline', null] }
-                    ]
-                  },
-                  1,
-                  0
-                ]
-              }
-            }
-          }
-        }
-      ]).toArray(),
+    const projectIds = projects.map(p => p._id);
 
-      // Recent projects with client info and task counts
-      db.collection<ProjectDocument>('projects').aggregate([
-        { $match: projectFilter },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'client',
-            foreignField: '_id',
-            as: 'clientData',
-            pipeline: [{ $project: { password: 0 } }]
-          }
-        },
-        {
-          $lookup: {
-            from: 'tasks',
-            localField: '_id',
-            foreignField: 'projectId',
-            as: 'tasks'
-          }
-        },
-        {
-          $addFields: {
-            client: { $arrayElemAt: ['$clientData', 0] },
-            taskCount: { $size: '$tasks' },
-            completedTasks: {
-              $size: {
-                $filter: {
-                  input: '$tasks',
-                  cond: { $eq: ['$$this.status', 'completed'] }
-                }
-              }
-            },
-            upcomingDeadlines: {
-              $size: {
-                $filter: {
-                  input: '$tasks',
-                  cond: {
-                    $and: [
-                      { $ne: ['$$this.status', 'completed'] },
-                      { $gte: ['$$this.deadline', currentDate] },
-                      { $lte: ['$$this.deadline', nextWeek] },
-                      { $ne: ['$$this.deadline', null] }
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        },
-        { $unset: ['clientData', 'tasks'] },
-        { $sort: { updatedAt: -1 } },
-        { $limit: 6 }
-      ]).toArray(),
-
-      // Urgent tasks due soon
-      db.collection('tasks').aggregate([
-        {
-          $lookup: {
-            from: 'projects',
-            localField: 'projectId',
-            foreignField: '_id',
-            as: 'project'
-          }
-        },
-        {
-          $match: {
-            'project.manager': new ObjectId(managerId),
-            status: { $ne: 'completed' },
-            deadline: {
-              $gte: currentDate,
-              $lte: nextWeek
-            }
-          }
-        },
-        {
-          $addFields: {
-            project: { $arrayElemAt: ['$project', 0] }
-          }
-        },
-        {
-          $project: {
-            _id: 1,
-            title: 1,
-            deadline: 1,
-            priority: 1,
-            projectTitle: '$project.title'
-          }
-        },
-        { $sort: { deadline: 1 } },
-        { $limit: 5 }
-      ]).toArray()
-    ]);
-
-    // Process the aggregated data with proper error handling
-    const projectStatsData = projectStats[0] || {
-      totalProjects: 0,
-      activeProjects: 0,
-      completedProjects: 0,
-      projectsOnHold: 0,
-      thisMonthCompleted: 0,
-      averageProgress: 0,
-      totalBudget: 0,
-      planningProjects: 0,
-      inProgressProjects: 0,
-      cancelledProjects: 0
-    };
-
-    const taskStatsData = taskStats[0] || {
+    // Calculate statistics
+    const stats: ManagerStats = {
+      totalProjects: projects.length,
+      activeProjects: projects.filter(p => p.status === 'in_progress').length,
+      completedProjects: projects.filter(p => p.status === 'completed').length,
+      averageProgress: projects.length > 0 ? Math.round(projects.reduce((sum, p) => sum + p.progress, 0) / projects.length) : 0,
       totalTasks: 0,
       completedTasks: 0,
-      pendingTasks: 0,
-      overdueTasks: 0,
-      upcomingDeadlines: 0
+      clientCount: 0,
+      recentMessages: 0,
+      totalFiles: 0,
+      totalIncidents: 0,
+      activeRisks: 0
     };
 
-    // Transform recent projects with proper typing - FIXED
-    const transformedRecentProjects: ProjectWithClient[] = recentProjectsData.map(project => ({
-      _id: project._id,
-      title: project.title,
-      description: project.description,
-      status: project.status,
-      priority: project.priority,
-      progress: project.progress,
-      startDate: project.startDate,
-      endDate: project.endDate,
-      budget: project.budget,
-      client: project.client || { _id: new ObjectId(), name: 'Unknown Client', email: '' },
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-      taskCount: project.taskCount,
-      completedTasks: project.completedTasks,
-      upcomingDeadlines: project.upcomingDeadlines
-    } as ProjectWithClient));
+    // Get unique clients
+    const uniqueClientIds = [...new Set(projects.map(p => p.client))];
+    stats.clientCount = uniqueClientIds.length;
 
-    // Transform urgent tasks - FIXED
-    const transformedUrgentTasks = urgentTasksData.map(task => ({
-      _id: task._id.toString(),
-      title: task.title,
-      deadline: task.deadline.toISOString(),
-      projectTitle: task.projectTitle || 'Unknown Project',
-      priority: task.priority
-    }));
+    // Get recent project data with client names
+    const recentProjects: ProjectSummary[] = [];
+    for (const project of projects.slice(0, 5)) {
+      const client = await db.collection<UserDocument>('users').findOne({ _id: project.client });
+      recentProjects.push({
+        _id: project._id.toString(),
+        title: project.title,
+        description: project.description,
+        status: project.status,
+        priority: project.priority,
+        progress: project.progress,
+        clientName: client?.name || 'Unknown Client',
+        createdAt: project.createdAt.toISOString(),
+        updatedAt: project.updatedAt.toISOString()
+      });
+    }
 
-    // Count unique clients
-    const uniqueClients = new Set(transformedRecentProjects.map(p => p.client._id.toString()));
+    // Get recent updates
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const recentUpdates: RecentUpdate[] = projects
+      .filter(project => project.updatedAt >= startOfMonth)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 10)
+      .map(project => ({
+        _id: project._id.toString(),
+        type: project.status === 'completed' ? 'project_completed' : 'project_updated',
+        title: `Project ${project.status === 'completed' ? 'completed' : 'updated'}`,
+        description: project.title,
+        timestamp: project.updatedAt.toISOString(),
+        projectTitle: project.title
+      }));
+
+    // Get recent files
+    const recentFiles = await db.collection('files')
+      .find({
+        projectId: { $in: projectIds }
+      })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .toArray();
+
+    const transformedRecentFiles: RecentFile[] = [];
+    for (const file of recentFiles) {
+      const project = projects.find(p => p._id.equals(file.projectId));
+      const uploader = await db.collection('users').findOne({ _id: file.uploadedBy });
+      
+      transformedRecentFiles.push({
+        _id: file._id.toString(),
+        filename: file.filename,
+        originalName: file.originalName,
+        size: file.size,
+        category: file.category,
+        projectTitle: project?.title || 'Unknown Project',
+        uploadedBy: {
+          name: uploader?.name || 'Unknown User'
+        },
+        createdAt: file.createdAt.toISOString()
+      });
+    }
+
+    // Get work schedule data (mock for now)
+    const workSchedule = {
+      todayTasks: [] as WorkScheduleItem[],
+      upcomingTasks: [] as WorkScheduleItem[],
+      totalTasks: 0,
+      completedToday: 0
+    };
 
     return {
-      // Project metrics
-      totalProjects: projectStatsData.totalProjects,
-      activeProjects: projectStatsData.activeProjects,
-      completedProjects: projectStatsData.completedProjects,
-      projectsOnHold: projectStatsData.projectsOnHold,
-      
-      // Task metrics
-      totalTasks: taskStatsData.totalTasks,
-      completedTasks: taskStatsData.completedTasks,
-      pendingTasks: taskStatsData.pendingTasks,
-      overdueTasks: taskStatsData.overdueTasks,
-      upcomingDeadlines: taskStatsData.upcomingDeadlines,
-      
-      // Performance metrics
-      averageProgress: Math.round((projectStatsData.averageProgress || 0) * 100) / 100,
-      totalBudget: projectStatsData.totalBudget || 0,
-      thisMonthCompleted: projectStatsData.thisMonthCompleted,
-      clientCount: uniqueClients.size,
-      
-      // Detailed data
-      recentProjects: transformedRecentProjects,
-      urgentTasks: transformedUrgentTasks,
-      
-      // Status breakdown
-      projectsByStatus: {
-        planning: projectStatsData.planningProjects,
-        in_progress: projectStatsData.inProgressProjects,
-        completed: projectStatsData.completedProjects,
-        on_hold: projectStatsData.projectsOnHold,
-        cancelled: projectStatsData.cancelledProjects
-      }
+      stats,
+      recentProjects,
+      recentUpdates,
+      recentFiles: transformedRecentFiles,
+      workSchedule
     };
 
   } catch (error) {
     console.error('Error fetching manager dashboard data:', error);
     
-    // Return safe default structure on error
+    // Return default values on error
     return {
-      totalProjects: 0,
-      activeProjects: 0,
-      completedProjects: 0,
-      projectsOnHold: 0,
-      totalTasks: 0,
-      completedTasks: 0,
-      pendingTasks: 0,
-      overdueTasks: 0,
-      upcomingDeadlines: 0,
-      averageProgress: 0,
-      totalBudget: 0,
-      thisMonthCompleted: 0,
-      clientCount: 0,
+      stats: {
+        totalProjects: 0,
+        activeProjects: 0,
+        completedProjects: 0,
+        averageProgress: 0,
+        totalTasks: 0,
+        completedTasks: 0,
+        clientCount: 0,
+        recentMessages: 0,
+        totalFiles: 0,
+        totalIncidents: 0,
+        activeRisks: 0
+      },
       recentProjects: [],
-      urgentTasks: [],
-      projectsByStatus: {
-        planning: 0,
-        in_progress: 0,
-        completed: 0,
-        on_hold: 0,
-        cancelled: 0
+      recentUpdates: [],
+      recentFiles: [],
+      workSchedule: {
+        todayTasks: [],
+        upcomingTasks: [],
+        totalTasks: 0,
+        completedToday: 0
       }
     };
   }
 }
 
-// Utility functions
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('en-NG', {
-    style: 'currency',
-    currency: 'NGN',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
-
-const formatDate = (date: Date): string => {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  }).format(date);
-};
-
-const formatTimeAgo = (date: Date): string => {
-  const now = new Date();
-  const diffInMs = now.getTime() - date.getTime();
-  const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-  
-  if (diffInDays === 0) return 'Today';
-  if (diffInDays === 1) return 'Yesterday';
-  if (diffInDays < 7) return `${diffInDays} days ago`;
-  if (diffInDays < 30) return `${Math.floor(diffInDays / 7)} weeks ago`;
-  return formatDate(date);
-};
-
-const getStatusColor = (status: string): string => {
-  switch (status) {
-    case 'completed':
-      return 'bg-green-100 text-green-800 border-green-200';
-    case 'in_progress':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
-    case 'planning':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'on_hold':
-      return 'bg-orange-100 text-orange-800 border-orange-200';
-    case 'cancelled':
-      return 'bg-red-100 text-red-800 border-red-200';
-    default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
-  }
-};
-
-const getPriorityColor = (priority: string): string => {
-  switch (priority) {
-    case 'urgent':
-      return 'bg-red-100 text-red-800 border-red-200';
-    case 'high':
-      return 'bg-orange-100 text-orange-800 border-orange-200';
-    case 'medium':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'low':
-      return 'bg-green-100 text-green-800 border-green-200';
-    default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
-  }
-};
-
-// Loading component for better UX
+// Loading component
 function ManagerDashboardLoading() {
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div className="space-y-2">
           <div className="h-8 bg-gray-200 rounded w-64 animate-pulse"></div>
           <div className="h-4 bg-gray-200 rounded w-96 animate-pulse"></div>
         </div>
-        <div className="h-10 bg-gray-200 rounded w-32 animate-pulse"></div>
       </div>
       
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {[...Array(4)].map((_, i) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[...Array(8)].map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-6">
               <div className="space-y-3">
@@ -557,7 +495,7 @@ function ManagerDashboardLoading() {
   );
 }
 
-// Main Manager Dashboard Component
+// Main Dashboard Component
 async function ManagerDashboard() {
   const session = await getServerSession(authOptions);
 
@@ -573,389 +511,387 @@ async function ManagerDashboard() {
     );
   }
 
-  const stats = await getManagerDashboardData(session.user.id);
+  const {
+    stats,
+    recentProjects,
+    recentUpdates,
+    recentFiles,
+    workSchedule
+  } = await getManagerDashboardData(session.user.id);
 
   return (
-    <div className="space-y-6">
-      {/* Enhanced Header with Mobile-First Design */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            Welcome back, {session.user.name?.split(' ')[0]}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            Here&apos;s an overview of your projects and tasks
-          </p>
+    <>
+      <div className="space-y-6">
+        {/* Header with Mobile-First Design */}
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              <span className="lg:hidden">Home</span>
+              <span className="hidden lg:block">Manager Dashboard</span>
+            </h1>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">
+              <span className="lg:hidden">Welcome back, {session.user.name?.split(' ')[0]}!</span>
+              <span className="hidden lg:block">Manage your projects and track progress</span>
+            </p>
+          </div>
+          
+          {/* Quick Action Button */}
+          <div className="lg:flex-shrink-0">
+            <Link href="/manager/projects/new">
+              <Button className="w-full lg:w-auto min-h-[44px] touch-manipulation">
+                <PlusCircle className="h-4 w-4 mr-2" />
+                New Project
+              </Button>
+            </Link>
+          </div>
         </div>
-        <Link href="/manager/projects/new">
-          <Button className="w-full sm:w-auto min-h-[44px] touch-manipulation">
-            <PlusCircle className="h-4 w-4 mr-2" />
-            New Project
-          </Button>
-        </Link>
-      </div>
 
-      {/* Key Metrics Cards - Responsive Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {/* Total Projects */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Projects</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.totalProjects}</p>
-                <p className="text-xs text-blue-600 mt-1">
-                  {stats.activeProjects} active
-                </p>
-              </div>
-              <FolderOpen className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
+        {/* Mobile Cards - NEW: Mobile app style cards (mobile only) */}
+        <div className="lg:hidden space-y-4">
+          {/* Primary Cards - Always visible */}
+          <div className="grid grid-cols-1 gap-4">
+            {/* Project Management Card */}
+            <MobileDashboardCard
+              title="My Projects"
+              description="Manage and track your assigned projects"
+              href="/manager/projects"
+              icon={FolderOpen}
+              color="blue"
+              stats={{ 
+                value: stats.activeProjects, 
+                label: "Active Projects" 
+              }}
+              subtitle="Project Management"
+            />
 
-        {/* Completion Rate */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div className="w-full">
-                <p className="text-sm font-medium text-gray-600">Avg Progress</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.averageProgress}%</p>
-                <div className="mt-2">
-                  <Progress value={stats.averageProgress} className="h-2" />
-                </div>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600 ml-4" />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Site Schedule Card */}
+            <MobileDashboardCard
+              title="Site Schedule"
+              description="Monitor project timeline and upcoming activities"
+              href="/manager/site-schedule"
+              icon={Calendar}
+              color="green"
+              stats={{ 
+                value: workSchedule.totalTasks, 
+                label: "Scheduled Tasks" 
+              }}
+              subtitle="Work Schedule"
+            />
+          </div>
 
-        {/* Tasks Overview */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Tasks</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.totalTasks}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs text-green-600">{stats.completedTasks} done</span>
-                  {stats.overdueTasks > 0 && (
-                    <Badge variant="destructive" className="text-xs">
-                      {stats.overdueTasks} overdue
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              <CheckCircle className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
+          {/* Secondary Cards - Shown when scrolling */}
+          <div className="grid grid-cols-1 gap-4 pt-2">
+            {/* Team Analytics Card */}
+            <MobileDashboardCard
+              title="Team Analytics"
+              description="View project performance and team metrics"
+              href="/manager/analytics"
+              icon={BarChart3}
+              color="purple"
+              stats={{ 
+                value: `${stats.averageProgress}%`, 
+                label: "Avg Progress" 
+              }}
+              subtitle="Performance Metrics"
+            />
 
-        {/* Upcoming Deadlines */}
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Due This Week</p>
-                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.upcomingDeadlines}</p>
-                <p className="text-xs text-orange-600 mt-1">
-                  {stats.clientCount} clients
-                </p>
-              </div>
-              <Clock className="h-8 w-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            {/* Client Communication Card */}
+            <MobileDashboardCard
+              title="Client Messages"
+              description="Communicate with your project clients"
+              href="/manager/messages"
+              icon={MessageSquare}
+              color="orange"
+              stats={{ 
+                value: stats.recentMessages, 
+                label: "Recent Messages" 
+              }}
+              subtitle="Team Communication"
+            />
 
-      {/* Content Grid - Mobile-First Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Projects - Takes 2 columns on large screens */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-            <CardTitle className="text-lg font-semibold">Recent Projects</CardTitle>
-            <Link href="/manager/projects">
-              <Button variant="ghost" size="sm" className="text-sm">
-                View All
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {stats.recentProjects.length > 0 ? (
-              stats.recentProjects.map((project) => (
-                <Link 
-                  key={project._id.toString()} 
-                  href={`/manager/projects/${project._id.toString()}`}
-                  className="block"
-                >
-                  <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="text-sm font-medium text-gray-900 truncate">
-                          {project.title}
-                        </h3>
-                        <Badge 
-                          variant="outline" 
-                          className={cn("text-xs", getStatusColor(project.status))}
-                        >
-                          {project.status.replace('_', ' ')}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-gray-500 mb-2 truncate">
-                        Client: {project.client.name}
-                      </p>
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span>{project.taskCount} tasks</span>
-                        <span>{project.completedTasks} completed</span>
-                        {project.upcomingDeadlines > 0 && (
-                          <span className="text-orange-600">
-                            {project.upcomingDeadlines} due soon
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right ml-4">
-                      <div className="text-lg font-semibold text-gray-900">
-                        {project.progress}%
-                      </div>
-                      <Progress value={project.progress} className="h-2 w-16 mt-1" />
-                    </div>
-                  </div>
-                </Link>
-              ))
-            ) : (
-              <div className="text-center py-8">
-                <FolderOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No projects yet</p>
-                <Link href="/manager/projects/new">
-                  <Button variant="outline" size="sm" className="mt-2">
-                    Create Your First Project
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            {/* Project Files Card */}
+            <MobileDashboardCard
+              title="Project Files"
+              description="Access project documents and files"
+              href="/manager/files"
+              icon={FileText}
+              color="pink"
+              stats={{ 
+                value: recentFiles.length, 
+                label: "Recent Files" 
+              }}
+              subtitle="Documents & Media"
+            />
 
-        {/* Urgent Tasks Sidebar */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-            <CardTitle className="text-lg font-semibold">Urgent Tasks</CardTitle>
-            <Link href="/manager/tasks">
-              <Button variant="ghost" size="sm" className="text-sm">
-                View All
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {stats.urgentTasks.length > 0 ? (
-              stats.urgentTasks.map((task) => (
-                <div key={task._id} className="p-3 border border-gray-200 rounded-lg">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-medium text-gray-900 truncate">
-                        {task.title}
-                      </h4>
-                      <p className="text-xs text-gray-500 truncate mt-1">
-                        {task.projectTitle}
-                      </p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge 
-                          variant="outline" 
-                          className={cn("text-xs", getPriorityColor(task.priority))}
-                        >
-                          {task.priority}
-                        </Badge>
-                        <span className="text-xs text-gray-500">
-                          Due {formatDate(new Date(task.deadline))}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-6">
-                <CheckCircle className="h-8 w-8 text-green-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">No urgent tasks</p>
-                <p className="text-xs text-gray-400">You&apos;re all caught up!</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            {/* Team Management Card */}
+            <MobileDashboardCard
+              title="Team Overview"
+              description="Manage clients and project assignments"
+              href="/manager/team"
+              icon={Users}
+              color="red"
+              stats={{ 
+                value: stats.clientCount, 
+                label: "Active Clients" 
+              }}
+              subtitle="Team Management"
+            />
+          </div>
+        </div>
 
-      {/* Project Status Overview & Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Project Status Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Project Status Overview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {Object.entries(stats.projectsByStatus).map(([status, count]) => (
-                <div key={status} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Badge 
-                      variant="outline" 
-                      className={cn("text-xs", getStatusColor(status))}
-                    >
-                      {status.replace('_', ' ').toUpperCase()}
-                    </Badge>
-                    <span className="text-sm font-medium">{count} projects</span>
-                  </div>
-                  <div className="flex-1 mx-4">
-                    <Progress 
-                      value={stats.totalProjects > 0 ? (count / stats.totalProjects) * 100 : 0} 
-                      className="h-2"
-                    />
-                  </div>
-                  <span className="text-xs text-gray-500 min-w-[3rem] text-right">
-                    {stats.totalProjects > 0 ? Math.round((count / stats.totalProjects) * 100) : 0}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions & Performance */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              Quick Actions & Performance
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Performance Metrics */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">{stats.thisMonthCompleted}</div>
-                <div className="text-xs text-green-700">Completed This Month</div>
-              </div>
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">
-                  {stats.totalBudget > 0 ? formatCurrency(stats.totalBudget) : 'N/A'}
-                </div>
-                <div className="text-xs text-blue-700">Total Budget</div>
-              </div>
-            </div>
-
-            {/* Quick Action Buttons */}
-            <div className="space-y-3">
-              <Link href="/manager/projects/new" className="block">
-                <Button className="w-full justify-start min-h-[44px]" variant="outline">
-                  <PlusCircle className="h-4 w-4 mr-2" />
-                  Create New Project
-                </Button>
-              </Link>
-              
-              <Link href="/manager/tasks" className="block">
-                <Button className="w-full justify-start min-h-[44px]" variant="outline">
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Manage Tasks
-                </Button>
-              </Link>
-              
-              <Link href="/manager/messages" className="block">
-                <Button className="w-full justify-start min-h-[44px]" variant="outline">
-                  <MessageSquare className="h-4 w-4 mr-2" />
-                  Client Messages
-                </Button>
-              </Link>
-              
-              <Link href="/manager/files" className="block">
-                <Button className="w-full justify-start min-h-[44px]" variant="outline">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Project Files
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Performance Summary */}
-      {stats.totalProjects > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Performance Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">
-                  {Math.round((stats.completedProjects / stats.totalProjects) * 100)}%
-                </div>
-                <div className="text-sm text-gray-500">Project Success Rate</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
-                  {stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%
-                </div>
-                <div className="text-sm text-gray-500">Task Completion Rate</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">{stats.clientCount}</div>
-                <div className="text-sm text-gray-500">Active Clients</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">
-                  {stats.totalProjects > 0 ? Math.round(stats.averageProgress) : 0}%
-                </div>
-                <div className="text-sm text-gray-500">Avg Progress</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Welcome Message for New Managers */}
-      {stats.totalProjects === 0 && (
-        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <FolderOpen className="h-8 w-8 text-blue-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Welcome to Your Project Dashboard!
-              </h3>
-              <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                Get started by creating your first project. You&apos;ll be able to track progress, 
-                manage tasks, and communicate with clients all in one place.
+        {/* Enhanced Header for desktop */}
+        <div className="hidden lg:block bg-gradient-to-r from-green-600 to-blue-600 rounded-lg p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-3xl font-bold mb-2">
+                Welcome back, {session.user.name}!
+              </h2>
+              <p className="text-green-100">
+                Manage your projects and keep clients updated with real-time progress
               </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <Link href="/manager/projects/new">
-                  <Button className="min-h-[44px]">
-                    <PlusCircle className="h-4 w-4 mr-2" />
-                    Create Your First Project
-                  </Button>
-                </Link>
-                <Link href="/manager/help">
-                  <Button variant="outline" className="min-h-[44px]">
-                    <Activity className="h-4 w-4 mr-2" />
-                    View Help Guide
-                  </Button>
-                </Link>
-              </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold">{stats.totalProjects}</p>
+              <p className="text-green-100 text-sm">Total Projects</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Updated Dashboard Cards with new features (desktop only) */}
+        <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <DashboardCard
+            title="Project Management"
+            description="View, create, and manage all your assigned projects"
+            href="/manager/projects"
+            icon={FolderOpen}
+            color="blue"
+            stats={{ value: stats.totalProjects, label: "Total Projects" }}
+          />
+          
+          <DashboardCard
+            title="Site Schedule"
+            description="Monitor project timeline, milestones, and daily activities"
+            href="/manager/site-schedule"
+            icon={Calendar}
+            color="green"
+            stats={{ value: workSchedule.totalTasks, label: "Scheduled Tasks" }}
+          />
+          
+          <DashboardCard
+            title="Team Analytics"
+            description="Track project performance and team productivity metrics"
+            href="/manager/analytics"
+            icon={BarChart3}
+            color="purple"
+            stats={{ value: stats.averageProgress, label: "Avg Progress %" }}
+          />
+        </div>
+
+        {/* Dashboard Grid - DESKTOP ONLY */}
+        <div className="hidden lg:grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Key Metrics */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Key Metrics Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-green-600" />
+                  Key Metrics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-blue-600">{stats.activeProjects}</div>
+                    <div className="text-sm text-gray-500">Active Projects</div>
+                  </div>
+                  
+                  <div>
+                    <div className="text-2xl font-bold text-green-600">{stats.completedProjects}</div>
+                    <div className="text-sm text-gray-500">Completed</div>
+                  </div>
+                  
+                  <div>
+                    <div className="text-2xl font-bold text-orange-600">{stats.clientCount}</div>
+                    <div className="text-sm text-gray-500">Active Clients</div>
+                  </div>
+                  
+                  <div>
+                    <div className="text-2xl font-bold text-purple-600">{stats.averageProgress}%</div>
+                    <div className="text-sm text-gray-500">Avg Progress</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card className="bg-gradient-to-br from-purple-50 to-indigo-50 border-purple-200">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Target className="h-5 w-5 text-purple-600" />
+                  Quick Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Link href="/manager/projects/new">
+                  <Button className="w-full justify-start bg-purple-600 hover:bg-purple-700 text-white">
+                    <PlusCircle className="h-4 w-4 mr-2" />
+                    Create New Project
+                  </Button>
+                </Link>
+                
+                <Link href="/manager/site-schedule">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    View Schedule
+                  </Button>
+                </Link>
+
+                <Link href="/manager/messages">
+                  <Button variant="outline" className="w-full justify-start">
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Check Messages
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column - Recent Activity */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Recent Projects */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <FolderOpen className="h-5 w-5 text-blue-600" />
+                  Recent Projects
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {recentProjects.length > 0 ? (
+                  <div className="space-y-3">
+                    {recentProjects.slice(0, 5).map((project) => (
+                      <div key={project._id} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50">
+                        <div className="flex-shrink-0">
+                          <div className={`w-3 h-3 rounded-full ${
+                            project.status === 'completed' ? 'bg-green-500' :
+                            project.status === 'in_progress' ? 'bg-blue-500' :
+                            'bg-yellow-500'
+                          }`}></div>
+                        </div>
+                        <div className="flex-grow min-w-0">
+                          <Link href={`/manager/projects/${project._id}`}>
+                            <p className="text-sm font-medium text-gray-900 truncate hover:text-blue-600">
+                              {project.title}
+                            </p>
+                          </Link>
+                          <p className="text-xs text-gray-500 truncate">
+                            Client: {project.clientName}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {formatTimeAgo(new Date(project.updatedAt))}
+                          </p>
+                        </div>
+                        <div className="flex-shrink-0">
+                          <Badge variant="secondary" className="text-xs">
+                            {project.progress}%
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <FolderOpen className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600">No projects yet</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent Files */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-purple-600" />
+                  Recent Files
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {recentFiles.length > 0 ? (
+                  <div className="space-y-3">
+                    {recentFiles.slice(0, 5).map((file) => (
+                      <div key={file._id} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50">
+                        <div className="flex-shrink-0">
+                          <FileText className="h-5 w-5 text-blue-500" />
+                        </div>
+                        <div className="flex-grow min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {file.originalName}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {file.projectTitle} • {file.uploadedBy.name}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {formatTimeAgo(new Date(file.createdAt))}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <FileText className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600">No recent files</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Welcome Message for New Managers */}
+        {stats.totalProjects === 0 && (
+          <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FolderOpen className="h-8 w-8 text-blue-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  Welcome to Your Project Dashboard!
+                </h3>
+                <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                  Get started by creating your first project. You&apos;ll be able to track progress, 
+                  manage tasks, and communicate with clients all in one place.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Link href="/manager/projects/new">
+                    <Button className="min-h-[44px]">
+                      <PlusCircle className="h-4 w-4 mr-2" />
+                      Create Your First Project
+                    </Button>
+                  </Link>
+                  <Link href="/manager/help">
+                    <Button variant="outline" className="min-h-[44px]">
+                      <Activity className="h-4 w-4 mr-2" />
+                      View Help Guide
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Floating AI Chatbot */}
+      <Suspense fallback={null}>
+        <div className="fixed bottom-4 right-4 z-[1000]">
+          <FloatingAIChatbot />
+        </div>
+      </Suspense>
+    </>
   );
 }
 
