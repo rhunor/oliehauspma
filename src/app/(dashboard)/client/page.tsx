@@ -1189,14 +1189,29 @@ export default async function ClientDashboardPage() {
             <RecentFilesCard files={recentFiles} />
           </div>
         </div>
+        
       </div>
-
-      {/* Floating AI Chatbot - FIXED: Proper positioning */}
-      <Suspense fallback={null}>
-        <div className="fixed bottom-4 right-4 z-[1000]">
-          <FloatingAIChatbot />
-        </div>
-      </Suspense>
+{/* Floating AI Chatbot - FIXED: Responsive positioning for mobile bottom nav */}
+<Suspense fallback={null}>
+  <div 
+    style={{
+      position: 'fixed',
+      bottom: '2rem', // Desktop spacing
+      right: '2rem',
+      zIndex: 2147483647,
+      pointerEvents: 'auto',
+      transform: 'translateZ(0)',
+      willChange: 'transform',
+      minHeight: '56px',
+      minWidth: '56px'
+    }}
+    className="floating-ai-button-container"
+  >
+    <FloatingAIChatbot />
+  </div>
+</Suspense>
+      
     </>
+    
   );
 }

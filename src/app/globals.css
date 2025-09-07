@@ -844,6 +844,87 @@
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 #f1f5f9;
 }
+
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Floating button specific fixes */
+.floating-button-container {
+  /* Ensure proper stacking context */
+  isolation: isolate;
+  /* Use transform3d to force hardware acceleration */
+  transform: translate3d(0, 0, 0);
+  /* Ensure clickable on mobile */
+  pointer-events: auto;
+}
+
+/* Mobile-specific positioning that accounts for bottom navigation */
+@media (max-width: 1023px) {
+  .floating-button-mobile {
+    bottom: calc(4rem + 1rem); /* 4rem for bottom nav + 1rem margin */
+    bottom: calc(4rem + 1rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* Desktop positioning */
+@media (min-width: 1024px) {
+  .floating-button-desktop {
+    bottom: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* Additional mobile viewport fixes */
+@supports (bottom: env(safe-area-inset-bottom)) {
+  .floating-button-container {
+    right: calc(1rem + env(safe-area-inset-right));
+  }
+}
+
+/* Prevent iOS zoom on touch */
+/* Responsive floating button positioning */
+.floating-ai-button-container {
+  position: fixed !important;
+  bottom: 2rem !important;
+  right: 2rem !important;
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+  isolation: isolate !important;
+}
+
+/* Mobile adjustment - move above bottom navigation */
+@media (max-width: 1023px) {
+  .floating-ai-button-container {
+    bottom: 6rem !important; /* 96px - moves it above the 4rem bottom nav */
+  }
+}
+
+/* Desktop positioning */
+@media (min-width: 1024px) {
+  .floating-ai-button-container {
+    bottom: 2rem !important; /* Normal desktop spacing */
+  }
+}
+
+/* Ensure the button itself has proper dimensions */
+.floating-ai-button-container > * {
+  position: relative !important;
+  pointer-events: auto !important;
+}
  /* .scrollable-container::-webkit-scrollbar {
           width: 6px;
         }
