@@ -1,132 +1,402 @@
-// src/app/api/projects/[id]/incidents/route.ts - INCIDENT REPORTING API (FIXED)
+// src/app/api/projects/[id]/incidents/route.ts - FIXED
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId, Filter } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
-// Import our types
-import type { IncidentReportDocument } from '@/lib/types/incident';
+// FIXED: Proper interface definitions
+interface InjuryDetails {
+  injuryType: 'none' | 'minor' | 'major' | 'fatality';
+  bodyPart?: string;
+  treatmentRequired?: boolean;
+  medicalAttention?: boolean;
+}
 
-// Interface for route params
-interface IncidentRouteParams {
+interface CommentItem {
+  _id: ObjectId;
+  userId: ObjectId;
+  userName: string;
+  userRole: string;
+  content: string;
+  createdAt: Date;
+}
+
+interface IncidentDocument {
+  _id?: ObjectId;
+  projectId: ObjectId;
+  incidentCode: string;
+  title: string;
+  description: string;
+  category: 'safety' | 'equipment' | 'environmental' | 'security' | 'quality' | 'other';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  location: string;
+  dateOccurred: Date;
+  timeOccurred: string;
+  reportedBy: ObjectId;
+  witnessNames: string[];
+  injuryDetails?: InjuryDetails;
+  equipmentInvolved: string[];
+  weatherConditions?: string;
+  immediateActions: string;
+  rootCause?: string;
+  correctiveActions?: string;
+  preventiveActions?: string;
+  status: 'open' | 'investigating' | 'resolved' | 'closed';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  assignedTo?: ObjectId;
+  photos: string[];
+  documents: string[];
+  followUpRequired: boolean;
+  followUpDate?: Date;
+  comments: CommentItem[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface RouteContext {
   params: Promise<{
     id: string;
   }>;
 }
 
-// Interface for create incident request
-interface CreateIncidentRequest {
-  title: string;
-  description: string;
-  category: 'safety' | 'equipment' | 'environmental' | 'security' | 'quality' | 'other';
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  location?: string;
-  dateOccurred: string;
-  timeOccurred?: string;
-  witnessNames?: string[];
-  injuryDetails?: {
-    injuryType: 'none' | 'minor' | 'major' | 'fatality';
-    bodyPart?: string;
-    treatmentRequired?: boolean;
-    medicalAttention?: boolean;
-  };
-  equipmentInvolved?: string[];
-  weatherConditions?: string;
-  immediateActions?: string;
-  rootCause?: string;
-  correctiveActions?: string;
-  preventiveActions?: string;
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
-  photos?: string[];
-  followUpRequired?: boolean;
-  followUpDate?: string;
+// Validate project access
+async function validateProjectAccess(
+  projectId: string,
+  userId: string,
+  userRole: string
+): Promise<boolean> {
+  const { db } = await connectToDatabase();
+
+  const project = await db.collection('projects').findOne({
+    _id: new ObjectId(projectId)
+  });
+
+  if (!project) return false;
+
+  if (userRole === 'super_admin') return true;
+  if (userRole === 'project_manager' && project.manager.equals(new ObjectId(userId))) return true;
+  if (userRole === 'client' && project.client.equals(new ObjectId(userId))) return true;
+
+  return false;
 }
 
-// GET /api/projects/[id]/incidents - Get project incidents
+// GET /api/projects/[id]/incidents - Get all incidents for a project
 export async function GET(
   request: NextRequest,
-  { params }: IncidentRouteParams
+  context: RouteContext
 ) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
       }, { status: 401 });
     }
 
-    const { id } = await params;
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Invalid project ID' 
+    const params = await context.params;
+    const projectId = params.id;
+
+    if (!ObjectId.isValid(projectId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid project ID'
+      }, { status: 400 });
+    }
+
+    // Validate access
+    const hasAccess = await validateProjectAccess(
+      projectId,
+      session.user.id,
+      session.user.role
+    );
+
+    if (!hasAccess) {
+      return NextResponse.json({
+        success: false,
+        error: 'Access denied'
+      }, { status: 403 });
+    }
+
+    const { db } = await connectToDatabase();
+
+    // Get incidents with reporter and assignee details
+    const incidents = await db.collection('incidents')
+      .aggregate([
+        { $match: { projectId: new ObjectId(projectId) } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'reportedBy',
+            foreignField: '_id',
+            as: 'reporterDetails',
+            pipeline: [{ $project: { password: 0 } }]
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'assignedTo',
+            foreignField: '_id',
+            as: 'assigneeDetails',
+            pipeline: [{ $project: { password: 0 } }]
+          }
+        },
+        {
+          $addFields: {
+            reportedBy: { $arrayElemAt: ['$reporterDetails', 0] },
+            assignedTo: { $arrayElemAt: ['$assigneeDetails', 0] }
+          }
+        },
+        {
+          $project: {
+            reporterDetails: 0,
+            assigneeDetails: 0
+          }
+        },
+        { $sort: { dateOccurred: -1, createdAt: -1 } }
+      ])
+      .toArray();
+
+    // Transform for client
+    const clientIncidents = incidents.map(incident => ({
+      _id: incident._id.toString(),
+      projectId: incident.projectId.toString(),
+      incidentCode: incident.incidentCode,
+      title: incident.title,
+      description: incident.description,
+      category: incident.category,
+      severity: incident.severity,
+      location: incident.location,
+      dateOccurred: incident.dateOccurred.toISOString(),
+      timeOccurred: incident.timeOccurred,
+      reportedBy: {
+        _id: incident.reportedBy?._id.toString() || '',
+        name: incident.reportedBy?.name || 'Unknown',
+        email: incident.reportedBy?.email || '',
+        role: incident.reportedBy?.role || 'unknown'
+      },
+      witnessNames: incident.witnessNames,
+      injuryDetails: incident.injuryDetails,
+      equipmentInvolved: incident.equipmentInvolved,
+      weatherConditions: incident.weatherConditions,
+      immediateActions: incident.immediateActions,
+      rootCause: incident.rootCause,
+      correctiveActions: incident.correctiveActions,
+      preventiveActions: incident.preventiveActions,
+      status: incident.status,
+      priority: incident.priority,
+      assignedTo: incident.assignedTo ? {
+        _id: incident.assignedTo._id.toString(),
+        name: incident.assignedTo.name,
+        email: incident.assignedTo.email
+      } : undefined,
+      photos: incident.photos,
+      documents: incident.documents,
+      followUpRequired: incident.followUpRequired,
+      followUpDate: incident.followUpDate?.toISOString(),
+      comments: incident.comments?.map((comment: CommentItem) => ({
+        _id: comment._id.toString(),
+        userId: comment.userId.toString(),
+        userName: comment.userName,
+        userRole: comment.userRole,
+        content: comment.content,
+        createdAt: comment.createdAt.toISOString()
+      })) || [],
+      createdAt: incident.createdAt.toISOString(),
+      updatedAt: incident.updatedAt.toISOString()
+    }));
+
+    return NextResponse.json({
+      success: true,
+      data: clientIncidents
+    });
+
+  } catch (error: unknown) {
+    console.error('Error fetching incidents:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
+    }, { status: 500 });
+  }
+}
+
+// POST /api/projects/[id]/incidents - Create new incident
+export async function POST(
+  request: NextRequest,
+  context: RouteContext
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({
+        success: false,
+        error: 'Unauthorized'
+      }, { status: 401 });
+    }
+
+    const params = await context.params;
+    const projectId = params.id;
+
+    if (!ObjectId.isValid(projectId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid project ID'
+      }, { status: 400 });
+    }
+
+    // Only admins and managers can create incidents
+    if (!['super_admin', 'project_manager'].includes(session.user.role)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Only administrators and project managers can create incident reports'
+      }, { status: 403 });
+    }
+
+    // Validate access
+    const hasAccess = await validateProjectAccess(
+      projectId,
+      session.user.id,
+      session.user.role
+    );
+
+    if (!hasAccess) {
+      return NextResponse.json({
+        success: false,
+        error: 'Access denied'
+      }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const {
+      title,
+      description,
+      category,
+      severity,
+      location,
+      dateOccurred,
+      timeOccurred,
+      witnessNames,
+      injuryDetails,
+      equipmentInvolved,
+      weatherConditions,
+      immediateActions,
+      rootCause,
+      correctiveActions,
+      preventiveActions,
+      assignedToId,
+      photos,
+      documents,
+      followUpRequired,
+      followUpDate
+    } = body;
+
+    // Validate required fields
+    if (!title || !description || !category || !severity || !location || !dateOccurred || !immediateActions) {
+      return NextResponse.json({
+        success: false,
+        error: 'Missing required fields'
       }, { status: 400 });
     }
 
     const { db } = await connectToDatabase();
-    const userId = new ObjectId(session.user.id);
 
-    // Check if user has access to this project
-    const projectFilter: Record<string, unknown> = { _id: new ObjectId(id) };
-    
-    if (session.user.role === 'client') {
-      projectFilter.client = userId;
-    } else if (session.user.role === 'project_manager') {
-      projectFilter.manager = userId;
+    // Generate incident code
+    const incidentCount = await db.collection('incidents').countDocuments({
+      projectId: new ObjectId(projectId)
+    });
+    const incidentCode = `INC-${String(incidentCount + 1).padStart(4, '0')}`;
+
+    // Validate assignedTo if provided
+    let assignedTo: ObjectId | undefined = undefined;
+    if (assignedToId) {
+      if (!ObjectId.isValid(assignedToId)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Invalid assignee ID'
+        }, { status: 400 });
+      }
+      assignedTo = new ObjectId(assignedToId);
     }
-    // Super admin has access to all projects
 
-    const project = await db.collection('projects').findOne(projectFilter);
-    if (!project) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Project not found or access denied' 
-      }, { status: 404 });
+    // Determine priority based on severity and injury type
+    let priority: 'low' | 'medium' | 'high' | 'urgent' = 'medium';
+    if (severity === 'critical' || injuryDetails?.injuryType === 'fatality') {
+      priority = 'urgent';
+    } else if (severity === 'high' || injuryDetails?.injuryType === 'major') {
+      priority = 'high';
+    } else if (severity === 'low') {
+      priority = 'low';
     }
 
-    // Get query parameters
-    const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '1');
-    const limit = parseInt(url.searchParams.get('limit') || '10');
-    const status = url.searchParams.get('status');
-    const severity = url.searchParams.get('severity');
-    const category = url.searchParams.get('category');
-
-    // Build incident filter using proper typing
-    const incidentFilter: Record<string, unknown> = { 
-      projectId: new ObjectId(id) 
+    // FIXED: Properly construct incident data with all fields
+    const incidentData: IncidentDocument = {
+      projectId: new ObjectId(projectId),
+      incidentCode,
+      title,
+      description,
+      category,
+      severity,
+      location,
+      dateOccurred: new Date(dateOccurred),
+      timeOccurred: timeOccurred || '',
+      reportedBy: new ObjectId(session.user.id),
+      witnessNames: witnessNames || [],
+      injuryDetails: injuryDetails || { injuryType: 'none' },
+      equipmentInvolved: equipmentInvolved || [],
+      weatherConditions: weatherConditions || '',
+      immediateActions,
+      rootCause: rootCause || '',
+      correctiveActions: correctiveActions || '',
+      preventiveActions: preventiveActions || '',
+      status: 'open',
+      priority,
+      assignedTo,
+      photos: photos || [],
+      documents: documents || [],
+      followUpRequired: followUpRequired || false,
+      followUpDate: followUpDate ? new Date(followUpDate) : undefined,
+      comments: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
 
-    if (status) incidentFilter.status = status;
-    if (severity) incidentFilter.severity = severity;
-    if (category) incidentFilter.category = category;
+    const result = await db.collection('incidents').insertOne(incidentData);
 
-    // Get incidents with pagination
-    const incidents = await db.collection<IncidentReportDocument>('incidentReports')
-      .find(incidentFilter)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
+    // Get created incident with reporter details
+    const createdIncident = await db.collection('incidents')
+      .aggregate([
+        { $match: { _id: result.insertedId } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'reportedBy',
+            foreignField: '_id',
+            as: 'reporterDetails',
+            pipeline: [{ $project: { password: 0 } }]
+          }
+        },
+        {
+          $addFields: {
+            reportedBy: { $arrayElemAt: ['$reporterDetails', 0] }
+          }
+        },
+        {
+          $project: { reporterDetails: 0 }
+        }
+      ])
       .toArray();
 
-    const totalCount = await db.collection('incidentReports').countDocuments(incidentFilter);
+    const incident = createdIncident[0];
 
-    // Get reporter names
-    const reporterIds = incidents.map(i => i.reportedBy).filter(Boolean);
-    const reporters = await db.collection('users')
-      .find({ _id: { $in: reporterIds } })
-      .project({ name: 1 })
-      .toArray();
-
-    // Transform for response
-    const transformedIncidents = incidents.map(incident => {
-      const reporter = reporters.find(r => r._id.equals(incident.reportedBy));
-      return {
-        _id: incident._id?.toString(),
+    return NextResponse.json({
+      success: true,
+      data: {
+        _id: incident._id.toString(),
         projectId: incident.projectId.toString(),
+        incidentCode: incident.incidentCode,
         title: incident.title,
         description: incident.description,
         category: incident.category,
@@ -134,8 +404,11 @@ export async function GET(
         location: incident.location,
         dateOccurred: incident.dateOccurred.toISOString(),
         timeOccurred: incident.timeOccurred,
-        reportedBy: incident.reportedBy.toString(),
-        reportedByName: reporter?.name || 'Unknown',
+        reportedBy: {
+          _id: incident.reportedBy._id.toString(),
+          name: incident.reportedBy.name,
+          email: incident.reportedBy.email
+        },
         witnessNames: incident.witnessNames,
         injuryDetails: incident.injuryDetails,
         equipmentInvolved: incident.equipmentInvolved,
@@ -146,174 +419,24 @@ export async function GET(
         preventiveActions: incident.preventiveActions,
         status: incident.status,
         priority: incident.priority,
-        assignedTo: incident.assignedTo?.toString(),
+        assignedTo: incident.assignedTo,
         photos: incident.photos,
         documents: incident.documents,
         followUpRequired: incident.followUpRequired,
         followUpDate: incident.followUpDate?.toISOString(),
+        comments: [],
         createdAt: incident.createdAt.toISOString(),
         updatedAt: incident.updatedAt.toISOString()
-      };
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        incidents: transformedIncidents,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
-      }
-    });
-
-  } catch (error: unknown) {
-    console.error('Error fetching incidents:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ 
-      success: false, 
-      error: errorMessage 
-    }, { status: 500 });
-  }
-}
-
-// POST /api/projects/[id]/incidents - Create incident report
-export async function POST(
-  request: NextRequest,
-  { params }: IncidentRouteParams
-) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Unauthorized' 
-      }, { status: 401 });
-    }
-
-    const { id } = await params;
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Invalid project ID' 
-      }, { status: 400 });
-    }
-
-    const body: CreateIncidentRequest = await request.json();
-    
-    // Validate required fields
-    if (!body.title || !body.description || !body.category || !body.severity || !body.dateOccurred) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing required fields: title, description, category, severity, dateOccurred' 
-      }, { status: 400 });
-    }
-
-    const { db } = await connectToDatabase();
-    const userId = new ObjectId(session.user.id);
-
-    // Check if user has access to this project
-    const projectFilter: Record<string, unknown> = { _id: new ObjectId(id) };
-    
-    if (session.user.role === 'client') {
-      projectFilter.client = userId;
-    } else if (session.user.role === 'project_manager') {
-      projectFilter.manager = userId;
-    }
-
-    const project = await db.collection('projects').findOne(projectFilter);
-    if (!project) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Project not found or access denied' 
-      }, { status: 404 });
-    }
-
-    // Get reporter name
-    const reporter = await db.collection('users').findOne(
-      { _id: userId },
-      { projection: { name: 1 } }
-    );
-
-    // Create incident report
-    const incidentDoc: IncidentReportDocument = {
-      projectId: new ObjectId(id),
-      title: body.title,
-      description: body.description,
-      category: body.category,
-      severity: body.severity,
-      location: body.location,
-      dateOccurred: new Date(body.dateOccurred),
-      timeOccurred: body.timeOccurred,
-      reportedBy: userId,
-      witnessNames: body.witnessNames,
-      injuryDetails: body.injuryDetails,
-      equipmentInvolved: body.equipmentInvolved,
-      weatherConditions: body.weatherConditions,
-      immediateActions: body.immediateActions,
-      rootCause: body.rootCause,
-      correctiveActions: body.correctiveActions,
-      preventiveActions: body.preventiveActions,
-      status: 'open',
-      priority: body.priority || 'medium',
-      photos: body.photos,
-      documents: [],
-      followUpRequired: body.followUpRequired || false,
-      followUpDate: body.followUpDate ? new Date(body.followUpDate) : undefined,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-
-    const result = await db.collection<IncidentReportDocument>('incidentReports').insertOne(incidentDoc);
-
-    const createdIncident = {
-      _id: result.insertedId.toString(),
-      projectId: incidentDoc.projectId.toString(),
-      title: incidentDoc.title,
-      description: incidentDoc.description,
-      category: incidentDoc.category,
-      severity: incidentDoc.severity,
-      location: incidentDoc.location,
-      dateOccurred: incidentDoc.dateOccurred.toISOString(),
-      timeOccurred: incidentDoc.timeOccurred,
-      reportedBy: incidentDoc.reportedBy.toString(),
-      reportedByName: reporter?.name || 'Unknown',
-      witnessNames: incidentDoc.witnessNames,
-      injuryDetails: incidentDoc.injuryDetails,
-      equipmentInvolved: incidentDoc.equipmentInvolved,
-      weatherConditions: incidentDoc.weatherConditions,
-      immediateActions: incidentDoc.immediateActions,
-      rootCause: incidentDoc.rootCause,
-      correctiveActions: incidentDoc.correctiveActions,
-      preventiveActions: incidentDoc.preventiveActions,
-      status: incidentDoc.status,
-      priority: incidentDoc.priority,
-      assignedTo: incidentDoc.assignedTo?.toString(),
-      photos: incidentDoc.photos,
-      documents: incidentDoc.documents,
-      followUpRequired: incidentDoc.followUpRequired,
-      followUpDate: incidentDoc.followUpDate?.toISOString(),
-      createdAt: incidentDoc.createdAt.toISOString(),
-      updatedAt: incidentDoc.updatedAt.toISOString()
-    };
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        incident: createdIncident,
-        message: 'Incident report created successfully'
-      }
+      },
+      message: 'Incident report created successfully'
     }, { status: 201 });
 
   } catch (error: unknown) {
-    console.error('Error creating incident report:', error);
+    console.error('Error creating incident:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ 
-      success: false, 
-      error: errorMessage 
+    return NextResponse.json({
+      success: false,
+      error: errorMessage
     }, { status: 500 });
   }
 }
