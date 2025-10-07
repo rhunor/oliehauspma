@@ -1,4 +1,4 @@
-// src/app/(dashboard)/client/daily-reports/page.tsx - ENHANCED WITH INCIDENT & RISK FEATURES
+// FILE: src/app/(dashboard)/client/daily-reports/page.tsx - WITH COMPLETED TASKS SECTION
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -11,12 +11,12 @@ import {
   Eye,
   AlertTriangle,
   Shield,
-  Plus,
   Clock,
   CheckCircle,
   TrendingUp,
   Filter,
-  Search
+  Search,
+  ListChecks
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,20 +30,33 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { 
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { formatDate } from '@/lib/utils';
 
-// Import our types
-import type { IncidentReport } from '@/lib/types/incident';
-import type { RiskRegisterItem } from '@/lib/types/risk';
+// Enhanced interfaces with on_hold status
+interface Activity {
+  _id: string;
+  title: string;
+  description: string;
+  contractor: string;
+  supervisor?: string;
+  startTime: string;
+  endTime: string;
+  status: 'completed' | 'in_progress' | 'delayed' | 'cancelled' | 'pending' | 'on_hold';
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  progress: number;
+  equipmentUsed: string[];
+  crewSize: number;
+  notes?: string;
+  photos?: string[];
+  completedAt?: string;
+}
 
-// Enhanced interfaces
 interface DailyReport {
   _id: string;
   projectId: string;
@@ -53,6 +66,10 @@ interface DailyReport {
   summary: {
     totalActivities: number;
     completedActivities: number;
+    inProgress: number;
+    pending: number;
+    delayed: number;
+    onHold: number;
     weatherConditions: string;
     crewCount: number;
     equipmentUsed: string[];
@@ -60,8 +77,6 @@ interface DailyReport {
     delays: string[];
     notes: string;
   };
-  incidents: IncidentReport[];
-  risks: RiskRegisterItem[];
   attachments: Array<{
     filename: string;
     url: string;
@@ -74,33 +89,34 @@ interface DailyReport {
   updatedAt: string;
 }
 
-interface Activity {
-  _id: string;
-  title: string;
-  description: string;
-  contractor: string;
-  supervisor?: string;
-  startTime: string;
-  endTime: string;
-  status: 'completed' | 'in_progress' | 'delayed' | 'cancelled';
-  progress: number;
-  equipmentUsed: string[];
-  crewSize: number;
-  notes?: string;
-  photos?: string[];
-}
-
 interface Project {
   _id: string;
   title: string;
   status: string;
-  manager: {
-    name: string;
-    email: string;
-  };
 }
 
-export default function EnhancedDailyReportsPage() {
+const getStatusColor = (status: string): string => {
+  switch (status) {
+    case 'completed': return 'bg-green-100 text-green-800';
+    case 'in_progress': return 'bg-blue-100 text-blue-800';
+    case 'pending': return 'bg-yellow-100 text-yellow-800';
+    case 'delayed': return 'bg-red-100 text-red-800';
+    case 'on_hold': return 'bg-gray-100 text-gray-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+};
+
+const getPriorityColor = (priority: string): string => {
+  switch (priority) {
+    case 'urgent': return 'bg-red-100 text-red-800';
+    case 'high': return 'bg-orange-100 text-orange-800';
+    case 'medium': return 'bg-blue-100 text-blue-800';
+    case 'low': return 'bg-green-100 text-green-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+};
+
+export default function ClientDailyReportsPage() {
   const { data: session } = useSession();
   const { toast } = useToast();
 
@@ -109,185 +125,199 @@ export default function EnhancedDailyReportsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [showIncidentDialog, setShowIncidentDialog] = useState(false);
-  const [showRiskDialog, setShowRiskDialog] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateFilter, setDateFilter] = useState<string>('last-7-days');
+  const [activeTab, setActiveTab] = useState<string>('all');
 
-  // Fetch data
+  // Fetch projects
   useEffect(() => {
-    if (session?.user?.id) {
-      fetchReports();
-      fetchProjects();
-    }
-  }, [session, selectedProject, dateFilter]);
+    const fetchProjects = async () => {
+      try {
+        const response = await fetch('/api/projects');
+        if (response.ok) {
+          const data = await response.json();
+          setProjects(data.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching projects:', error);
+      }
+    };
 
-  const fetchReports = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (selectedProject !== 'all') params.append('projectId', selectedProject);
-      if (dateFilter !== 'all') params.append('dateFilter', dateFilter);
-      
-      const response = await fetch(`/api/daily-reports?${params}`);
-      const data = await response.json();
-      
-      if (data.success) {
-        setReports(data.data.reports || []);
-      } else {
+    fetchProjects();
+  }, []);
+
+  // Fetch reports
+  useEffect(() => {
+    const fetchReports = async () => {
+      try {
+        setLoading(true);
+        const params = new URLSearchParams();
+        
+        if (selectedProject && selectedProject !== 'all') {
+          params.append('projectId', selectedProject);
+        }
+        
+        if (dateFilter) {
+          params.append('dateRange', dateFilter);
+        }
+
+        const response = await fetch(`/api/daily-reports?${params}`);
+        if (response.ok) {
+          const data = await response.json();
+          setReports(data.data || []);
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'Failed to load daily reports',
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching reports:', error);
         toast({
-          title: "Error",
-          description: data.error || "Failed to fetch reports",
-          variant: "destructive"
+          variant: 'destructive',
+          title: 'Error',
+          description: 'An error occurred while fetching reports',
         });
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error fetching reports:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch daily reports",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
+    };
+
+    fetchReports();
+  }, [selectedProject, dateFilter, toast]);
+
+  // Filter and categorize activities
+  const allActivities = reports.flatMap(report => 
+    report.activities.map(activity => ({
+      ...activity,
+      projectTitle: report.projectTitle,
+      projectId: report.projectId,
+      reportDate: report.date
+    }))
+  );
+
+  const completedTasks = allActivities.filter(a => a.status === 'completed');
+  const inProgressTasks = allActivities.filter(a => a.status === 'in_progress');
+  const pendingTasks = allActivities.filter(a => a.status === 'pending');
+  const delayedTasks = allActivities.filter(a => a.status === 'delayed');
+  const onHoldTasks = allActivities.filter(a => a.status === 'on_hold');
+
+  // Filter based on search
+  const filterActivities = (activities: typeof allActivities) => {
+    if (!searchTerm) return activities;
+    return activities.filter(activity =>
+      activity.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      activity.contractor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      activity.projectTitle.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  };
+
+  // Get activities based on active tab
+  const getDisplayActivities = () => {
+    switch (activeTab) {
+      case 'completed':
+        return filterActivities(completedTasks);
+      case 'in-progress':
+        return filterActivities(inProgressTasks);
+      case 'pending':
+        return filterActivities(pendingTasks);
+      case 'delayed':
+        return filterActivities(delayedTasks);
+      case 'on-hold':
+        return filterActivities(onHoldTasks);
+      default:
+        return filterActivities(allActivities);
     }
   };
 
-  const fetchProjects = async () => {
-    try {
-      const response = await fetch('/api/projects');
-      const data = await response.json();
-      
-      if (data.success) {
-        setProjects(data.data.projects || []);
-      }
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-    }
-  };
-
-  // Filter reports based on search
-  const filteredReports = reports.filter(report => {
-    const matchesSearch = searchQuery === '' || 
-      report.projectTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.summary.notes.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    return matchesSearch;
-  });
+  const displayActivities = getDisplayActivities();
 
   // Calculate statistics
   const stats = {
-    totalReports: filteredReports.length,
-    totalIncidents: filteredReports.reduce((sum, r) => sum + (r.incidents?.length || 0), 0),
-    totalRisks: filteredReports.reduce((sum, r) => sum + (r.risks?.length || 0), 0),
-    averageProgress: filteredReports.length > 0 
-      ? Math.round(filteredReports.reduce((sum, r) => {
-          const completed = r.summary.completedActivities;
-          const total = r.summary.totalActivities;
-          return sum + (total > 0 ? (completed / total) * 100 : 0);
-        }, 0) / filteredReports.length)
+    total: allActivities.length,
+    completed: completedTasks.length,
+    inProgress: inProgressTasks.length,
+    pending: pendingTasks.length,
+    delayed: delayedTasks.length,
+    onHold: onHoldTasks.length,
+    completionRate: allActivities.length > 0 
+      ? Math.round((completedTasks.length / allActivities.length) * 100)
       : 0
   };
-
-  const getStatusColor = (status: string): string => {
-    const colors: Record<string, string> = {
-      completed: 'bg-green-100 text-green-800',
-      in_progress: 'bg-blue-100 text-blue-800',
-      delayed: 'bg-red-100 text-red-800',
-      cancelled: 'bg-gray-100 text-gray-800'
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getSeverityColor = (severity: string): string => {
-    const colors: Record<string, string> = {
-      low: 'bg-green-100 text-green-800',
-      medium: 'bg-yellow-100 text-yellow-800',
-      high: 'bg-orange-100 text-orange-800',
-      critical: 'bg-red-100 text-red-800'
-    };
-    return colors[severity] || 'bg-gray-100 text-gray-800';
-  };
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading daily reports...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Daily Reports</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            Daily Activity Reports
+          </h1>
           <p className="text-sm sm:text-base text-gray-600 mt-1">
-            Progress updates, incidents, and risk assessments
+            Track daily progress and completed tasks across your projects
           </p>
         </div>
       </div>
 
-      {/* Enhanced Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Reports</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.totalReports}</p>
-              </div>
-              <FileText className="h-8 w-8 text-blue-600" />
+            <div className="text-center">
+              <ListChecks className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+              <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+              <p className="text-xs text-gray-600">Total Tasks</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Incidents Reported</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.totalIncidents}</p>
-              </div>
-              <AlertTriangle className="h-8 w-8 text-red-600" />
+            <div className="text-center">
+              <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
+              <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+              <p className="text-xs text-gray-600">Completed</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Active Risks</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.totalRisks}</p>
-              </div>
-              <Shield className="h-8 w-8 text-orange-600" />
+            <div className="text-center">
+              <Clock className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+              <div className="text-2xl font-bold text-blue-600">{stats.inProgress}</div>
+              <p className="text-xs text-gray-600">In Progress</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Avg Progress</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.averageProgress}%</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-purple-600" />
+            <div className="text-center">
+              <Calendar className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
+              <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+              <p className="text-xs text-gray-600">Pending</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <AlertTriangle className="h-8 w-8 text-red-600 mx-auto mb-2" />
+              <div className="text-2xl font-bold text-red-600">{stats.delayed}</div>
+              <p className="text-xs text-gray-600">Delayed</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <Shield className="h-8 w-8 text-gray-600 mx-auto mb-2" />
+              <div className="text-2xl font-bold text-gray-600">{stats.onHold}</div>
+              <p className="text-xs text-gray-600">On Hold</p>
             </div>
           </CardContent>
         </Card>
@@ -295,26 +325,23 @@ export default function EnhancedDailyReportsPage() {
 
       {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Search</label>
+              <label className="text-sm font-medium text-gray-700">Search</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder="Search reports..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search tasks..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Project</label>
+              <label className="text-sm font-medium text-gray-700">Project</label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Projects" />
@@ -331,334 +358,135 @@ export default function EnhancedDailyReportsPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Date Range</label>
+              <label className="text-sm font-medium text-gray-700">Date Range</label>
               <Select value={dateFilter} onValueChange={setDateFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="All Dates" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Dates</SelectItem>
                   <SelectItem value="today">Today</SelectItem>
-                  <SelectItem value="week">This Week</SelectItem>
-                  <SelectItem value="month">This Month</SelectItem>
+                  <SelectItem value="last-7-days">Last 7 Days</SelectItem>
+                  <SelectItem value="last-30-days">Last 30 Days</SelectItem>
+                  <SelectItem value="this-month">This Month</SelectItem>
+                  <SelectItem value="all">All Time</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Actions</label>
-              <Button 
-                onClick={() => {
-                  setSelectedProject('all');
-                  setDateFilter('all');
-                  setSearchQuery('');
-                }}
-                variant="outline"
-                className="w-full"
-              >
-                <Filter className="h-4 w-4 mr-2" />
-                Clear Filters
-              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Reports List */}
-      <div className="grid grid-cols-1 gap-6">
-        {filteredReports.length === 0 ? (
-          <Card>
-            <CardContent className="text-center py-12">
-              <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No reports found</h3>
-              <p className="text-gray-600 mb-4">
-                {reports.length === 0 
-                  ? "No daily reports have been submitted yet."
-                  : "Try adjusting your filters to see more reports."
-                }
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          filteredReports.map((report) => (
-            <Card key={report._id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="text-lg">{report.projectTitle}</CardTitle>
-                    <p className="text-sm text-gray-600">{formatDate(report.date)}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {report.summary.completedActivities}/{report.summary.totalActivities} activities
-                    </Badge>
-                    {report.incidents && report.incidents.length > 0 && (
-                      <Badge className="bg-red-100 text-red-800 text-xs">
-                        {report.incidents.length} incident{report.incidents.length !== 1 ? 's' : ''}
-                      </Badge>
-                    )}
-                    {report.risks && report.risks.length > 0 && (
-                      <Badge className="bg-orange-100 text-orange-800 text-xs">
-                        {report.risks.length} risk{report.risks.length !== 1 ? 's' : ''}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Activities Summary */}
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">Daily Activities</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {report.activities.slice(0, 2).map((activity) => (
-                      <div key={activity._id} className="p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="font-medium text-sm">{activity.title}</p>
-                          <Badge className={`text-xs ${getStatusColor(activity.status)}`}>
-                            {activity.status.replace('_', ' ')}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-gray-600 mb-1">
-                          Contractor: {activity.contractor}
-                        </p>
-                        <p className="text-xs text-gray-600">
-                          Progress: {activity.progress}%
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  {report.activities.length > 2 && (
-                    <p className="text-sm text-gray-500 mt-2">
-                      +{report.activities.length - 2} more activities
-                    </p>
-                  )}
-                </div>
+      {/* Tabs for Activity Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Activity Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
+              <TabsTrigger value="all">
+                All
+                <Badge variant="secondary" className="ml-2">{stats.total}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="completed">
+                Completed
+                <Badge variant="secondary" className="ml-2">{stats.completed}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="in-progress">
+                In Progress
+                <Badge variant="secondary" className="ml-2">{stats.inProgress}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="pending">
+                Pending
+                <Badge variant="secondary" className="ml-2">{stats.pending}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="delayed">
+                Delayed
+                <Badge variant="secondary" className="ml-2">{stats.delayed}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="on-hold">
+                On Hold
+                <Badge variant="secondary" className="ml-2">{stats.onHold}</Badge>
+              </TabsTrigger>
+            </TabsList>
 
-                {/* Incidents Section */}
-                {report.incidents && report.incidents.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4 text-red-600" />
-                      Incident Reports
-                    </h4>
-                    <div className="space-y-2">
-                      {report.incidents.slice(0, 2).map((incident) => (
-                        <div key={incident._id} className="p-3 bg-red-50 rounded-lg border border-red-200">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="font-medium text-sm text-red-900">{incident.title}</p>
-                            <div className="flex items-center gap-2">
-                              <Badge className={`text-xs ${getSeverityColor(incident.severity)}`}>
-                                {incident.severity}
+            <TabsContent value={activeTab} className="mt-6">
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="text-gray-600 mt-4">Loading activities...</p>
+                </div>
+              ) : displayActivities.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-600">No activities found</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {displayActivities.map((activity) => (
+                    <Card key={activity._id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h3 className="font-semibold text-gray-900">{activity.title}</h3>
+                              <Badge className={getStatusColor(activity.status)}>
+                                {activity.status.replace('_', ' ')}
                               </Badge>
-                              <Badge variant="outline" className="text-xs">
-                                {incident.category}
-                              </Badge>
+                              {activity.priority && (
+                                <Badge variant="outline" className={getPriorityColor(activity.priority)}>
+                                  {activity.priority}
+                                </Badge>
+                              )}
                             </div>
-                          </div>
-                          <p className="text-xs text-red-700 mb-1">
-                            {incident.description.length > 100 
-                              ? incident.description.substring(0, 100) + '...' 
-                              : incident.description}
-                          </p>
-                          <p className="text-xs text-red-600">
-                            Status: {incident.status} • Reported by: {incident.reportedByName}
-                          </p>
-                        </div>
-                      ))}
-                      {report.incidents.length > 2 && (
-                        <p className="text-sm text-red-600 mt-2">
-                          +{report.incidents.length - 2} more incidents
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Risk Register Section */}
-                {report.risks && report.risks.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
-                      <Shield className="h-4 w-4 text-orange-600" />
-                      Risk Register
-                    </h4>
-                    <div className="space-y-2">
-                      {report.risks.slice(0, 2).map((risk) => (
-                        <div key={risk._id} className="p-3 bg-orange-50 rounded-lg border border-orange-200">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="font-medium text-sm text-orange-900">
-                              {risk.riskCode}: {risk.riskDescription.length > 50 
-                                ? risk.riskDescription.substring(0, 50) + '...' 
-                                : risk.riskDescription}
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <Badge className="text-xs bg-orange-100 text-orange-800">
-                                Score: {risk.riskScore}
-                              </Badge>
-                              <Badge variant="outline" className="text-xs">
-                                {risk.category}
-                              </Badge>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600 mt-3">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-4 w-4" />
+                                <span>{formatDate(activity.reportDate)}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <FileText className="h-4 w-4" />
+                                <span>{activity.projectTitle}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4" />
+                                <span>{activity.startTime} - {activity.endTime}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4" />
+                                <span>{activity.contractor}</span>
+                              </div>
                             </div>
+
+                            {activity.description && (
+                              <p className="text-sm text-gray-700 mt-3">
+                                {activity.description}
+                              </p>
+                            )}
+
+                            {activity.status === 'completed' && activity.completedAt && (
+                              <div className="flex items-center gap-2 mt-3 text-sm text-green-600">
+                                <CheckCircle className="h-4 w-4" />
+                                <span>Completed on {formatDate(activity.completedAt)}</span>
+                              </div>
+                            )}
                           </div>
-                          <p className="text-xs text-orange-700 mb-1">
-                            Probability: {risk.probability} • Impact: {risk.impact}
-                          </p>
-                          <p className="text-xs text-orange-600">
-                            Status: {risk.status} • Owner: {risk.ownerName}
-                          </p>
+
+                          <Link href={`/client/projects/${activity.projectId}/schedule`}>
+                            <Button variant="outline" size="sm">
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </Button>
+                          </Link>
                         </div>
-                      ))}
-                      {report.risks.length > 2 && (
-                        <p className="text-sm text-orange-600 mt-2">
-                          +{report.risks.length - 2} more risks
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Summary */}
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">Summary</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-600">Weather</p>
-                      <p className="font-medium">{report.summary.weatherConditions}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Crew Count</p>
-                      <p className="font-medium">{report.summary.crewCount} workers</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Safety Incidents</p>
-                      <p className="font-medium">{report.summary.safetyIncidents}</p>
-                    </div>
-                  </div>
-                  {report.summary.notes && (
-                    <div className="mt-3">
-                      <p className="text-gray-600 text-sm">Notes</p>
-                      <p className="text-sm">{report.summary.notes}</p>
-                    </div>
-                  )}
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-
-                {/* Actions */}
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <Clock className="h-4 w-4" />
-                    <span>Updated {formatDate(report.updatedAt)}</span>
-                    <span>by {report.createdByName}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm">
-                      <Eye className="h-4 w-4 mr-1" />
-                      View Details
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Download className="h-4 w-4 mr-1" />
-                      Export
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
-
-      {/* Quick Action Dialogs for Adding Incidents and Risks */}
-      <div className="fixed bottom-6 right-6 flex flex-col gap-3">
-        {/* Add Incident Report Button */}
-        <Dialog open={showIncidentDialog} onOpenChange={setShowIncidentDialog}>
-          <DialogTrigger asChild>
-            <Button className="rounded-full h-12 w-12 bg-red-600 hover:bg-red-700 shadow-lg">
-              <AlertTriangle className="h-6 w-6" />
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Quick Incident Report</DialogTitle>
-              <DialogDescription>
-                Report a safety or operational incident. For detailed reports, use the full incident form.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="text-center py-8">
-                <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                <p className="text-gray-600 mb-4">
-                  Quick incident reporting will be available soon.
-                </p>
-                <div className="flex gap-2">
-                  <Link href="/client/incidents/new">
-                    <Button className="bg-red-600 hover:bg-red-700">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Full Incident Report
-                    </Button>
-                  </Link>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setShowIncidentDialog(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Add Risk Register Button */}
-        <Dialog open={showRiskDialog} onOpenChange={setShowRiskDialog}>
-          <DialogTrigger asChild>
-            <Button className="rounded-full h-12 w-12 bg-orange-600 hover:bg-orange-700 shadow-lg">
-              <Shield className="h-6 w-6" />
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Quick Risk Assessment</DialogTitle>
-              <DialogDescription>
-                Register a new project risk. For detailed assessments, use the full risk register form.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="text-center py-8">
-                <Shield className="h-12 w-12 text-orange-500 mx-auto mb-4" />
-                <p className="text-gray-600 mb-4">
-                  Quick risk registration will be available soon.
-                </p>
-                <div className="flex gap-2">
-                  <Link href="/client/risks/new">
-                    <Button className="bg-orange-600 hover:bg-orange-700">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Full Risk Assessment
-                    </Button>
-                  </Link>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setShowRiskDialog(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Info Banner */}
-      <Card className="bg-blue-50 border-blue-200">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-3">
-            <FileText className="h-5 w-5 text-blue-600 mt-0.5" />
-            <div>
-              <h4 className="font-medium text-blue-900 mb-1">Enhanced Daily Reports</h4>
-              <p className="text-sm text-blue-700">
-                Daily reports now include integrated incident reporting and risk register features. 
-                Click the floating action buttons to quickly report incidents or register risks.
-              </p>
-            </div>
-          </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

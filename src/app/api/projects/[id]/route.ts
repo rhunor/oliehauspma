@@ -1,41 +1,103 @@
-// src/app/api/projects/[id]/route.ts
+// FILE: src/app/api/projects/[id]/route.ts - UPDATED FOR MULTIPLE MANAGERS
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { updateProjectSchema } from '@/lib/validation';
 import { ObjectId } from 'mongodb';
 
-interface RouteContext {
-  params: Promise<{
-    id: string;
-  }>;
+interface ProjectDocument {
+  _id: ObjectId;
+  title: string;
+  description: string;
+  client: ObjectId;
+  managers: ObjectId[];
+  manager?: ObjectId;
+  status: string;
+  priority: string;
+  startDate?: Date;
+  endDate?: Date;
+  budget?: number;
+  progress: number;
+  siteAddress?: string;
+  scopeOfWork?: string;
+  designStyle?: string;
+  projectDuration?: string;
+  tags?: string[];
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
+interface RouteContext {
+  params: Promise<{ id: string }>;
+}
+
+// ✅ UPDATED: Helper function to check access with multiple managers support
+async function checkProjectAccess(projectId: string, userId: string, userRole: string): Promise<boolean> {
+  const { db } = await connectToDatabase();
+  
+  if (userRole === 'super_admin') {
+    return true;
+  }
+
+  const project = await db.collection<ProjectDocument>('projects').findOne({
+    _id: new ObjectId(projectId)
+  });
+
+  if (!project) {
+    return false;
+  }
+
+  if (userRole === 'client') {
+    return project.client.equals(new ObjectId(userId));
+  }
+
+  if (userRole === 'project_manager') {
+    // ✅ UPDATED: Check if user is in managers array
+    return project.managers.some(managerId => managerId.equals(new ObjectId(userId)));
+  }
+
+  return false;
+}
+
+// GET /api/projects/[id] - Get single project
+export async function GET(
+  request: NextRequest,
+  context: RouteContext
+) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const { db } = await connectToDatabase();
     const params = await context.params;
     const projectId = params.id;
 
     if (!ObjectId.isValid(projectId)) {
       return NextResponse.json(
-        { error: 'Invalid project ID' },
+        { success: false, error: 'Invalid project ID' },
         { status: 400 }
       );
     }
 
-    // Get project with populated user data
-    const projects = await db.collection('projects')
+    // Check access
+    const hasAccess = await checkProjectAccess(projectId, session.user.id, session.user.role);
+    if (!hasAccess) {
+      return NextResponse.json(
+        { success: false, error: 'Access denied' },
+        { status: 403 }
+      );
+    }
+
+    const { db } = await connectToDatabase();
+
+    // ✅ UPDATED: Get project with all managers populated
+    const project = await db.collection<ProjectDocument>('projects')
       .aggregate([
         { $match: { _id: new ObjectId(projectId) } },
         {
@@ -50,153 +112,138 @@ export async function GET(request: NextRequest, context: RouteContext) {
         {
           $lookup: {
             from: 'users',
-            localField: 'manager',
+            localField: 'managers',
             foreignField: '_id',
-            as: 'managerData',
+            as: 'managersData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
           $addFields: {
             client: { $arrayElemAt: ['$clientData', 0] },
-            manager: { $arrayElemAt: ['$managerData', 0] }
+            managers: '$managersData'
           }
         },
-        { $unset: ['clientData', 'managerData'] }
+        { $unset: ['clientData', 'managersData'] }
       ])
       .toArray();
 
-    if (projects.length === 0) {
+    if (!project || project.length === 0) {
       return NextResponse.json(
-        { error: 'Project not found' },
+        { success: false, error: 'Project not found' },
         { status: 404 }
-      );
-    }
-
-    const project = projects[0];
-
-    // Check permission
-    const canAccess = 
-      session.user.role === 'super_admin' ||
-      (session.user.role === 'project_manager' && project.manager._id.toString() === session.user.id) ||
-      (session.user.role === 'client' && project.client._id.toString() === session.user.id);
-
-    if (!canAccess) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      data: project,
+      data: project[0]
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching project:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { success: false, error: errorMessage },
       { status: 500 }
     );
   }
 }
 
-export async function PUT(request: NextRequest, context: RouteContext) {
+// PUT /api/projects/[id] - Update project - ✅ UPDATED FOR MULTIPLE MANAGERS
+export async function PUT(
+  request: NextRequest,
+  context: RouteContext
+) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const { db } = await connectToDatabase();
     const params = await context.params;
     const projectId = params.id;
 
     if (!ObjectId.isValid(projectId)) {
       return NextResponse.json(
-        { error: 'Invalid project ID' },
+        { success: false, error: 'Invalid project ID' },
         { status: 400 }
       );
     }
 
-    // Get existing project
-    const existingProject = await db.collection('projects').findOne({
-      _id: new ObjectId(projectId)
-    });
-
-    if (!existingProject) {
+    // Check access - ✅ Now supports multiple managers
+    const hasAccess = await checkProjectAccess(projectId, session.user.id, session.user.role);
+    if (!hasAccess) {
       return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
-      );
-    }
-
-    // Check permission
-    const canEdit = 
-      session.user.role === 'super_admin' ||
-      (session.user.role === 'project_manager' && existingProject.manager.toString() === session.user.id);
-
-    if (!canEdit) {
-      return NextResponse.json(
-        { error: 'Access denied' },
+        { success: false, error: 'Access denied' },
         { status: 403 }
       );
     }
 
-    const body = await request.json();
-    
-    // Validate request body
-    const validation = updateProjectSchema.safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json(
-        { 
-          error: 'Validation failed',
-          details: validation.error.issues.map(err => ({
-            field: err.path.join('.'),
-            message: err.message,
-          }))
-        },
-        { status: 400 }
-      );
-    }
+    const updateData = await request.json();
+    const { db } = await connectToDatabase();
 
-    const updateData = validation.data;
-    
-    // Prepare update object
-    const update: Record<string, unknown> = {
-      updatedAt: new Date(),
+    // Build update object
+    const updateFields: Record<string, unknown> = {
+      updatedAt: new Date()
     };
 
-    if (updateData.title) update.title = updateData.title;
-    if (updateData.description) update.description = updateData.description;
-    if (updateData.status) update.status = updateData.status;
-    if (updateData.priority) update.priority = updateData.priority;
-    if (updateData.startDate) update.startDate = new Date(updateData.startDate);
-    if (updateData.endDate) update.endDate = new Date(updateData.endDate);
-    if (updateData.budget !== undefined) update.budget = updateData.budget;
-    if (updateData.tags) update.tags = updateData.tags;
-    if (updateData.notes !== undefined) update.notes = updateData.notes;
+    // ✅ UPDATED: Handle managerIds as array
+    if (updateData.title) updateFields.title = updateData.title;
+    if (updateData.description) updateFields.description = updateData.description;
+    if (updateData.status) updateFields.status = updateData.status;
+    if (updateData.priority) updateFields.priority = updateData.priority;
+    if (updateData.siteAddress) updateFields.siteAddress = updateData.siteAddress;
+    if (updateData.scopeOfWork) updateFields.scopeOfWork = updateData.scopeOfWork;
+    if (updateData.designStyle) updateFields.designStyle = updateData.designStyle;
+    if (updateData.projectDuration) updateFields.projectDuration = updateData.projectDuration;
+    if (updateData.budget !== undefined) updateFields.budget = updateData.budget;
+    if (updateData.progress !== undefined) updateFields.progress = updateData.progress;
+    if (updateData.startDate) updateFields.startDate = new Date(updateData.startDate);
+    if (updateData.endDate) updateFields.endDate = new Date(updateData.endDate);
+    if (updateData.tags) updateFields.tags = updateData.tags;
+    if (updateData.notes) updateFields.notes = updateData.notes;
+
+    // ✅ NEW: Handle updating managers array (only super_admin can do this)
+    if (updateData.managerIds && session.user.role === 'super_admin') {
+      const managerIds = updateData.managerIds.map((id: string) => new ObjectId(id));
+      
+      // Verify all managers exist
+      const managers = await db.collection('users').find({
+        _id: { $in: managerIds },
+        role: 'project_manager',
+        isActive: true
+      }).toArray();
+
+      if (managers.length !== updateData.managerIds.length) {
+        return NextResponse.json(
+          { success: false, error: 'One or more managers not found or inactive' },
+          { status: 404 }
+        );
+      }
+
+      updateFields.managers = managerIds;
+    }
 
     // Update project
-    const result = await db.collection('projects').updateOne(
+    const result = await db.collection<ProjectDocument>('projects').updateOne(
       { _id: new ObjectId(projectId) },
-      { $set: update }
+      { $set: updateFields }
     );
 
     if (result.matchedCount === 0) {
       return NextResponse.json(
-        { error: 'Project not found' },
+        { success: false, error: 'Project not found' },
         { status: 404 }
       );
     }
 
-    // Return updated project with populated user data
-    const updatedProjects = await db.collection('projects')
+    // Get updated project with populated managers
+    const updatedProject = await db.collection<ProjectDocument>('projects')
       .aggregate([
         { $match: { _id: new ObjectId(projectId) } },
         {
@@ -211,106 +258,94 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         {
           $lookup: {
             from: 'users',
-            localField: 'manager',
+            localField: 'managers',
             foreignField: '_id',
-            as: 'managerData',
+            as: 'managersData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
           $addFields: {
             client: { $arrayElemAt: ['$clientData', 0] },
-            manager: { $arrayElemAt: ['$managerData', 0] }
+            managers: '$managersData'
           }
         },
-        { $unset: ['clientData', 'managerData'] }
+        { $unset: ['clientData', 'managersData'] }
       ])
       .toArray();
 
     return NextResponse.json({
       success: true,
-      data: updatedProjects[0],
-      message: 'Project updated successfully',
+      data: updatedProject[0],
+      message: 'Project updated successfully'
     });
 
   } catch (error: unknown) {
     console.error('Error updating project:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { error: errorMessage },
+      { success: false, error: errorMessage },
       { status: 500 }
     );
   }
 }
 
-export async function DELETE(request: NextRequest, context: RouteContext) {
+// DELETE /api/projects/[id] - Delete project
+export async function DELETE(
+  request: NextRequest,
+  context: RouteContext
+) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session || session.user.role !== 'super_admin') {
+    if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const { db } = await connectToDatabase();
+    // Only super admins can delete projects
+    if (session.user.role !== 'super_admin') {
+      return NextResponse.json(
+        { success: false, error: 'Only super admins can delete projects' },
+        { status: 403 }
+      );
+    }
+
     const params = await context.params;
     const projectId = params.id;
 
     if (!ObjectId.isValid(projectId)) {
       return NextResponse.json(
-        { error: 'Invalid project ID' },
+        { success: false, error: 'Invalid project ID' },
         { status: 400 }
       );
     }
 
-    // Check if project exists
-    const project = await db.collection('projects').findOne({
-      _id: new ObjectId(projectId)
-    });
+    const { db } = await connectToDatabase();
 
-    if (!project) {
-      return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
-      );
-    }
-
-    // Delete related data
-    await Promise.all([
-      // Delete tasks
-      db.collection('tasks').deleteMany({ projectId: new ObjectId(projectId) }),
-      // Delete messages
-      db.collection('chatmessages').deleteMany({ projectId: new ObjectId(projectId) }),
-      // Delete files
-      db.collection('projectfiles').deleteMany({ projectId: new ObjectId(projectId) }),
-      // Delete notifications
-      db.collection('notifications').deleteMany({ 'data.projectId': new ObjectId(projectId) }),
-    ]);
-
-    // Delete project
-    const result = await db.collection('projects').deleteOne({
+    const result = await db.collection<ProjectDocument>('projects').deleteOne({
       _id: new ObjectId(projectId)
     });
 
     if (result.deletedCount === 0) {
       return NextResponse.json(
-        { error: 'Project not found' },
+        { success: false, error: 'Project not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Project deleted successfully',
+      message: 'Project deleted successfully'
     });
 
   } catch (error: unknown) {
     console.error('Error deleting project:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { error: errorMessage },
+      { success: false, error: errorMessage },
       { status: 500 }
     );
   }

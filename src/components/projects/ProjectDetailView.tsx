@@ -1,4 +1,4 @@
-// src/components/projects/ProjectDetailView.tsx - FIXED: Button Navigation and Responsivity
+// FILE: src/components/projects/ProjectDetailView.tsx - COMPLETE WITH MULTIPLE MANAGERS
 'use client';
 
 import { useState } from 'react';
@@ -34,7 +34,6 @@ import {
   Plus
 } from 'lucide-react';
 import Link from 'next/link';
-import Image from 'next/image';
 
 // Complete TypeScript interfaces
 interface ProjectFile {
@@ -112,7 +111,7 @@ interface ProjectData {
   title: string;
   description: string;
   client: ProjectUser;
-  manager: ProjectUser;
+  managers: ProjectUser[]; // ✅ CHANGED: Multiple managers
   siteAddress: string;
   scopeOfWork?: string;
   designStyle?: string;
@@ -228,13 +227,15 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
     }).format(amount);
   };
 
+  // ✅ UPDATED: Check if user is any of the managers
+  const isProjectManager = project.managers?.some(manager => manager._id === userId);
+  
   const canEdit = userRole === 'super_admin' || 
-                 (userRole === 'project_manager' && project.manager._id === userId);
+                 (userRole === 'project_manager' && isProjectManager);
 
   const canUploadFiles = userRole === 'super_admin' || 
-                        (userRole === 'project_manager' && project.manager._id === userId);
+                        (userRole === 'project_manager' && isProjectManager);
 
-  // FIXED: Get proper role-based paths for navigation
   const getRoleBasePath = () => {
     switch (userRole) {
       case 'super_admin': return '/admin';
@@ -246,13 +247,12 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
 
   return (
     <div className="w-full space-y-4 sm:space-y-6">
-      {/* FIXED: Mobile-first responsive header - prevent button overflow */}
+      {/* Header */}
       <div className="flex flex-col gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 break-words">{project.title}</h1>
           <p className="text-sm sm:text-base text-gray-600 mt-1 line-clamp-3">{project.description}</p>
           
-          {/* FIXED: Responsive badges and progress - wrap on mobile */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-3 sm:mt-4">
             <Badge className={getStatusColor(project.status)}>
               {project.status.replace('_', ' ').toUpperCase()}
@@ -267,7 +267,6 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
           </div>
         </div>
         
-        {/* FIXED: Responsive action buttons - no overflow on mobile */}
         <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-shrink-0">
           {canEdit && (
             <Button variant="outline" size="sm" asChild className="w-full sm:w-auto text-xs sm:text-sm">
@@ -287,7 +286,7 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
         </div>
       </div>
 
-      {/* FIXED: Responsive progress bar */}
+      {/* Progress Bar */}
       <Card>
         <CardContent className="p-4 sm:p-6">
           <div className="flex items-center justify-between mb-2">
@@ -303,12 +302,10 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
         </CardContent>
       </Card>
 
-      {/* FIXED: Mobile-first responsive content layout */}
+      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Main content area */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            {/* FIXED: Responsive tabs list */}
             <TabsList className="grid w-full grid-cols-4 h-auto p-1">
               <TabsTrigger value="overview" className="text-xs sm:text-sm px-2 py-2">Overview</TabsTrigger>
               <TabsTrigger value="schedule" className="text-xs sm:text-sm px-2 py-2">Schedule</TabsTrigger>
@@ -323,7 +320,6 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
                   <CardTitle className="text-base sm:text-lg">Project Details</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 sm:space-y-4">
-                  {/* FIXED: Responsive grid layout */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
                     <div>
                       <span className="font-medium text-gray-600">Site Address:</span>
@@ -373,7 +369,7 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
               </Card>
             </TabsContent>
 
-            {/* Schedule Tab - FIXED: Proper navigation to schedule page */}
+            {/* Schedule Tab */}
             <TabsContent value="schedule" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
               {project.siteSchedule && project.siteSchedule.phases.length > 0 ? (
                 <div className="space-y-4">
@@ -540,7 +536,7 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
               )}
             </TabsContent>
 
-            {/* Milestones Tab - FIXED: Proper navigation to milestones page */}
+            {/* Milestones Tab */}
             <TabsContent value="milestones" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <h3 className="text-base sm:text-lg font-semibold">Project Milestones</h3>
@@ -612,7 +608,7 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
           </Tabs>
         </div>
 
-        {/* FIXED: Mobile-first responsive sidebar */}
+        {/* Sidebar */}
         <div className="space-y-4 sm:space-y-6">
           {/* Client Information */}
           <Card>
@@ -649,38 +645,46 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
             </CardContent>
           </Card>
 
-          {/* Project Manager Information */}
+          {/* ✅ UPDATED: Project Managers - Multiple */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base sm:text-lg flex items-center gap-2">
                 <Briefcase className="h-4 w-4 sm:h-5 sm:w-5" />
-                Project Manager
+                Project {project.managers && project.managers.length > 1 ? 'Managers' : 'Manager'}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center gap-3">
-                <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
-                  <AvatarFallback className="text-xs sm:text-sm">
-                    {project.manager.name.split(' ').map(n => n[0]).join('')}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-sm sm:text-base truncate">{project.manager.name}</p>
-                  <p className="text-xs sm:text-sm text-gray-500 capitalize">{project.manager.role}</p>
-                </div>
-              </div>
-              <div className="space-y-2 text-xs sm:text-sm">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="truncate">{project.manager.email}</span>
-                </div>
-                {project.manager.phone && (
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
-                    <span>{project.manager.phone}</span>
+              {project.managers && project.managers.length > 0 ? (
+                project.managers.map((manager) => (
+                  <div key={manager._id} className="p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
+                        <AvatarFallback className="bg-blue-100 text-blue-700 text-xs sm:text-sm">
+                          {manager.name.split(' ').map(n => n[0]).join('')}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm sm:text-base truncate">{manager.name}</p>
+                        <p className="text-xs sm:text-sm text-gray-500 capitalize">{manager.role}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-xs sm:text-sm">
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Mail className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                        <span className="truncate">{manager.email}</span>
+                      </div>
+                      {manager.phone && (
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <Phone className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                          <span>{manager.phone}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500">No managers assigned</p>
+              )}
             </CardContent>
           </Card>
 
@@ -713,6 +717,10 @@ export default function ProjectDetailView({ project, userRole, userId }: Project
               <div className="flex items-center justify-between">
                 <span className="text-xs sm:text-sm text-gray-500">Milestones</span>
                 <span className="font-medium text-sm">{project.milestones?.length || 0}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm text-gray-500">Managers</span>
+                <span className="font-medium text-sm">{project.managers?.length || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs sm:text-sm text-gray-500">Work Days</span>

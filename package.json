@@ -11,7 +11,8 @@
     "db:init": "node scripts/init-database.js",
     "db:seed": "node scripts/init-database.js",
     "db:test": "node scripts/test-connection.js",
-    "db:migrate": "node scripts/migrate-database.js"
+    "db:migrate": "node scripts/migrate-database.js",
+    "migrate:managers": "tsx scripts/migrateToMultipleManagers.ts"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.10.0",
@@ -38,7 +39,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "dotenv": "^17.2.1",
+    "dotenv": "^17.2.3",
     "file-type": "^21.0.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.536.0",
@@ -73,6 +74,7 @@
     "eslint-config-next": "15.4.5",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.20.6",
     "typescript": "^5"
   }
 }

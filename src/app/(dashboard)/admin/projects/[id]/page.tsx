@@ -1,4 +1,4 @@
-// src/app/(dashboard)/admin/projects/[id]/page.tsx - FIXED: Fully Responsive
+// FILE: src/app/(dashboard)/admin/projects/[id]/page.tsx - FIXED FOR MULTIPLE MANAGERS
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
@@ -12,6 +12,14 @@ interface ProjectDetailPageProps {
   }>;
 }
 
+interface UserData {
+  _id: ObjectId;
+  name: string;
+  email: string;
+  role: string;
+  phone?: string;
+}
+
 // Helper function to safely convert dates to ISO strings
 const safeToISOString = (date: unknown): string => {
   if (!date) return '';
@@ -23,6 +31,15 @@ const safeToISOString = (date: unknown): string => {
   }
 };
 
+// Helper to serialize user data
+const serializeUser = (user: UserData) => ({
+  _id: user._id.toString(),
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  phone: user.phone
+});
+
 async function getProjectById(projectId: string) {
   if (!ObjectId.isValid(projectId)) {
     return null;
@@ -31,6 +48,7 @@ async function getProjectById(projectId: string) {
   try {
     const { db } = await connectToDatabase();
     
+    // ✅ UPDATED: Lookup both managers array and single manager for backward compatibility
     const project = await db.collection('projects').aggregate([
       { $match: { _id: new ObjectId(projectId) } },
       {
@@ -45,19 +63,19 @@ async function getProjectById(projectId: string) {
       {
         $lookup: {
           from: 'users',
-          localField: 'manager',
+          localField: 'managers',
           foreignField: '_id',
-          as: 'managerData',
+          as: 'managersData',
           pipeline: [{ $project: { password: 0 } }]
         }
       },
       {
         $addFields: {
           client: { $arrayElemAt: ['$clientData', 0] },
-          manager: { $arrayElemAt: ['$managerData', 0] }
+          managers: '$managersData'
         }
       },
-      { $unset: ['clientData', 'managerData'] }
+      { $unset: ['clientData', 'managersData'] }
     ]).toArray();
 
     return project[0] || null;
@@ -73,7 +91,6 @@ export default async function AdminProjectDetailPage({ params }: ProjectDetailPa
   if (!session?.user?.id || session.user.role !== 'super_admin') {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
-        {/* FIXED: Responsive error message */}
         <div className="text-center max-w-md mx-auto">
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
           <p className="text-sm sm:text-base text-gray-600">You don&apos;t have permission to access this page.</p>
@@ -89,54 +106,63 @@ export default async function AdminProjectDetailPage({ params }: ProjectDetailPa
     notFound();
   }
 
-  // CRITICAL FIX: Ensure all data is serializable and properly formatted
+  // ✅ FIXED: Ensure client exists before serializing
+  if (!project.client) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="text-center max-w-md mx-auto">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Invalid Project Data</h2>
+          <p className="text-sm sm:text-base text-gray-600">This project does not have a client assigned.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ FIXED: Properly serialize all data including managers array
   const clientProject = {
     _id: project._id.toString(),
-    title: project.title,
-    description: project.description,
-    client: {
-      _id: project.client._id.toString(),
-      name: project.client.name,
-      email: project.client.email,
-      role: project.client.role,
-      phone: project.client.phone
-    },
-    manager: {
-      _id: project.manager._id.toString(),
-      name: project.manager.name,
-      email: project.manager.email,
-      role: project.manager.role,
-      phone: project.manager.phone
-    },
-    siteAddress: project.siteAddress,
-    scopeOfWork: project.scopeOfWork,
-    designStyle: project.designStyle,
-    status: project.status,
-    priority: project.priority,
+    title: project.title || '',
+    description: project.description || '',
+    client: serializeUser(project.client), // ✅ Now guaranteed to exist
+    managers: Array.isArray(project.managers) 
+      ? project.managers.map((manager: UserData) => serializeUser(manager))
+      : [],
+    siteAddress: project.siteAddress || '',
+    scopeOfWork: project.scopeOfWork || '',
+    designStyle: project.designStyle || '',
+    status: project.status || 'planning',
+    priority: project.priority || 'medium',
     startDate: safeToISOString(project.startDate),
     endDate: safeToISOString(project.endDate),
-    projectDuration: project.projectDuration,
-    budget: project.budget,
-    progress: project.progress,
+    projectDuration: project.projectDuration || '',
+    budget: project.budget || 0,
+    progress: project.progress || 0,
     siteSchedule: project.siteSchedule ? {
       phases: project.siteSchedule.phases || [],
       totalActivities: project.siteSchedule.totalActivities || 0,
-      completedActivities: project.siteSchedule.completedActivities || 0
+      completedActivities: project.siteSchedule.completedActivities || 0,
+      lastUpdated: safeToISOString(project.siteSchedule.lastUpdated)
     } : undefined,
-    projectCoordinator: project.projectCoordinator,
-    siteOfficer: project.siteOfficer,
-    workDays: project.workDays,
+    projectCoordinator: project.projectCoordinator || '',
+    siteOfficer: project.siteOfficer || '',
+    workDays: project.workDays || [],
     files: project.files || [],
-    milestones: project.milestones || [],
+    milestones: Array.isArray(project.milestones) 
+      ? project.milestones.map((milestone: Record<string, unknown>) => ({
+          name: milestone.name as string || 'Unnamed Milestone',
+          description: milestone.description as string | undefined,
+          dueDate: safeToISOString(milestone.dueDate) || safeToISOString(milestone.targetDate),
+          status: (milestone.status as 'pending' | 'in_progress' | 'completed') || 'pending'
+        }))
+      : [],
     tags: project.tags || [],
-    notes: project.notes,
+    notes: project.notes || '',
     createdAt: safeToISOString(project.createdAt),
     updatedAt: safeToISOString(project.updatedAt)
   };
 
   return (
     <div className="min-h-screen">
-      {/* FIXED: Mobile-first responsive container */}
       <div className="w-full max-w-7xl mx-auto p-4 sm:p-6">
         <ProjectDetailView 
           project={clientProject}

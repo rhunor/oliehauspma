@@ -1,42 +1,42 @@
-// FILE: src/models/DailyProgress.ts - ENHANCED VERSION
-// ✅ ENHANCED: Extended IDailyActivity interface to support frontend features
-
+// FILE: src/models/DailyProgress.ts - UPDATED WITH ON_HOLD STATUS
 import mongoose, { Schema, Model, Types } from 'mongoose';
 
-// ✅ ENHANCED: Extended IDailyActivity interface with all properties the frontend needs
+// ✅ UPDATED: Added 'on_hold' status
 export interface IDailyActivity {
   _id?: Types.ObjectId;
   title: string;
-  description?: string; // ✅ ADDED: Activity description
+  description?: string;
   contractor: string;
   supervisor: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
-  priority?: 'low' | 'medium' | 'high' | 'urgent'; // ✅ ADDED: Priority levels
-  category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other'; // ✅ ADDED: Activity categories
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   startTime?: string;
   endTime?: string;
-  estimatedDuration?: number; // ✅ ADDED: Estimated duration in minutes
-  actualDuration?: number; // ✅ ADDED: Actual duration in minutes
-  plannedDate?: Date; // ✅ ADDED: Planned start date
-  actualDate?: Date; // ✅ ADDED: Actual completion date
+  estimatedDuration?: number;
+  actualDuration?: number;
+  plannedDate?: Date;
+  actualDate?: Date;
   comments?: string;
   images?: string[];
   incidentReport?: string;
-  progress?: number; // ✅ ADDED: Progress percentage (0-100)
+  progress?: number;
   createdBy?: Types.ObjectId;
   updatedBy?: Types.ObjectId;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+// ✅ UPDATED: Added onHold count
 export interface IDailySummary {
   totalActivities: number;
   completed: number;
   inProgress: number;
   pending: number;
   delayed: number;
-  totalHours?: number; // ✅ ADDED: Total hours worked
-  crewSize?: number; // ✅ ADDED: Number of crew members
+  onHold: number;
+  totalHours?: number;
+  crewSize?: number;
 }
 
 export interface IDailyProgress {
@@ -60,7 +60,7 @@ export interface IDailyProgressDocument extends IDailyProgress, mongoose.Documen
   _id: Types.ObjectId;
 }
 
-// ✅ ENHANCED: Updated schema with new fields
+// ✅ UPDATED: Schema with on_hold status
 const dailyActivitySchema = new Schema<IDailyActivity>({
   title: {
     type: String,
@@ -68,7 +68,7 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
   },
   description: {
     type: String,
-    default: '' // ✅ ADDED: Description field
+    default: ''
   },
   contractor: {
     type: String,
@@ -80,34 +80,34 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
   },
   status: {
     type: String,
-    enum: ['pending', 'in_progress', 'completed', 'delayed'],
+    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
     required: true,
     default: 'pending'
   },
   priority: {
     type: String,
     enum: ['low', 'medium', 'high', 'urgent'],
-    default: 'medium' // ✅ ADDED: Priority field
+    default: 'medium'
   },
   category: {
     type: String,
     enum: ['structural', 'electrical', 'plumbing', 'finishing', 'other'],
-    default: 'structural' // ✅ ADDED: Category field
+    default: 'structural'
   },
   startTime: String,
   endTime: String,
   estimatedDuration: {
     type: Number,
-    default: 60 // ✅ ADDED: Estimated duration in minutes
+    default: 60
   },
   actualDuration: {
-    type: Number // ✅ ADDED: Actual duration in minutes
+    type: Number
   },
   plannedDate: {
-    type: Date // ✅ ADDED: Planned start date
+    type: Date
   },
   actualDate: {
-    type: Date // ✅ ADDED: Actual completion date
+    type: Date
   },
   comments: String,
   images: [String],
@@ -116,7 +116,7 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
     type: Number,
     min: 0,
     max: 100,
-    default: 0 // ✅ ADDED: Progress percentage
+    default: 0
   },
   createdBy: {
     type: Schema.Types.ObjectId,
@@ -128,7 +128,7 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
   }
 }, { timestamps: true });
 
-// ✅ ENHANCED: Updated summary schema
+// ✅ UPDATED: Summary schema with onHold field
 const dailyProgressSchema = new Schema<IDailyProgressDocument>({
   project: {
     type: Schema.Types.ObjectId,
@@ -161,13 +161,17 @@ const dailyProgressSchema = new Schema<IDailyProgressDocument>({
       type: Number,
       default: 0
     },
+    onHold: {
+      type: Number,
+      default: 0
+    },
     totalHours: {
       type: Number,
-      default: 0 // ✅ ADDED: Total hours field
+      default: 0
     },
     crewSize: {
       type: Number,
-      default: 0 // ✅ ADDED: Crew size field
+      default: 0
     }
   },
   weatherCondition: String,
@@ -197,7 +201,7 @@ dailyProgressSchema.index({ 'activities.status': 1 });
 dailyProgressSchema.index({ 'activities.priority': 1 });
 dailyProgressSchema.index({ 'activities.category': 1 });
 
-// ✅ ENHANCED: Pre-save middleware to automatically calculate summary
+// ✅ UPDATED: Pre-save middleware to automatically calculate summary including on_hold
 dailyProgressSchema.pre('save', function(next) {
   if (this.activities && this.activities.length > 0) {
     const activities = this.activities;
@@ -208,12 +212,13 @@ dailyProgressSchema.pre('save', function(next) {
     this.summary.inProgress = activities.filter(a => a.status === 'in_progress').length;
     this.summary.pending = activities.filter(a => a.status === 'pending').length;
     this.summary.delayed = activities.filter(a => a.status === 'delayed').length;
+    this.summary.onHold = activities.filter(a => a.status === 'on_hold').length;
     
     // Calculate total hours if actual duration is available
     const totalMinutes = activities.reduce((sum, activity) => {
       return sum + (activity.actualDuration || activity.estimatedDuration || 0);
     }, 0);
-    this.summary.totalHours = Math.round((totalMinutes / 60) * 100) / 100; // Convert to hours with 2 decimal places
+    this.summary.totalHours = Math.round((totalMinutes / 60) * 100) / 100;
   }
   
   next();

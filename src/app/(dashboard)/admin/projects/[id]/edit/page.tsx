@@ -1,4 +1,4 @@
-// src/app/(dashboard)/admin/projects/[id]/edit/page.tsx - FIXED VERSION
+// FILE: src/app/(dashboard)/admin/projects/[id]/edit/page.tsx - WITH MULTIPLE MANAGERS
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -8,11 +8,7 @@ import Link from 'next/link';
 import { 
   ArrowLeft, 
   Save, 
-  Calendar, 
-  MapPin,
-  User,
-  FileText,
-  AlertTriangle,
+  X,
   Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 
@@ -36,7 +33,7 @@ interface ProjectFormData {
   projectDuration: string;
   budget: string;
   clientId: string;
-  managerId: string;
+  managerIds: string[];
 }
 
 interface User {
@@ -47,12 +44,20 @@ interface User {
   isActive?: boolean;
 }
 
-interface ProjectSubmitData extends Omit<ProjectFormData, 'budget' | 'startDate' | 'endDate' | 'clientId' | 'managerId'> {
+interface ProjectSubmitData {
+  title: string;
+  description: string;
+  siteAddress: string;
+  scopeOfWork?: string;
+  designStyle?: string;
+  status: string;
+  priority: string;
+  projectDuration?: string;
   budget?: number;
   startDate?: string;
   endDate?: string;
   clientId?: string;
-  managerId?: string;
+  managerIds?: string[];
 }
 
 export default function ProjectEditPage() {
@@ -64,12 +69,11 @@ export default function ProjectEditPage() {
   const projectId = params?.id as string;
   const isManager = session?.user?.role === 'project_manager';
   
-  // State management - FIXED: Proper array initialization
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [clients, setClients] = useState<User[]>([]); // FIXED: Initialize as empty array
-  const [managers, setManagers] = useState<User[]>([]); // FIXED: Initialize as empty array
-  const [usersFetchError, setUsersFetchError] = useState<string>('');
+  const [clients, setClients] = useState<User[]>([]);
+  const [managers, setManagers] = useState<User[]>([]);
+  const [selectedManagers, setSelectedManagers] = useState<User[]>([]);
   const [formData, setFormData] = useState<ProjectFormData>({
     title: '',
     description: '',
@@ -83,74 +87,47 @@ export default function ProjectEditPage() {
     projectDuration: '',
     budget: '',
     clientId: '',
-    managerId: ''
+    managerIds: []
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // FIXED: Enhanced user fetching with better error handling
+  // Fetch users
   const fetchUsers = async () => {
-    if (isManager) return; // Managers don't need to fetch users for editing
+    if (isManager) return;
     
     try {
-      setUsersFetchError(''); // Clear previous errors
-      
       const [clientsRes, managersRes] = await Promise.all([
         fetch('/api/users?role=client&limit=100'),
         fetch('/api/users?role=project_manager&limit=100')
       ]);
       
-      // Handle clients response
       if (clientsRes.ok) {
         const clientsData = await clientsRes.json();
-        if (clientsData.success && clientsData.data) {
-          // FIXED: Handle different response structures
-          const clientUsers = clientsData.data.users || clientsData.data || [];
-          setClients(Array.isArray(clientUsers) ? clientUsers.filter((u: User) => u.isActive !== false) : []);
-        } else {
-          console.warn('Invalid clients response structure:', clientsData);
-          setClients([]);
-        }
-      } else {
-        console.error('Failed to fetch clients:', clientsRes.status, clientsRes.statusText);
-        setClients([]);
+        const clientUsers = clientsData.data?.users || clientsData.data || [];
+        setClients(Array.isArray(clientUsers) ? clientUsers.filter((u: User) => u.isActive !== false) : []);
       }
       
-      // Handle managers response
       if (managersRes.ok) {
         const managersData = await managersRes.json();
-        if (managersData.success && managersData.data) {
-          // FIXED: Handle different response structures
-          const managerUsers = managersData.data.users || managersData.data || [];
-          setManagers(Array.isArray(managerUsers) ? managerUsers.filter((u: User) => u.isActive !== false) : []);
-        } else {
-          console.warn('Invalid managers response structure:', managersData);
-          setManagers([]);
-        }
-      } else {
-        console.error('Failed to fetch managers:', managersRes.status, managersRes.statusText);
-        setManagers([]);
+        const managerUsers = managersData.data?.users || managersData.data || [];
+        setManagers(Array.isArray(managerUsers) ? managerUsers.filter((u: User) => u.isActive !== false) : []);
       }
-      
     } catch (error) {
       console.error('Error fetching users:', error);
-      setUsersFetchError(error instanceof Error ? error.message : 'Failed to fetch users');
-      // Ensure arrays are still initialized on error
-      setClients([]);
-      setManagers([]);
     }
   };
 
-  // Fetch project data and users
+  // Fetch project data
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         
-        // Fetch project details first
-        const projectResponse = await fetch(`/api/projects/${projectId}`);
-        if (projectResponse.ok) {
-          const project = await projectResponse.json();
-          const data = project.data;
+        const response = await fetch(`/api/projects/${projectId}`);
+        
+        if (response.ok) {
+          const result = await response.json();
+          const data = result.data;
           
           setFormData({
             title: data.title || '',
@@ -165,13 +142,17 @@ export default function ProjectEditPage() {
             projectDuration: data.projectDuration || '',
             budget: data.budget?.toString() || '',
             clientId: data.client?._id || '',
-            managerId: data.manager?._id || ''
+            managerIds: data.managers ? data.managers.map((m: User) => m._id) : []
           });
+          
+          // Set selected managers
+          if (data.managers && Array.isArray(data.managers)) {
+            setSelectedManagers(data.managers);
+          }
         } else {
           throw new Error('Failed to fetch project data');
         }
 
-        // Fetch users for super admin
         await fetchUsers();
         
       } catch (error) {
@@ -191,7 +172,27 @@ export default function ProjectEditPage() {
     }
   }, [projectId, session, isManager, toast]);
 
-  // Handle input changes
+  const handleAddManager = (managerId: string) => {
+    const manager = managers.find(m => m._id === managerId);
+    if (manager && !selectedManagers.find(m => m._id === managerId)) {
+      const newSelectedManagers = [...selectedManagers, manager];
+      setSelectedManagers(newSelectedManagers);
+      setFormData(prev => ({
+        ...prev,
+        managerIds: newSelectedManagers.map(m => m._id)
+      }));
+    }
+  };
+
+  const handleRemoveManager = (managerId: string) => {
+    const newSelectedManagers = selectedManagers.filter(m => m._id !== managerId);
+    setSelectedManagers(newSelectedManagers);
+    setFormData(prev => ({
+      ...prev,
+      managerIds: newSelectedManagers.map(m => m._id)
+    }));
+  };
+
   const handleInputChange = (field: keyof ProjectFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
@@ -199,7 +200,6 @@ export default function ProjectEditPage() {
     }
   };
 
-  // Validate form
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     
@@ -207,7 +207,7 @@ export default function ProjectEditPage() {
     if (!formData.description.trim()) newErrors.description = 'Description is required';
     if (!formData.siteAddress.trim()) newErrors.siteAddress = 'Site address is required';
     if (!isManager && !formData.clientId) newErrors.clientId = 'Client is required';
-    if (!isManager && !formData.managerId) newErrors.managerId = 'Manager is required';
+    if (!isManager && formData.managerIds.length === 0) newErrors.managerIds = 'At least one manager is required';
     
     if (formData.budget && isNaN(Number(formData.budget))) {
       newErrors.budget = 'Budget must be a valid number';
@@ -221,7 +221,6 @@ export default function ProjectEditPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -251,10 +250,9 @@ export default function ProjectEditPage() {
         endDate: formData.endDate || undefined,
       };
 
-      // Add client/manager fields for super admin
       if (!isManager) {
         submitData.clientId = formData.clientId;
-        submitData.managerId = formData.managerId;
+        submitData.managerIds = formData.managerIds;
       }
 
       const response = await fetch(`/api/projects/${projectId}`, {
@@ -271,9 +269,7 @@ export default function ProjectEditPage() {
           description: "Project updated successfully.",
         });
         
-        // Navigate back to project detail page
-        const backUrl = isManager ? `/manager/projects/${projectId}` : `/admin/projects/${projectId}`;
-        router.push(backUrl);
+        router.push(`/admin/projects/${projectId}`);
       } else {
         throw new Error('Failed to update project');
       }
@@ -289,127 +285,40 @@ export default function ProjectEditPage() {
     }
   };
 
-  // Loading state
   if (loading) {
     return (
-      <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
-        <div className="animate-pulse">
-          <div className="h-6 sm:h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="space-y-4">
-            <Card>
-              <CardContent className="p-4 sm:p-6">
-                <div className="space-y-4">
-                  <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                  <div className="h-10 bg-gray-200 rounded"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                  <div className="h-20 bg-gray-200 rounded"></div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
       </div>
     );
   }
-
-  // Error state for critical user fetch failure (only for super admin)
-  if (usersFetchError && !loading && !isManager && clients.length === 0 && managers.length === 0) {
-    return (
-      <div className="space-y-6 p-4 sm:p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/admin/projects">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Projects
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Edit Project</h1>
-              <p className="text-gray-600">Modify project details and settings</p>
-            </div>
-          </div>
-        </div>
-
-        <Card className="border-red-200">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Unable to Load Users</h3>
-              <p className="text-gray-600 mb-4">{usersFetchError}</p>
-              <div className="flex gap-4 justify-center">
-                <Button onClick={fetchUsers} variant="outline">
-                  <Loader2 className="h-4 w-4 mr-2" />
-                  Retry
-                </Button>
-                <Link href="/admin/projects">
-                  <Button>Return to Projects</Button>
-                </Link>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const backUrl = isManager ? `/manager/projects/${projectId}` : `/admin/projects/${projectId}`;
 
   return (
-    <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Link href={backUrl}>
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Project
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Edit Project</h1>
-            <p className="text-gray-600">Modify project details and settings</p>
-          </div>
-        </div>
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <div className="mb-6">
+        <Link href="/admin/projects">
+          <Button variant="ghost" size="sm">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Projects
+          </Button>
+        </Link>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Basic Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Project Title *</Label>
-                <Input
-                  id="title"
-                  value={formData.title}
-                  onChange={(e) => handleInputChange('title', e.target.value)}
-                  className={errors.title ? 'border-red-500' : ''}
-                />
-                {errors.title && <p className="text-sm text-red-500">{errors.title}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={formData.status} onValueChange={(value: ProjectFormData['status']) => handleInputChange('status', value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="planning">Planning</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="on_hold">On Hold</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Edit Project</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="title">Project Title *</Label>
+              <Input
+                id="title"
+                value={formData.title}
+                onChange={(e) => handleInputChange('title', e.target.value)}
+                placeholder="Enter project title"
+              />
+              {errors.title && <p className="text-sm text-red-600">{errors.title}</p>}
             </div>
 
             <div className="space-y-2">
@@ -418,68 +327,88 @@ export default function ProjectEditPage() {
                 id="description"
                 value={formData.description}
                 onChange={(e) => handleInputChange('description', e.target.value)}
-                rows={3}
-                className={errors.description ? 'border-red-500' : ''}
+                placeholder="Enter project description"
+                rows={4}
               />
-              {errors.description && <p className="text-sm text-red-500">{errors.description}</p>}
+              {errors.description && <p className="text-sm text-red-600">{errors.description}</p>}
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Project Details */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Project Details
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="siteAddress">Site Address *</Label>
               <Input
                 id="siteAddress"
                 value={formData.siteAddress}
                 onChange={(e) => handleInputChange('siteAddress', e.target.value)}
-                className={errors.siteAddress ? 'border-red-500' : ''}
+                placeholder="Enter site address"
               />
-              {errors.siteAddress && <p className="text-sm text-red-500">{errors.siteAddress}</p>}
+              {errors.siteAddress && <p className="text-sm text-red-600">{errors.siteAddress}</p>}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="scopeOfWork">Scope of Work</Label>
-                <Textarea
-                  id="scopeOfWork"
-                  value={formData.scopeOfWork}
-                  onChange={(e) => handleInputChange('scopeOfWork', e.target.value)}
-                  rows={2}
-                />
-              </div>
+            {!isManager && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="clientId">Client *</Label>
+                  <Select value={formData.clientId} onValueChange={(value) => handleInputChange('clientId', value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((client) => (
+                        <SelectItem key={client._id} value={client._id}>
+                          {client.name} - {client.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.clientId && <p className="text-sm text-red-600">{errors.clientId}</p>}
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="designStyle">Design Style</Label>
-                <Input
-                  id="designStyle"
-                  value={formData.designStyle}
-                  onChange={(e) => handleInputChange('designStyle', e.target.value)}
-                  placeholder="e.g., Modern, Contemporary, Traditional"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                <div className="space-y-2">
+                  <Label>Project Managers *</Label>
+                  <p className="text-sm text-gray-600">Select one or more project managers</p>
+                  
+                  <Select onValueChange={handleAddManager}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Add a manager" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {managers
+                        .filter(m => !selectedManagers.find(sm => sm._id === m._id))
+                        .map((manager) => (
+                          <SelectItem key={manager._id} value={manager._id}>
+                            {manager.name} - {manager.email}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
 
-        {/* Timeline & Budget */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Timeline & Budget
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {selectedManagers.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2 p-3 bg-gray-50 rounded-md">
+                      {selectedManagers.map((manager) => (
+                        <Badge
+                          key={manager._id}
+                          variant="secondary"
+                          className="flex items-center gap-1 px-3 py-1"
+                        >
+                          {manager.name}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveManager(manager._id)}
+                            className="ml-1 hover:bg-gray-200 rounded-full p-0.5"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {errors.managerIds && <p className="text-sm text-red-600">{errors.managerIds}</p>}
+                </div>
+              </>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="startDate">Start Date</Label>
                 <Input
@@ -497,40 +426,33 @@ export default function ProjectEditPage() {
                   type="date"
                   value={formData.endDate}
                   onChange={(e) => handleInputChange('endDate', e.target.value)}
-                  className={errors.endDate ? 'border-red-500' : ''}
                 />
-                {errors.endDate && <p className="text-sm text-red-500">{errors.endDate}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="projectDuration">Project Duration</Label>
-                <Input
-                  id="projectDuration"
-                  value={formData.projectDuration}
-                  onChange={(e) => handleInputChange('projectDuration', e.target.value)}
-                  placeholder="e.g., 3 months, 12 weeks"
-                />
+                {errors.endDate && <p className="text-sm text-red-600">{errors.endDate}</p>}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="budget">Budget (₦)</Label>
-                <Input
-                  id="budget"
-                  type="number"
-                  value={formData.budget}
-                  onChange={(e) => handleInputChange('budget', e.target.value)}
-                  className={errors.budget ? 'border-red-500' : ''}
-                />
-                {errors.budget && <p className="text-sm text-red-500">{errors.budget}</p>}
+                <Label htmlFor="status">Status</Label>
+                <Select value={formData.status} onValueChange={(value: ProjectFormData['status']) => handleInputChange('status', value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="planning">Planning</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="on_hold">On Hold</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority</Label>
                 <Select value={formData.priority} onValueChange={(value: ProjectFormData['priority']) => handleInputChange('priority', value)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select priority" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="low">Low</SelectItem>
@@ -541,106 +463,76 @@ export default function ProjectEditPage() {
                 </Select>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* User Assignment - Only for Super Admin */}
-        {!isManager && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5" />
-                User Assignment
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="client">Client *</Label>
-                  <Select value={formData.clientId} onValueChange={(value) => handleInputChange('clientId', value)}>
-                    <SelectTrigger className={errors.clientId ? 'border-red-500' : ''}>
-                      <SelectValue placeholder="Select client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* FIXED: Safe array rendering with proper checks */}
-                      {Array.isArray(clients) && clients.length > 0 ? (
-                        clients.map((client) => (
-                          <SelectItem key={client._id} value={client._id}>
-                            {client.name} ({client.email})
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="" disabled>
-                          {usersFetchError ? 'Error loading clients' : 'No clients available'}
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {errors.clientId && <p className="text-sm text-red-500">{errors.clientId}</p>}
-                </div>
+            <div className="space-y-2">
+              <Label htmlFor="budget">Budget</Label>
+              <Input
+                id="budget"
+                type="number"
+                value={formData.budget}
+                onChange={(e) => handleInputChange('budget', e.target.value)}
+                placeholder="Enter project budget"
+              />
+              {errors.budget && <p className="text-sm text-red-600">{errors.budget}</p>}
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="manager">Project Manager *</Label>
-                  <Select value={formData.managerId} onValueChange={(value) => handleInputChange('managerId', value)}>
-                    <SelectTrigger className={errors.managerId ? 'border-red-500' : ''}>
-                      <SelectValue placeholder="Select manager" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* FIXED: Safe array rendering with proper checks */}
-                      {Array.isArray(managers) && managers.length > 0 ? (
-                        managers.map((manager) => (
-                          <SelectItem key={manager._id} value={manager._id}>
-                            {manager.name} ({manager.email})
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="" disabled>
-                          {usersFetchError ? 'Error loading managers' : 'No managers available'}
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {errors.managerId && <p className="text-sm text-red-500">{errors.managerId}</p>}
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="scopeOfWork">Scope of Work</Label>
+              <Textarea
+                id="scopeOfWork"
+                value={formData.scopeOfWork}
+                onChange={(e) => handleInputChange('scopeOfWork', e.target.value)}
+                placeholder="Describe the scope of work"
+                rows={3}
+              />
+            </div>
 
-              {/* Show retry button if user fetch failed */}
-              {usersFetchError && (
-                <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                  <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />
-                  <p className="text-sm text-yellow-700 flex-1">{usersFetchError}</p>
-                  <Button onClick={fetchUsers} variant="outline" size="sm">
-                    <Loader2 className="h-4 w-4 mr-1" />
-                    Retry
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+            <div className="space-y-2">
+              <Label htmlFor="designStyle">Design Style</Label>
+              <Input
+                id="designStyle"
+                value={formData.designStyle}
+                onChange={(e) => handleInputChange('designStyle', e.target.value)}
+                placeholder="e.g., Modern, Contemporary, Traditional"
+              />
+            </div>
 
-        {/* Form Actions */}
-        <div className="flex flex-col sm:flex-row gap-4 pt-6">
-          <Button type="submit" disabled={saving} className="flex-1 sm:flex-initial">
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                Save Changes
-              </>
-            )}
-          </Button>
-          <Link href={backUrl} className="flex-1 sm:flex-initial">
-            <Button type="button" variant="outline" className="w-full">
-              Cancel
-            </Button>
-          </Link>
-        </div>
-      </form>
+            <div className="space-y-2">
+              <Label htmlFor="projectDuration">Project Duration</Label>
+              <Input
+                id="projectDuration"
+                value={formData.projectDuration}
+                onChange={(e) => handleInputChange('projectDuration', e.target.value)}
+                placeholder="e.g., 6 months, 12 weeks"
+              />
+            </div>
+
+            <div className="flex justify-end gap-4 pt-6">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push(`/admin/projects/${projectId}`)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

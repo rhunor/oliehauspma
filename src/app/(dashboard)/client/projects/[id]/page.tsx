@@ -1,4 +1,4 @@
-// src/app/(dashboard)/client/projects/[id]/page.tsx - COMPLETELY FIXED
+// src/app/(dashboard)/client/projects/[id]/page.tsx - FIXED WITH MULTIPLE MANAGERS
 import { Suspense } from 'react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -73,7 +73,7 @@ interface ProjectDocument {
   title: string;
   description: string;
   client: ObjectId;
-  manager: ObjectId;
+  managers: ObjectId[]; // FIXED: Changed from manager to managers array
   siteAddress: string;
   scopeOfWork?: string;
   designStyle?: string;
@@ -110,9 +110,10 @@ interface UserDocument {
   phone?: string;
 }
 
-interface ProjectWithUsers extends Omit<ProjectDocument, 'client' | 'manager'> {
+// FIXED: Updated interface to have managers array instead of single manager
+interface ProjectWithUsers extends Omit<ProjectDocument, 'client' | 'managers'> {
   client: UserDocument;
-  manager: UserDocument;
+  managers: UserDocument[]; // FIXED: Array of managers
 }
 
 interface ProjectDetailPageProps {
@@ -173,12 +174,13 @@ async function getProjectById(projectId: string, userRole: string, userId: strin
             pipeline: [{ $project: { password: 0 } }]
           }
         },
+        // FIXED: Lookup managers array - MongoDB 5.0+ supports direct lookup on arrays
         {
           $lookup: {
             from: 'users',
-            localField: 'manager',
+            localField: 'managers',
             foreignField: '_id',
-            as: 'managerData',
+            as: 'managersData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
@@ -210,8 +212,8 @@ async function getProjectById(projectId: string, userRole: string, userId: strin
         {
           $addFields: {
             client: { $arrayElemAt: ['$clientData', 0] },
-            manager: { $arrayElemAt: ['$managerData', 0] },
-            // CRITICAL FIX: Transform files to proper format without any type
+            managers: '$managersData', // FIXED: Keep as array, don't use $arrayElemAt
+            // CRITICAL FIX: Transform files to proper format
             files: {
               $map: {
                 input: { $ifNull: ['$fileDocuments', []] },
@@ -231,7 +233,7 @@ async function getProjectById(projectId: string, userRole: string, userId: strin
             }
           }
         },
-        { $unset: ['clientData', 'managerData', 'fileDocuments'] }
+        { $unset: ['clientData', 'managersData', 'fileDocuments'] }
       ])
       .toArray();
 
@@ -298,7 +300,7 @@ export default async function ClientProjectDetailPage({ params }: ProjectDetailP
     notFound();
   }
 
-  // CRITICAL FIX: Ensure all data is serializable and properly formatted
+  // CRITICAL FIX: Ensure all data is serializable and properly formatted with multiple managers
   const clientProject = {
     _id: project._id.toString(),
     title: project.title,
@@ -310,13 +312,14 @@ export default async function ClientProjectDetailPage({ params }: ProjectDetailP
       role: project.client.role,
       phone: project.client.phone
     },
-    manager: {
-      _id: project.manager._id.toString(),
-      name: project.manager.name,
-      email: project.manager.email,
-      role: project.manager.role,
-      phone: project.manager.phone
-    },
+    // FIXED: Map managers array properly with explicit properties
+    managers: (project.managers || []).map((manager) => ({
+      _id: manager._id.toString(),
+      name: manager.name,
+      email: manager.email,
+      role: manager.role,
+      phone: manager.phone
+    })),
     siteAddress: project.siteAddress,
     scopeOfWork: project.scopeOfWork,
     designStyle: project.designStyle,
@@ -328,20 +331,31 @@ export default async function ClientProjectDetailPage({ params }: ProjectDetailP
     budget: project.budget,
     progress: project.progress,
     siteSchedule: project.siteSchedule ? {
-      ...project.siteSchedule,
-      phases: project.siteSchedule.phases?.map((phase: SitePhase) => ({
-        ...phase,
-        weeks: phase.weeks?.map((week: SiteWeek) => ({
-          ...week,
+      totalActivities: project.siteSchedule.totalActivities,
+      completedActivities: project.siteSchedule.completedActivities,
+      phases: (project.siteSchedule.phases || []).map((phase: SitePhase) => ({
+        name: phase.name,
+        description: phase.description,
+        weeks: (phase.weeks || []).map((week: SiteWeek) => ({
+          weekNumber: week.weekNumber,
+          title: week.title,
           startDate: safeToISOString(week.startDate) || '',
           endDate: safeToISOString(week.endDate) || '',
-          days: week.days?.map((day: SiteDay) => ({
-            ...day,
+          days: (week.days || []).map((day: SiteDay) => ({
             date: safeToISOString(day.date) || '',
-            activities: day.activities?.map((activity: SiteActivity) => ({
-              ...activity,
+            dayNumber: day.dayNumber,
+            activities: (day.activities || []).map((activity: SiteActivity) => ({
+              title: activity.title,
+              contractor: activity.contractor,
               plannedDate: safeToISOString(activity.plannedDate) || '',
-              actualDate: safeToISOString(activity.actualDate)
+              actualDate: safeToISOString(activity.actualDate),
+              status: activity.status,
+              comments: activity.comments,
+              images: activity.images,
+              incidentReport: activity.incidentReport,
+              supervisor: activity.supervisor,
+              dependencies: activity.dependencies,
+              duration: activity.duration
             }))
           }))
         }))
@@ -362,10 +376,12 @@ export default async function ClientProjectDetailPage({ params }: ProjectDetailP
       tags: file.tags || [],
       description: file.description || ''
     })),
-    milestones: project.milestones?.map((milestone: ProjectMilestone) => ({
-      ...milestone,
-      dueDate: safeToISOString(milestone.dueDate) || ''
-    })) || [],
+    milestones: (project.milestones || []).map((milestone: ProjectMilestone) => ({
+      name: milestone.name,
+      description: milestone.description,
+      dueDate: safeToISOString(milestone.dueDate) || '',
+      status: milestone.status
+    })),
     tags: project.tags || [],
     notes: project.notes,
     createdAt: safeToISOString(project.createdAt) || '',

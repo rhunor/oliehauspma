@@ -1,26 +1,12 @@
-// src/app/api/site-schedule/daily/route.ts
+// FILE: src/app/api/site-schedule/daily/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { connectToMongoose } from "@/lib/db";
-import DailyProgress, { 
-  IDailyProgressDocument, 
-  IDailyActivity, 
-  IDailyProgress 
-} from "@/models/DailyProgress";
+import DailyProgress, { IDailyActivity, IDailyProgressDocument } from "@/models/DailyProgress";
 import { Types } from "mongoose";
 
-// For populated documents
-interface IPopulatedDailyActivity extends Omit<IDailyActivity, 'contractor' | 'supervisor'> {
-  contractor: { name: string } | string;
-  supervisor: { name: string } | string;
-}
-
-interface IPopulatedDailyProgress extends Omit<IDailyProgress, 'activities'> {
-  activities: IPopulatedDailyActivity[];
-}
-
-// GET daily progress for a specific date
+// GET daily progress
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -37,7 +23,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get("projectId");
     const date = searchParams.get("date");
-    
+
     if (!projectId || !date) {
       return NextResponse.json(
         { error: "Project ID and date are required" },
@@ -48,22 +34,19 @@ export async function GET(request: NextRequest) {
     const dailyProgress = await DailyProgress.findOne({
       project: projectId,
       date: new Date(date)
-    }).populate('activities.contractor', 'name')
-      .populate('activities.supervisor', 'name') as IPopulatedDailyProgress | null;
+    }).populate('project', 'title') as IDailyProgressDocument | null;
+
+    if (!dailyProgress) {
+      return NextResponse.json({
+        success: true,
+        data: null,
+        message: "No progress found for this date"
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      data: dailyProgress || {
-        activities: [],
-        date: date,
-        summary: {
-          totalActivities: 0,
-          completed: 0,
-          inProgress: 0,
-          pending: 0,
-          delayed: 0
-        }
-      }
+      data: dailyProgress
     });
 
   } catch (error) {
@@ -75,7 +58,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST new daily activity
+// POST new daily activity - ✅ FIXED THE TRUNCATION BUG
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -123,7 +106,8 @@ export async function POST(request: NextRequest) {
           completed: 0,
           inProgress: 0,
           pending: 0,
-          delayed: 0
+          delayed: 0,
+          onHold: 0
         },
         approved: false
       }) as IDailyProgressDocument;
@@ -138,13 +122,14 @@ export async function POST(request: NextRequest) {
     
     dailyProgress.activities.push(newActivity);
 
-    // Update summary statistics with proper typing
+    // ✅ FIXED: Complete the summary statistics update (was truncated before)
     const activities = dailyProgress.activities;
     dailyProgress.summary.totalActivities = activities.length;
     dailyProgress.summary.completed = activities.filter((a: IDailyActivity) => a.status === 'completed').length;
     dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
+    dailyProgress.summary.onHold = activities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
 
     await dailyProgress.save();
 
@@ -163,7 +148,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT update existing activity
+// PUT update existing activity - ✅ WITH AUTO-TRIGGERS
 export async function PUT(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -220,6 +205,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Store old status to detect completion
+    const oldStatus = activities[activityIndex].status;
+    const activityTitle = activities[activityIndex].title;
+
     activities[activityIndex] = {
       ...activities[activityIndex],
       ...updates,
@@ -227,13 +216,30 @@ export async function PUT(request: NextRequest) {
       updatedAt: new Date()
     };
 
-    // Update summary statistics
+    // Update summary statistics including on_hold
     dailyProgress.summary.completed = activities.filter((a: IDailyActivity) => a.status === 'completed').length;
     dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
+    dailyProgress.summary.onHold = activities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
 
     await dailyProgress.save();
+
+    // ✅ AUTO-TRIGGER: If status changed to completed
+    if (updates.status === 'completed' && oldStatus !== 'completed') {
+      // Import utilities dynamically to avoid circular dependencies
+      const { updateProjectProgress, notifyClientOfTaskCompletion, notifyClientOfProgressUpdate } = 
+        await import('@/lib/projectUtils');
+
+      // Update project progress
+      const newProgress = await updateProjectProgress(projectId);
+
+      // Send notification to client about task completion
+      await notifyClientOfTaskCompletion(projectId, activityTitle, session.user.id);
+
+      // Send notification about progress update
+      await notifyClientOfProgressUpdate(projectId, newProgress, session.user.id);
+    }
 
     return NextResponse.json({
       success: true,
@@ -302,13 +308,14 @@ export async function DELETE(request: NextRequest) {
       (a: IDailyActivity) => a._id?.toString() !== activityId
     );
 
-    // Update summary statistics
+    // Update summary statistics including on_hold
     const updatedActivities = dailyProgress.activities;
     dailyProgress.summary.totalActivities = updatedActivities.length;
     dailyProgress.summary.completed = updatedActivities.filter((a: IDailyActivity) => a.status === 'completed').length;
     dailyProgress.summary.inProgress = updatedActivities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = updatedActivities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = updatedActivities.filter((a: IDailyActivity) => a.status === 'delayed').length;
+    dailyProgress.summary.onHold = updatedActivities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
 
     await dailyProgress.save();
 

@@ -1,17 +1,17 @@
-// src/app/api/projects/route.ts - COMPLETE WITH DASHBOARD COMPATIBILITY FIX
+// FILE: src/app/api/projects/route.ts - UPDATED FOR MULTIPLE MANAGERS
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
-import { createProjectSchema } from '@/lib/validation';
-import { ObjectId, Filter, OptionalId } from 'mongodb';
+import { ObjectId, Filter } from 'mongodb';
 
-// Define the MongoDB document structure - without _id for insertion
 interface ProjectDocument {
+  _id: ObjectId;
   title: string;
   description: string;
   client: ObjectId;
-  manager: ObjectId;
+  managers: ObjectId[];
+  manager?: ObjectId;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   startDate?: Date;
@@ -23,44 +23,27 @@ interface ProjectDocument {
   updatedAt: Date;
 }
 
-// Define the complete document structure with _id
 interface ProjectDocumentWithId extends ProjectDocument {
   _id: ObjectId;
 }
 
-// Define the user document structure
 interface UserDocument {
   _id: ObjectId;
   name: string;
   email: string;
   role: string;
-  isActive: boolean;
 }
 
-// Define the aggregated result structure
-interface ProjectWithUsers {
-  _id: ObjectId;
-  title: string;
-  description: string;
+interface ProjectWithUsers extends Omit<ProjectDocument, 'client' | 'managers'> {
   client: UserDocument;
-  manager: UserDocument;
-  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  startDate?: Date;
-  endDate?: Date;
-  budget?: number;
-  progress: number;
-  tags: string[];
-  createdAt: Date;
-  updatedAt: Date;
+  managers: UserDocument[];
 }
 
-// Define the create project schema type
 interface CreateProjectData {
   title: string;
   description: string;
   clientId: string;
-  managerId: string;
+  managerIds: string[];
   status?: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   startDate?: string;
@@ -93,14 +76,15 @@ export async function GET(request: NextRequest) {
 
     const { db } = await connectToDatabase();
     
-    // Build filter based on user role with proper typing
+    // Build filter based on user role with proper typing - ✅ UPDATED FOR MULTIPLE MANAGERS
     const filter: Filter<ProjectDocumentWithId> = {};
     
     // Role-based access control
     if (session.user.role === 'client') {
       filter.client = new ObjectId(session.user.id);
     } else if (session.user.role === 'project_manager') {
-      filter.manager = new ObjectId(session.user.id);
+      // ✅ UPDATED: Check if user is in managers array
+      filter.managers = new ObjectId(session.user.id);
     }
     // super_admin can see all projects - no additional filter needed
 
@@ -122,7 +106,7 @@ export async function GET(request: NextRequest) {
     // Get total count for pagination
     const total = await db.collection<ProjectDocumentWithId>('projects').countDocuments(filter);
 
-    // Get projects with populated user data
+    // ✅ UPDATED: Get projects with populated user data including all managers
     const projects = await db.collection<ProjectDocumentWithId>('projects')
       .aggregate<ProjectWithUsers>([
         { $match: filter },
@@ -138,43 +122,38 @@ export async function GET(request: NextRequest) {
         {
           $lookup: {
             from: 'users',
-            localField: 'manager',
+            localField: 'managers',
             foreignField: '_id',
-            as: 'managerData',
+            as: 'managersData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
           $addFields: {
             client: { $arrayElemAt: ['$clientData', 0] },
-            manager: { $arrayElemAt: ['$managerData', 0] }
+            managers: '$managersData'
           }
         },
-        { $unset: ['clientData', 'managerData'] },
+        { $unset: ['clientData', 'managersData'] },
         { $sort: { createdAt: -1 } },
         { $skip: (page - 1) * limit },
         { $limit: limit }
       ])
       .toArray();
 
-    const totalPages = Math.ceil(total / limit);
-
-    // DASHBOARD COMPATIBILITY FIX: Return both nested and direct structures
     return NextResponse.json({
       success: true,
       data: {
-        data: projects, // Nested structure for dashboard compatibility
+        projects,
         pagination: {
           page,
           limit,
           total,
-          totalPages,
-          hasNext: page < totalPages,
-          hasPrev: page > 1,
+          pages: Math.ceil(total / limit),
+          hasNext: page < Math.ceil(total / limit),
+          hasPrev: page > 1
         }
-      },
-      // Also include direct access for backward compatibility
-      projects: projects
+      }
     });
 
   } catch (error: unknown) {
@@ -190,6 +169,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST /api/projects - Create new project - ✅ UPDATED FOR MULTIPLE MANAGERS
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -204,7 +184,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Only super_admin can create projects
+    // Only super admins can create projects
     if (session.user.role !== 'super_admin') {
       return NextResponse.json(
         { 
@@ -215,67 +195,73 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    
-    // Validate request body
-    const validation = createProjectSchema.safeParse(body);
-    if (!validation.success) {
+    const projectData: CreateProjectData = await request.json();
+
+    // Validate required fields
+    if (!projectData.title || !projectData.description || !projectData.clientId || !projectData.managerIds || projectData.managerIds.length === 0) {
       return NextResponse.json(
-        { 
+        {
           success: false,
-          error: 'Validation failed',
-          details: validation.error.issues.map(issue => ({
-            field: issue.path.join('.'),
-            message: issue.message,
-          }))
+          error: 'Title, description, client, and at least one manager are required'
         },
         { status: 400 }
       );
     }
 
-    const projectData: CreateProjectData = validation.data;
+    // Validate all ObjectIds
+    if (!ObjectId.isValid(projectData.clientId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid client ID' },
+        { status: 400 }
+      );
+    }
+
+    for (const managerId of projectData.managerIds) {
+      if (!ObjectId.isValid(managerId)) {
+        return NextResponse.json(
+          { success: false, error: `Invalid manager ID: ${managerId}` },
+          { status: 400 }
+        );
+      }
+    }
+
     const { db } = await connectToDatabase();
 
-    // Verify client and manager exist and have correct roles
-    const [client, manager] = await Promise.all([
-      db.collection<UserDocument>('users').findOne({ 
-        _id: new ObjectId(projectData.clientId),
-        role: 'client',
-        isActive: true
-      }),
-      db.collection<UserDocument>('users').findOne({ 
-        _id: new ObjectId(projectData.managerId),
-        role: 'project_manager',
-        isActive: true
-      })
-    ]);
+    // Verify client exists and is active
+    const client = await db.collection('users').findOne({
+      _id: new ObjectId(projectData.clientId),
+      role: 'client',
+      isActive: true
+    });
 
     if (!client) {
       return NextResponse.json(
-        { 
-          success: false,
-          error: 'Client not found or inactive' 
-        },
-        { status: 400 }
+        { success: false, error: 'Client not found or inactive' },
+        { status: 404 }
       );
     }
 
-    if (!manager) {
+    // ✅ NEW: Verify all managers exist and are active
+    const managerObjectIds = projectData.managerIds.map(id => new ObjectId(id));
+    const managers = await db.collection('users').find({
+      _id: { $in: managerObjectIds },
+      role: 'project_manager',
+      isActive: true
+    }).toArray();
+
+    if (managers.length !== projectData.managerIds.length) {
       return NextResponse.json(
-        { 
-          success: false,
-          error: 'Project manager not found or inactive' 
-        },
-        { status: 400 }
+        { success: false, error: 'One or more managers not found or inactive' },
+        { status: 404 }
       );
     }
 
-    // Create project using OptionalId for proper typing
-    const newProject: OptionalId<ProjectDocument> = {
+    // Create project document - ✅ UPDATED WITH MANAGERS ARRAY
+    const newProject = {
       title: projectData.title,
       description: projectData.description,
       client: new ObjectId(projectData.clientId),
-      manager: new ObjectId(projectData.managerId),
+      managers: managerObjectIds,
       status: projectData.status || 'planning',
       priority: projectData.priority || 'medium',
       startDate: projectData.startDate ? new Date(projectData.startDate) : undefined,
@@ -287,30 +273,36 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date(),
     };
 
-    const result = await db.collection<ProjectDocument>('projects').insertOne(newProject);
+    const result = await db.collection('projects').insertOne(newProject);
 
-    // Create notifications for client and manager
+    // ✅ UPDATED: Create notifications for client and ALL managers
     const notifications = [
       {
-        recipient: new ObjectId(projectData.clientId),
-        sender: new ObjectId(session.user.id),
+        recipientId: new ObjectId(projectData.clientId),
+        senderId: new ObjectId(session.user.id),
         type: 'project_created',
         title: 'New Project Assigned',
         message: `You have been assigned to project: ${projectData.title}`,
-        data: { projectId: result.insertedId },
+        data: { projectId: result.insertedId.toString() },
         isRead: false,
+        priority: 'medium',
+        category: 'info',
         createdAt: new Date(),
+        updatedAt: new Date(),
       },
-      {
-        recipient: new ObjectId(projectData.managerId),
-        sender: new ObjectId(session.user.id),
+      ...managerObjectIds.map(managerId => ({
+        recipientId: managerId,
+        senderId: new ObjectId(session.user.id),
         type: 'project_created',
         title: 'New Project Assignment',
         message: `You have been assigned as manager for: ${projectData.title}`,
-        data: { projectId: result.insertedId },
+        data: { projectId: result.insertedId.toString() },
         isRead: false,
+        priority: 'medium',
+        category: 'info',
         createdAt: new Date(),
-      }
+        updatedAt: new Date(),
+      }))
     ];
 
     await db.collection('notifications').insertMany(notifications);
@@ -331,19 +323,19 @@ export async function POST(request: NextRequest) {
         {
           $lookup: {
             from: 'users',
-            localField: 'manager',
+            localField: 'managers',
             foreignField: '_id',
-            as: 'managerData',
+            as: 'managersData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
           $addFields: {
             client: { $arrayElemAt: ['$clientData', 0] },
-            manager: { $arrayElemAt: ['$managerData', 0] }
+            managers: '$managersData'
           }
         },
-        { $unset: ['clientData', 'managerData'] }
+        { $unset: ['clientData', 'managersData'] }
       ])
       .toArray();
 

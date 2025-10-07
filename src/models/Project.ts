@@ -1,4 +1,4 @@
-// src/models/Project.ts
+// FILE: src/models/Project.ts - UPDATED WITH MULTIPLE MANAGERS SUPPORT
 import mongoose from 'mongoose';
 
 const siteActivitySchema = new mongoose.Schema({
@@ -17,15 +17,15 @@ const siteActivitySchema = new mongoose.Schema({
   actualDate: Date,
   status: {
     type: String,
-    enum: ['pending', 'in_progress', 'completed', 'delayed'],
+    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
     default: 'pending'
   },
   comments: String,
   images: [String],
   incidentReport: String,
   supervisor: String,
-  dependencies: [String], // IDs of activities this depends on
-  duration: Number, // in days
+  dependencies: [String],
+  duration: Number,
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -92,10 +92,16 @@ const projectSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  manager: {
+  // ✅ UPDATED: Changed from single manager to array of managers
+  managers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  }],
+  // ✅ DEPRECATED: Keep for backward compatibility but will migrate data
+  manager: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   },
   siteAddress: {
     type: String,
@@ -115,13 +121,12 @@ const projectSchema = new mongoose.Schema({
   },
   startDate: Date,
   endDate: Date,
-  projectDuration: String, // e.g., "9 weeks"
+  projectDuration: String,
   budget: Number,
   progress: {
     type: Number,
     default: 0
   },
-  // Site Schedule - replacing tasks
   siteSchedule: {
     phases: [phaseScheduleSchema],
     totalActivities: {
@@ -134,56 +139,54 @@ const projectSchema = new mongoose.Schema({
     },
     lastUpdated: Date
   },
-  // Project team
-  projectCoordinator: {
-    name: String,
-    phone: String
-  },
-  siteOfficer: {
-    name: String,
-    phone: String
-  },
-  workDays: {
-    type: String,
-    default: "Monday - Saturday (except public holidays)"
-  },
-  files: [{
-    name: String,
+  tags: [String],
+  notes: String,
+  attachments: [{
+    filename: String,
     url: String,
-    type: String,
-    uploadedAt: Date,
+    uploadedAt: { type: Date, default: Date.now },
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     }
   }],
   milestones: [{
-    name: String,
+    title: String,
     description: String,
-    dueDate: Date,
+    targetDate: Date,
+    completedDate: Date,
     status: {
       type: String,
-      enum: ['pending', 'in_progress', 'completed'],
+      enum: ['pending', 'in_progress', 'completed', 'delayed'],
       default: 'pending'
     }
-  }],
-  tags: [String],
-  notes: String
+  }]
 }, {
   timestamps: true
 });
 
-// Calculate progress based on completed activities
+// Indexes for performance
+projectSchema.index({ client: 1 });
+projectSchema.index({ managers: 1 });
+projectSchema.index({ status: 1 });
+projectSchema.index({ priority: 1 });
+projectSchema.index({ startDate: 1, endDate: 1 });
+
+// ✅ NEW: Middleware to ensure managers array is populated
 projectSchema.pre('save', function(next) {
-  if (this.siteSchedule && this.siteSchedule.totalActivities > 0) {
-    this.progress = Math.round(
-      (this.siteSchedule.completedActivities / this.siteSchedule.totalActivities) * 100
-    );
+  // Migrate old 'manager' field to 'managers' array if needed
+  if (this.manager && (!this.managers || this.managers.length === 0)) {
+    this.managers = [this.manager];
   }
+  
+  // Ensure at least one manager
+  if (!this.managers || this.managers.length === 0) {
+    return next(new Error('Project must have at least one manager'));
+  }
+  
   next();
 });
 
 const Project = mongoose.models.Project || mongoose.model('Project', projectSchema);
 
 export default Project;
-

@@ -1,6 +1,4 @@
-// FILE: src/app/api/site-schedule/activity/[id]/route.ts
-// ✅ ALIGNED: Matches your actual DailyProgress model exactly
-
+// FILE: src/app/api/site-schedule/activity/[id]/route.ts - WITH ON_HOLD STATUS & AUTO-TRIGGERS
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -8,7 +6,6 @@ import { connectToMongoose } from "@/lib/db";
 import DailyProgress, { IDailyActivity, IDailyProgressDocument } from "@/models/DailyProgress";
 import { Types, HydratedDocument } from "mongoose";
 
-// ✅ Proper interfaces for populated documents matching your model
 interface PopulatedProject {
   _id: Types.ObjectId;
   title: string;
@@ -24,7 +21,7 @@ interface ActivityResponse {
   description?: string;
   contractor: string;
   supervisor: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   startTime?: string;
@@ -57,7 +54,7 @@ interface AuthSession {
   user: SessionUser;
 }
 
-// ✅ Updated field updater that matches your exact model fields
+// ✅ UPDATED: Field updater with on_hold status
 function updateActivityField(
   activity: IDailyActivity,
   field: keyof IDailyActivity,
@@ -85,7 +82,7 @@ function updateActivityField(
       }
       break;
     case 'status':
-      if (value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'delayed') {
+      if (value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'delayed' || value === 'on_hold') {
         activity.status = value;
       }
       break;
@@ -138,7 +135,6 @@ function updateActivityField(
   }
 }
 
-// ✅ Type-safe error handling wrapper
 async function handleApiError(
   operation: () => Promise<NextResponse>,
   context: string
@@ -157,7 +153,6 @@ async function handleApiError(
   }
 }
 
-// ✅ Type-safe authentication helper
 async function validateAuth(requiredRoles: string[] = ['project_manager', 'super_admin']): Promise<{
   error: NextResponse | null;
   session: AuthSession | null;
@@ -184,7 +179,6 @@ async function validateAuth(requiredRoles: string[] = ['project_manager', 'super
   return { error: null, session };
 }
 
-// ✅ Activity transformation that matches your model structure
 function transformActivityToResponse(
   activity: IDailyActivity,
   dailyProgress: PopulatedDailyProgressDocument
@@ -218,7 +212,6 @@ function transformActivityToResponse(
   };
 }
 
-// ✅ Type guard for populated document
 function isPopulatedDailyProgress(
   doc: HydratedDocument<IDailyProgressDocument>
 ): doc is PopulatedDailyProgressDocument {
@@ -231,7 +224,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   return handleApiError(async () => {
-    const { error: authError, session } = await validateAuth(['project_manager', 'super_admin', 'client']);
+    const { error: authError } = await validateAuth(['project_manager', 'super_admin', 'client']);
     if (authError) return authError;
 
     await connectToMongoose();
@@ -271,7 +264,7 @@ export async function GET(
   }, 'GET /api/site-schedule/activity/[id]');
 }
 
-// PUT update specific activity
+// PUT update specific activity - ✅ WITH AUTO-TRIGGERS
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -311,32 +304,46 @@ export async function PUT(
       return NextResponse.json({ error: "Activity not found in daily progress" }, { status: 404 });
     }
 
-    // ✅ All fields from your model that can be updated
     const currentActivity = dailyProgress.activities[activityIndex];
+    
+    // ✅ Store old status to detect completion
+    const oldStatus = currentActivity.status;
+    const activityTitle = currentActivity.title;
+    const projectId = dailyProgress.project.toString();
+    
     const allowedFields: (keyof IDailyActivity)[] = [
       'title', 'description', 'contractor', 'supervisor', 'status', 'priority', 'category',
       'startTime', 'endTime', 'estimatedDuration', 'actualDuration', 'plannedDate', 'actualDate',
       'comments', 'images', 'incidentReport', 'progress'
     ];
 
-    // Use type-safe updater function that matches your model
     allowedFields.forEach(field => {
       if (body[field] !== undefined) {
         updateActivityField(currentActivity, field, body[field]);
       }
     });
 
-    // Always update metadata when making changes
     currentActivity.updatedBy = new Types.ObjectId(session.user.id);
     currentActivity.updatedAt = new Date();
 
-    // Mark as modified for Mongoose
     dailyProgress.markModified(`activities.${activityIndex}`);
-
-    // Save - your pre-save middleware will handle summary recalculation
     await dailyProgress.save();
 
-    // Get updated document with population
+    // ✅ AUTO-TRIGGER: If status changed to completed
+    if (currentActivity.status === 'completed' && oldStatus !== 'completed') {
+      const { updateProjectProgress, notifyClientOfTaskCompletion, notifyClientOfProgressUpdate } = 
+        await import('@/lib/projectUtils');
+
+      try {
+        const newProgress = await updateProjectProgress(projectId);
+        await notifyClientOfTaskCompletion(projectId, activityTitle, session.user.id);
+        await notifyClientOfProgressUpdate(projectId, newProgress, session.user.id);
+      } catch (notifError) {
+        console.error('Error in auto-triggers:', notifError);
+        // Don't fail the request if notifications fail
+      }
+    }
+
     const populatedDailyProgress = await DailyProgress.populate(dailyProgress, {
       path: 'project',
       select: 'title'
@@ -388,15 +395,11 @@ export async function DELETE(
       return NextResponse.json({ error: "Activity not found" }, { status: 404 });
     }
 
-    // Remove the activity
     dailyProgress.activities = dailyProgress.activities.filter(
       (a: IDailyActivity) => a._id?.toString() !== activityId
     );
 
-    // Mark as modified
     dailyProgress.markModified('activities');
-
-    // Save - your pre-save middleware will recalculate summary
     await dailyProgress.save();
 
     return NextResponse.json({

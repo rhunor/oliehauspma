@@ -1,6 +1,6 @@
-// src/lib/projects.ts - PROJECT DATABASE UTILITIES
+// src/lib/projects.ts - PROJECT DATABASE UTILITIES WITH MULTIPLE MANAGERS
 import { connectToDatabase } from '@/lib/db';
-import { ObjectId } from 'mongodb';
+import { ObjectId, UpdateFilter } from 'mongodb';
 
 // Define types for MongoDB documents
 interface ProjectDocument {
@@ -10,7 +10,7 @@ interface ProjectDocument {
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   client: ObjectId;
-  manager: ObjectId;
+  managers: ObjectId[]; // FIXED: Changed from manager to managers array
   siteAddress?: string;
   scopeOfWork?: string;
   designStyle?: string;
@@ -31,6 +31,9 @@ interface ProjectDocument {
   updatedAt: Date;
 }
 
+// FIXED: Type for insert operations (omits auto-generated _id)
+type InsertProjectDocument = Omit<ProjectDocument, '_id'>;
+
 interface UserDocument {
   _id: ObjectId;
   name: string;
@@ -40,19 +43,20 @@ interface UserDocument {
   password?: string;
 }
 
-interface ProjectWithUsers extends Omit<ProjectDocument, 'client' | 'manager'> {
+// FIXED: Updated interface to have managers array instead of single manager
+interface ProjectWithUsers extends Omit<ProjectDocument, 'client' | 'managers'> {
   client: UserDocument;
-  manager: UserDocument;
+  managers: UserDocument[]; // FIXED: Array of managers
 }
 
 interface MongoMatchQuery {
   _id?: ObjectId;
-  manager?: ObjectId;
+  managers?: { $in: ObjectId[] }; // FIXED: Changed to support array matching
   client?: ObjectId;
 }
 
 /**
- * Get a project by ID with populated client and manager data
+ * Get a project by ID with populated client and managers data
  * @param projectId - The project ID to fetch
  * @param userRole - Role of the requesting user for authorization
  * @param userId - ID of the requesting user for authorization
@@ -73,9 +77,10 @@ export async function getProjectById(
     // Build query based on user role
     const matchQuery: MongoMatchQuery = { _id: new ObjectId(projectId) };
 
-    // Role-based access control
+    // Role-based access control with multiple managers support
     if (userRole === 'project_manager') {
-      matchQuery.manager = new ObjectId(userId);
+      // FIXED: Check if userId is in the managers array
+      matchQuery.managers = { $in: [new ObjectId(userId)] };
     } else if (userRole === 'client') {
       matchQuery.client = new ObjectId(userId);
     }
@@ -95,22 +100,23 @@ export async function getProjectById(
             pipeline: [{ $project: { password: 0 } }]
           }
         },
+        // FIXED: Lookup managers array - MongoDB 5.0+ supports direct lookup on arrays
         {
           $lookup: {
             from: 'users',
-            localField: 'manager',
+            localField: 'managers',
             foreignField: '_id',
-            as: 'managerData',
+            as: 'managersData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
           $addFields: {
             client: { $arrayElemAt: ['$clientData', 0] },
-            manager: { $arrayElemAt: ['$managerData', 0] }
+            managers: '$managersData' // FIXED: Keep as array, don't use $arrayElemAt
           }
         },
-        { $unset: ['clientData', 'managerData'] }
+        { $unset: ['clientData', 'managersData'] }
       ])
       .toArray();
 
@@ -135,7 +141,8 @@ export async function getProjects(userRole: string, userId: string): Promise<Pro
     const matchQuery: MongoMatchQuery = {};
 
     if (userRole === 'project_manager') {
-      matchQuery.manager = new ObjectId(userId);
+      // FIXED: Check if userId is in the managers array
+      matchQuery.managers = { $in: [new ObjectId(userId)] };
     } else if (userRole === 'client') {
       matchQuery.client = new ObjectId(userId);
     }
@@ -153,22 +160,23 @@ export async function getProjects(userRole: string, userId: string): Promise<Pro
             pipeline: [{ $project: { password: 0 } }]
           }
         },
+        // FIXED: Lookup managers array
         {
           $lookup: {
             from: 'users',
-            localField: 'manager',
+            localField: 'managers',
             foreignField: '_id',
-            as: 'managerData',
+            as: 'managersData',
             pipeline: [{ $project: { password: 0 } }]
           }
         },
         {
           $addFields: {
             client: { $arrayElemAt: ['$clientData', 0] },
-            manager: { $arrayElemAt: ['$managerData', 0] }
+            managers: '$managersData' // FIXED: Keep as array
           }
         },
-        { $unset: ['clientData', 'managerData'] },
+        { $unset: ['clientData', 'managersData'] },
         { $sort: { createdAt: -1 } }
       ])
       .toArray();
@@ -205,7 +213,8 @@ export async function updateProject(
     const matchQuery: MongoMatchQuery = { _id: new ObjectId(projectId) };
 
     if (userRole === 'project_manager') {
-      matchQuery.manager = new ObjectId(userId);
+      // FIXED: Check if userId is in the managers array
+      matchQuery.managers = { $in: [new ObjectId(userId)] };
     }
     // super_admin can update any project
     // clients cannot update projects
@@ -214,8 +223,10 @@ export async function updateProject(
       return null; // Clients cannot update projects
     }
 
+    const collection = db.collection<ProjectDocument>('projects');
+
     // Update the project
-    await db.collection('projects').updateOne(
+    const result = await collection.updateOne(
       matchQuery,
       { 
         $set: { 
@@ -224,6 +235,11 @@ export async function updateProject(
         } 
       }
     );
+
+    // Check if update was successful
+    if (result.matchedCount === 0) {
+      return null; // Project not found or user not authorized
+    }
 
     // Return the updated project
     return await getProjectById(projectId, userRole, userId);
@@ -250,15 +266,17 @@ export async function createProject(
 
     const { db } = await connectToDatabase();
 
-    const newProject = {
+    const newProject: InsertProjectDocument = {
       ...projectData,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    const result = await db.collection('projects').insertOne(newProject);
+    const collection = db.collection<InsertProjectDocument>('projects');
+    const result = await collection.insertOne(newProject);
 
     if (result.insertedId) {
+      // Fetch and return the created project with populated data
       return await getProjectById(result.insertedId.toString(), userRole, '');
     }
 
@@ -290,7 +308,8 @@ export async function deleteProject(
       return false;
     }
 
-    const result = await db.collection('projects').deleteOne({
+    const collection = db.collection<ProjectDocument>('projects');
+    const result = await collection.deleteOne({
       _id: new ObjectId(projectId)
     });
 
@@ -315,7 +334,8 @@ export async function getProjectStats(userRole: string, userId: string) {
     const matchQuery: MongoMatchQuery = {};
 
     if (userRole === 'project_manager') {
-      matchQuery.manager = new ObjectId(userId);
+      // FIXED: Check if userId is in the managers array
+      matchQuery.managers = { $in: [new ObjectId(userId)] };
     } else if (userRole === 'client') {
       matchQuery.client = new ObjectId(userId);
     }
@@ -369,5 +389,139 @@ export async function getProjectStats(userRole: string, userId: string) {
       avgProgress: 0,
       totalBudget: 0
     };
+  }
+}
+
+/**
+ * Check if a user is a manager of a project
+ * @param projectId - The project ID to check
+ * @param userId - The user ID to check
+ * @returns Boolean indicating if user is a manager
+ */
+export async function isProjectManager(
+  projectId: string,
+  userId: string
+): Promise<boolean> {
+  try {
+    const { db } = await connectToDatabase();
+
+    if (!ObjectId.isValid(projectId) || !ObjectId.isValid(userId)) {
+      return false;
+    }
+
+    const collection = db.collection<ProjectDocument>('projects');
+    const project = await collection.findOne({
+      _id: new ObjectId(projectId),
+      managers: { $in: [new ObjectId(userId)] }
+    });
+
+    return project !== null;
+  } catch (error) {
+    console.error('Error checking if user is project manager:', error);
+    return false;
+  }
+}
+
+/**
+ * Add a manager to a project
+ * @param projectId - The project ID
+ * @param managerId - The manager ID to add
+ * @param userRole - Role of the requesting user (must be super_admin)
+ * @returns Boolean indicating success
+ */
+export async function addProjectManager(
+  projectId: string,
+  managerId: string,
+  userRole: string
+): Promise<boolean> {
+  try {
+    if (userRole !== 'super_admin') {
+      return false; // Only super admin can add managers
+    }
+
+    const { db } = await connectToDatabase();
+
+    if (!ObjectId.isValid(projectId) || !ObjectId.isValid(managerId)) {
+      return false;
+    }
+
+    // Verify the manager exists and has the correct role
+    const userCollection = db.collection<UserDocument>('users');
+    const manager = await userCollection.findOne({
+      _id: new ObjectId(managerId),
+      role: 'project_manager'
+    });
+
+    if (!manager) {
+      return false;
+    }
+
+    const collection = db.collection<ProjectDocument>('projects');
+    const update: UpdateFilter<ProjectDocument> = {
+      $addToSet: { managers: new ObjectId(managerId) },
+      $set: { updatedAt: new Date() }
+    };
+
+    const result = await collection.updateOne(
+      { _id: new ObjectId(projectId) },
+      update
+    );
+
+    return result.modifiedCount > 0 || result.matchedCount > 0;
+  } catch (error) {
+    console.error('Error adding project manager:', error);
+    return false;
+  }
+}
+
+/**
+ * Remove a manager from a project
+ * @param projectId - The project ID
+ * @param managerId - The manager ID to remove
+ * @param userRole - Role of the requesting user (must be super_admin)
+ * @returns Boolean indicating success
+ */
+export async function removeProjectManager(
+  projectId: string,
+  managerId: string,
+  userRole: string
+): Promise<boolean> {
+  try {
+    if (userRole !== 'super_admin') {
+      return false; // Only super admin can remove managers
+    }
+
+    const { db } = await connectToDatabase();
+
+    if (!ObjectId.isValid(projectId) || !ObjectId.isValid(managerId)) {
+      return false;
+    }
+
+    const collection = db.collection<ProjectDocument>('projects');
+
+    // Check if project has more than one manager
+    const project = await collection.findOne({
+      _id: new ObjectId(projectId)
+    });
+
+    if (!project || !project.managers || project.managers.length <= 1) {
+      return false; // Cannot remove the last manager
+    }
+
+    // Remove manager from the managers array
+    const update: UpdateFilter<ProjectDocument> = {
+      $pull: { managers: new ObjectId(managerId) },
+      $set: { updatedAt: new Date() }
+    };
+
+    const result = await collection.updateOne(
+      { _id: new ObjectId(projectId) },
+      update
+    );
+
+    return result.modifiedCount > 0;
+  } catch (error) {
+    console.error('Error removing project manager:', error);
+    return false;
   }
 }

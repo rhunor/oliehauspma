@@ -1,5 +1,5 @@
 // FILE: src/app/api/site-schedule/activities/route.ts
-// ✅ FIXED: Using proper Mongoose populate generics instead of type assertions
+// ✅ FIXED: Added 'on_hold' status to ActivityResponse interface
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -8,7 +8,7 @@ import { connectToMongoose } from "@/lib/db";
 import DailyProgress, { IDailyActivity } from "@/models/DailyProgress";
 import Project from "@/models/Project";
 
-// ✅ ADDED: Interface for the flattened activity response
+// ✅ FIXED: Added 'on_hold' to status union type
 interface ActivityResponse {
   _id: string;
   title: string;
@@ -17,7 +17,7 @@ interface ActivityResponse {
   supervisor: string;
   plannedDate: Date | string;
   actualDate?: Date | string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority: string;
   category: string;
   comments?: string;
@@ -51,13 +51,18 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50");
     const skip = parseInt(searchParams.get("skip") || "0");
 
-    let query = {};
+    // ✅ FIXED: Proper typing for MongoDB query
+    interface QueryFilter {
+      project?: { $in: string[] } | string;
+    }
+
+    let query: QueryFilter = {};
     let projectIds: string[] = [];
 
     // If manager filter is requested, get only manager's projects
     if (isManager && session.user.role === 'project_manager') {
       const managerProjects = await Project.find(
-        { manager: session.user.id },
+        { managers: session.user.id },
         { _id: 1 }
       );
       projectIds = managerProjects.map(p => p._id.toString());
