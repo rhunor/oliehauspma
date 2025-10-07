@@ -1,4 +1,4 @@
-// FILE: src/app/api/site-schedule/activity/[id]/route.ts - WITH ON_HOLD STATUS & AUTO-TRIGGERS
+// src/app/api/site-schedule/activity/[id]/route.ts - FIXED: Made supervisor optional
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -20,7 +20,7 @@ interface ActivityResponse {
   title: string;
   description?: string;
   contractor: string;
-  supervisor: string;
+  supervisor?: string; // FIXED: Made optional to match model
   status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
@@ -54,7 +54,7 @@ interface AuthSession {
   user: SessionUser;
 }
 
-// ✅ UPDATED: Field updater with on_hold status
+// Field updater with on_hold status
 function updateActivityField(
   activity: IDailyActivity,
   field: keyof IDailyActivity,
@@ -76,9 +76,13 @@ function updateActivityField(
       }
       break;
     case 'contractor':
-    case 'supervisor':
       if (typeof value === 'string') {
-        activity[field] = value;
+        activity.contractor = value;
+      }
+      break;
+    case 'supervisor':
+      if (typeof value === 'string' || value === undefined) {
+        activity.supervisor = value;
       }
       break;
     case 'status':
@@ -188,7 +192,7 @@ function transformActivityToResponse(
     title: activity.title,
     description: activity.description,
     contractor: activity.contractor,
-    supervisor: activity.supervisor,
+    supervisor: activity.supervisor, // Now matches optional type
     status: activity.status,
     priority: activity.priority,
     category: activity.category,
@@ -264,7 +268,7 @@ export async function GET(
   }, 'GET /api/site-schedule/activity/[id]');
 }
 
-// PUT update specific activity - ✅ WITH AUTO-TRIGGERS
+// PUT update specific activity - WITH AUTO-TRIGGERS
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -306,7 +310,7 @@ export async function PUT(
 
     const currentActivity = dailyProgress.activities[activityIndex];
     
-    // ✅ Store old status to detect completion
+    // Store old status to detect completion
     const oldStatus = currentActivity.status;
     const activityTitle = currentActivity.title;
     const projectId = dailyProgress.project.toString();
@@ -329,7 +333,7 @@ export async function PUT(
     dailyProgress.markModified(`activities.${activityIndex}`);
     await dailyProgress.save();
 
-    // ✅ AUTO-TRIGGER: If status changed to completed
+    // AUTO-TRIGGER: If status changed to completed
     if (currentActivity.status === 'completed' && oldStatus !== 'completed') {
       const { updateProjectProgress, notifyClientOfTaskCompletion, notifyClientOfProgressUpdate } = 
         await import('@/lib/projectUtils');

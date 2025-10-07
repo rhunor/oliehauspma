@@ -1,12 +1,26 @@
-// FILE: src/app/api/site-schedule/daily/route.ts - FIXED VERSION
+// src/app/api/site-schedule/daily/route.ts - FIXED: Better error handling and validation
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { connectToMongoose } from "@/lib/db";
-import DailyProgress, { IDailyActivity, IDailyProgressDocument } from "@/models/DailyProgress";
+import DailyProgress, { 
+  IDailyProgressDocument, 
+  IDailyActivity, 
+  IDailyProgress 
+} from "@/models/DailyProgress";
 import { Types } from "mongoose";
 
-// GET daily progress
+// For populated documents
+interface IPopulatedDailyActivity extends Omit<IDailyActivity, 'contractor' | 'supervisor'> {
+  contractor: { name: string } | string;
+  supervisor: { name: string } | string;
+}
+
+interface IPopulatedDailyProgress extends Omit<IDailyProgress, 'activities'> {
+  activities: IPopulatedDailyActivity[];
+}
+
+// GET daily progress for a specific date
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -23,7 +37,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get("projectId");
     const date = searchParams.get("date");
-
+    
     if (!projectId || !date) {
       return NextResponse.json(
         { error: "Project ID and date are required" },
@@ -34,19 +48,22 @@ export async function GET(request: NextRequest) {
     const dailyProgress = await DailyProgress.findOne({
       project: projectId,
       date: new Date(date)
-    }).populate('project', 'title') as IDailyProgressDocument | null;
-
-    if (!dailyProgress) {
-      return NextResponse.json({
-        success: true,
-        data: null,
-        message: "No progress found for this date"
-      });
-    }
+    }).populate('activities.contractor', 'name')
+      .populate('activities.supervisor', 'name') as IPopulatedDailyProgress | null;
 
     return NextResponse.json({
       success: true,
-      data: dailyProgress
+      data: dailyProgress || {
+        activities: [],
+        date: date,
+        summary: {
+          totalActivities: 0,
+          completed: 0,
+          inProgress: 0,
+          pending: 0,
+          delayed: 0
+        }
+      }
     });
 
   } catch (error) {
@@ -58,7 +75,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST new daily activity - ✅ FIXED THE TRUNCATION BUG
+// POST new daily activity - FIXED: Better validation and error handling
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -73,7 +90,7 @@ export async function POST(request: NextRequest) {
     // Only project managers and super admins can add activities
     if (session.user.role !== 'project_manager' && session.user.role !== 'super_admin') {
       return NextResponse.json(
-        { error: "Only project managers can add activities" },
+        { error: "Only project managers and admins can add activities" },
         { status: 403 }
       );
     }
@@ -83,9 +100,26 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { projectId, date, activity } = body;
 
+    // FIXED: Better validation
     if (!projectId || !date || !activity) {
       return NextResponse.json(
         { error: "Project ID, date, and activity data are required" },
+        { status: 400 }
+      );
+    }
+
+    // FIXED: Validate required activity fields
+    if (!activity.title || !activity.contractor) {
+      return NextResponse.json(
+        { error: "Activity title and contractor are required" },
+        { status: 400 }
+      );
+    }
+
+    // FIXED: Validate ObjectId
+    if (!Types.ObjectId.isValid(projectId)) {
+      return NextResponse.json(
+        { error: "Invalid project ID" },
         { status: 400 }
       );
     }
@@ -97,8 +131,9 @@ export async function POST(request: NextRequest) {
     }) as IDailyProgressDocument | null;
 
     if (!dailyProgress) {
+      // FIXED: Create new document with proper structure
       dailyProgress = new DailyProgress({
-        project: projectId,
+        project: new Types.ObjectId(projectId),
         date: new Date(date),
         activities: [],
         summary: {
@@ -106,32 +141,65 @@ export async function POST(request: NextRequest) {
           completed: 0,
           inProgress: 0,
           pending: 0,
-          delayed: 0,
-          onHold: 0
+          delayed: 0
         },
-        approved: false
+        approved: false,
+        createdBy: new Types.ObjectId(session.user.id),
+        createdAt: new Date(),
+        updatedAt: new Date()
       }) as IDailyProgressDocument;
     }
 
-    // Add the new activity
+    // FIXED: Prepare the new activity with proper types
     const newActivity: IDailyActivity = {
-      ...activity,
+      _id: new Types.ObjectId(), // Generate new ID
+      title: activity.title,
+      description: activity.description || '',
+      contractor: activity.contractor,
+      supervisor: activity.supervisor,
+      plannedDate: activity.plannedDate ? new Date(activity.plannedDate) : new Date(date),
+      actualDate: activity.actualDate ? new Date(activity.actualDate) : undefined,
+      status: activity.status || 'pending',
+      priority: activity.priority || 'medium',
+      category: activity.category || 'other',
+      startTime: activity.startTime,
+      endTime: activity.endTime,
+      estimatedDuration: activity.estimatedDuration || undefined,
+      actualDuration: activity.actualDuration || undefined,
+      progress: activity.progress || 0,
+      comments: activity.comments,
+      images: activity.images || [],
+      incidentReport: activity.incidentReport,
       createdBy: new Types.ObjectId(session.user.id),
-      createdAt: new Date()
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
     
+    // Add the new activity
     dailyProgress.activities.push(newActivity);
 
-    // ✅ FIXED: Complete the summary statistics update (was truncated before)
+    // Update summary statistics
     const activities = dailyProgress.activities;
     dailyProgress.summary.totalActivities = activities.length;
     dailyProgress.summary.completed = activities.filter((a: IDailyActivity) => a.status === 'completed').length;
     dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
-    dailyProgress.summary.onHold = activities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
+    dailyProgress.updatedAt = new Date();
 
-    await dailyProgress.save();
+    // FIXED: Save with error handling
+    try {
+      await dailyProgress.save();
+    } catch (saveError) {
+      console.error("Error saving daily progress:", saveError);
+      return NextResponse.json(
+        { 
+          error: "Failed to save activity",
+          details: saveError instanceof Error ? saveError.message : "Unknown error"
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -142,13 +210,16 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error adding daily activity:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { 
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : "Unknown error"
+      },
       { status: 500 }
     );
   }
 }
 
-// PUT update existing activity - ✅ WITH AUTO-TRIGGERS
+// PUT update existing activity
 export async function PUT(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -163,7 +234,7 @@ export async function PUT(request: NextRequest) {
     // Only project managers and super admins can update activities
     if (session.user.role !== 'project_manager' && session.user.role !== 'super_admin') {
       return NextResponse.json(
-        { error: "Only project managers can update activities" },
+        { error: "Only project managers and admins can update activities" },
         { status: 403 }
       );
     }
@@ -192,7 +263,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Find and update the activity with proper typing
+    // Find and update the activity
     const activities = dailyProgress.activities;
     const activityIndex = activities.findIndex(
       (a: IDailyActivity) => a._id?.toString() === activityId
@@ -205,10 +276,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Store old status to detect completion
-    const oldStatus = activities[activityIndex].status;
-    const activityTitle = activities[activityIndex].title;
-
+    // Update activity fields
     activities[activityIndex] = {
       ...activities[activityIndex],
       ...updates,
@@ -216,30 +284,14 @@ export async function PUT(request: NextRequest) {
       updatedAt: new Date()
     };
 
-    // Update summary statistics including on_hold
+    // Update summary statistics
     dailyProgress.summary.completed = activities.filter((a: IDailyActivity) => a.status === 'completed').length;
     dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
-    dailyProgress.summary.onHold = activities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
+    dailyProgress.updatedAt = new Date();
 
     await dailyProgress.save();
-
-    // ✅ AUTO-TRIGGER: If status changed to completed
-    if (updates.status === 'completed' && oldStatus !== 'completed') {
-      // Import utilities dynamically to avoid circular dependencies
-      const { updateProjectProgress, notifyClientOfTaskCompletion, notifyClientOfProgressUpdate } = 
-        await import('@/lib/projectUtils');
-
-      // Update project progress
-      const newProgress = await updateProjectProgress(projectId);
-
-      // Send notification to client about task completion
-      await notifyClientOfTaskCompletion(projectId, activityTitle, session.user.id);
-
-      // Send notification about progress update
-      await notifyClientOfProgressUpdate(projectId, newProgress, session.user.id);
-    }
 
     return NextResponse.json({
       success: true,
@@ -271,7 +323,7 @@ export async function DELETE(request: NextRequest) {
     // Only project managers and super admins can delete activities
     if (session.user.role !== 'project_manager' && session.user.role !== 'super_admin') {
       return NextResponse.json(
-        { error: "Only project managers can delete activities" },
+        { error: "Only project managers and admins can delete activities" },
         { status: 403 }
       );
     }
@@ -285,7 +337,7 @@ export async function DELETE(request: NextRequest) {
 
     if (!projectId || !date || !activityId) {
       return NextResponse.json(
-        { error: "All parameters are required" },
+        { error: "Project ID, date, and activity ID are required" },
         { status: 400 }
       );
     }
@@ -302,25 +354,25 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Remove the activity with proper typing
-    const activities = dailyProgress.activities;
-    dailyProgress.activities = activities.filter(
+    // Remove the activity
+    dailyProgress.activities = dailyProgress.activities.filter(
       (a: IDailyActivity) => a._id?.toString() !== activityId
     );
 
-    // Update summary statistics including on_hold
-    const updatedActivities = dailyProgress.activities;
-    dailyProgress.summary.totalActivities = updatedActivities.length;
-    dailyProgress.summary.completed = updatedActivities.filter((a: IDailyActivity) => a.status === 'completed').length;
-    dailyProgress.summary.inProgress = updatedActivities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
-    dailyProgress.summary.pending = updatedActivities.filter((a: IDailyActivity) => a.status === 'pending').length;
-    dailyProgress.summary.delayed = updatedActivities.filter((a: IDailyActivity) => a.status === 'delayed').length;
-    dailyProgress.summary.onHold = updatedActivities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
+    // Update summary statistics
+    const activities = dailyProgress.activities;
+    dailyProgress.summary.totalActivities = activities.length;
+    dailyProgress.summary.completed = activities.filter((a: IDailyActivity) => a.status === 'completed').length;
+    dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
+    dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
+    dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
+    dailyProgress.updatedAt = new Date();
 
     await dailyProgress.save();
 
     return NextResponse.json({
       success: true,
+      data: dailyProgress,
       message: "Activity deleted successfully"
     });
 

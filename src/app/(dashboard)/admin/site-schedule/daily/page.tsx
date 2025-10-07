@@ -1,57 +1,55 @@
-// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - FIXED BUILD ERRORS
-'use client';
+// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - ADDED: Supervisor field
+"use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent } from '@/components/ui/card'; // FIXED: Removed unused CardHeader, CardTitle
+import { useSession } from 'next-auth/react';
+import { 
+  Calendar, 
+  Plus, 
+  ChevronLeft, 
+  ChevronRight, 
+  Clock,
+  CheckCircle,
+  AlertTriangle,
+  Edit,
+  Trash2,
+  X
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select';
-import { 
+import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  Plus, 
-  CalendarCheck, 
-  Clock, 
-  User,
-  Calendar as CalendarIcon
-  // FIXED: Removed unused imports: Edit, Trash2, CheckCircle, AlertCircle
-} from 'lucide-react';
-import Link from 'next/link';
 
-// TypeScript interfaces
+// FIXED: Proper TypeScript interfaces
 interface Project {
   _id: string;
   title: string;
-  client: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
+  status: string;
 }
 
 interface DailyActivity {
-  _id?: string;
+  _id: string;
   title: string;
   description: string;
   contractor: string;
+  supervisor: string; // ADDED: Supervisor field
   plannedDate: string;
   actualDate?: string;
   status: 'pending' | 'in_progress' | 'completed' | 'delayed';
@@ -79,8 +77,24 @@ interface DailyProgress {
   approved: boolean;
 }
 
+// Correct API response interface
+interface ProjectsApiResponse {
+  success: boolean;
+  data?: {
+    projects?: Project[];
+    pagination?: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  };
+  error?: string;
+}
+
 export default function AdminDailyActivitiesPage() {
   const { toast } = useToast();
+  const { data: session } = useSession();
   
   // State management
   const [projects, setProjects] = useState<Project[]>([]);
@@ -93,20 +107,20 @@ export default function AdminDailyActivitiesPage() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 
-  // Form state for new activity
+  // Form state for new activity - ADDED supervisor field
   const [newActivity, setNewActivity] = useState<Omit<DailyActivity, '_id'>>({
     title: '',
     description: '',
     contractor: '',
+    supervisor: '', // ADDED: Supervisor field
     plannedDate: selectedDate,
     status: 'pending',
     priority: 'medium',
     estimatedDuration: 60
   });
 
-  // Fetch projects on component mount
   const fetchProjects = useCallback(async () => {
-    const abortController = new AbortController(); // FIXED: Use const instead of let
+    const abortController = new AbortController();
     
     try {
       setProjectsLoading(true);
@@ -122,17 +136,28 @@ export default function AdminDailyActivitiesPage() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data: ProjectsApiResponse = await response.json();
       
-      if (data.success && data.data?.data) {
-        setProjects(data.data.data);
+      console.log('API Response:', data);
+      
+      if (data.success) {
+        const projectsData = data.data?.projects || [];
         
-        // Auto-select first project if none selected
-        if (data.data.data.length > 0 && !selectedProject) {
-          setSelectedProject(data.data.data[0]._id);
+        console.log('Projects Data:', projectsData);
+        
+        setProjects(projectsData);
+        
+        if (projectsData.length > 0 && !selectedProject) {
+          setSelectedProject(projectsData[0]._id);
         }
       } else {
-        throw new Error(data.error || 'Failed to fetch projects');
+        console.warn('No projects found or API returned error:', data.error);
+        setProjects([]);
+        toast({
+          variant: 'default',
+          title: 'No Projects',
+          description: data.error || 'No projects available. Please create a project first.',
+        });
       }
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') {
@@ -142,22 +167,21 @@ export default function AdminDailyActivitiesPage() {
           title: 'Error',
           description: 'Failed to load projects. Please refresh the page.',
         });
+        setProjects([]);
       }
     } finally {
       setProjectsLoading(false);
     }
 
-    // Cleanup function
     return () => {
       abortController.abort();
     };
-  }, [selectedProject, toast]);
+  }, [toast]);
 
-  // Fetch daily progress for selected project and date
   const fetchDailyProgress = useCallback(async () => {
     if (!selectedProject || !selectedDate) return;
 
-    const abortController = new AbortController(); // FIXED: Use const instead of let
+    const abortController = new AbortController();
     
     try {
       setLoading(true);
@@ -181,7 +205,6 @@ export default function AdminDailyActivitiesPage() {
       if (data.success) {
         setDailyProgress(data.data);
       } else {
-        // No progress found for this date - create empty state
         setDailyProgress({
           project: selectedProject,
           date: selectedDate,
@@ -209,19 +232,18 @@ export default function AdminDailyActivitiesPage() {
       setLoading(false);
     }
 
-    // Cleanup function
     return () => {
       abortController.abort();
     };
   }, [selectedProject, selectedDate, toast]);
 
-  // Add new activity
+  // UPDATED: Validation includes supervisor
   const handleAddActivity = async () => {
-    if (!selectedProject || !newActivity.title.trim() || !newActivity.contractor.trim()) {
+    if (!selectedProject || !newActivity.title.trim() || !newActivity.contractor.trim() || !newActivity.supervisor.trim()) {
       toast({
         variant: 'destructive',
         title: 'Validation Error',
-        description: 'Please fill in all required fields.',
+        description: 'Please fill in all required fields (Title, Contractor, and Supervisor).',
       });
       return;
     }
@@ -229,23 +251,30 @@ export default function AdminDailyActivitiesPage() {
     try {
       setLoading(true);
 
+      const requestBody = {
+        projectId: selectedProject,
+        date: selectedDate,
+        activity: {
+          ...newActivity,
+          plannedDate: selectedDate
+        }
+      };
+
+      console.log('Request Body:', requestBody);
+
       const response = await fetch('/api/site-schedule/daily', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          projectId: selectedProject,
-          date: selectedDate,
-          activity: {
-            ...newActivity,
-            plannedDate: selectedDate
-          }
-        }),
+        body: JSON.stringify(requestBody),
       });
+
+      console.log('Response Status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Error Response:', errorData);
         throw new Error(errorData.error || 'Failed to add activity');
       }
 
@@ -258,6 +287,7 @@ export default function AdminDailyActivitiesPage() {
           title: '',
           description: '',
           contractor: '',
+          supervisor: '', // ADDED: Reset supervisor
           plannedDate: selectedDate,
           status: 'pending',
           priority: 'medium',
@@ -281,7 +311,6 @@ export default function AdminDailyActivitiesPage() {
     }
   };
 
-  // Update activity status
   const handleUpdateActivityStatus = async (activityId: string, newStatus: DailyActivity['status']) => {
     if (!selectedProject || !activityId) return;
 
@@ -327,25 +356,22 @@ export default function AdminDailyActivitiesPage() {
     }
   };
 
-  // Date navigation
   const handleDateChange = (increment: number) => {
     const currentDate = new Date(selectedDate);
     currentDate.setDate(currentDate.getDate() + increment);
     setSelectedDate(currentDate.toISOString().split('T')[0]);
   };
 
-  // FIXED: Effects with proper dependencies
   useEffect(() => {
     fetchProjects();
-  }, [fetchProjects]); 
+  }, []);
 
   useEffect(() => {
     if (selectedProject && selectedDate) {
       fetchDailyProgress();
     }
-  }, [selectedProject, selectedDate, fetchDailyProgress]); // FIXED: Added missing dependencies
+  }, [selectedProject, selectedDate, fetchDailyProgress]);
 
-  // Helper functions
   const getStatusColor = (status: DailyActivity['status']) => {
     switch (status) {
       case 'pending': return 'bg-gray-100 text-gray-800';
@@ -393,229 +419,176 @@ export default function AdminDailyActivitiesPage() {
     );
   }
 
+  if (projects.length === 0) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-12">
+              <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Projects Available</h3>
+              <p className="text-gray-600 mb-4">
+                You need to create a project before you can add daily activities.
+              </p>
+              <Button onClick={() => window.location.href = '/admin/projects'}>
+                Go to Projects
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-serif font-bold text-gray-900">
-            Daily Site Progress
-          </h1>
-          <p className="text-neutral-600 mt-1">
-            Track and update daily activities on site
-          </p>
+          <h1 className="text-3xl font-bold">Daily Site Activities</h1>
+          <p className="text-gray-600 mt-1">Track and manage daily construction activities</p>
         </div>
-        <div className="mt-4 sm:mt-0 flex gap-3">
-          <Link href="/admin/site-schedule">
-            <Button variant="outline">
-              <CalendarCheck className="h-4 w-4 mr-2" />
-              Full Schedule
-            </Button>
-          </Link>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button disabled={!selectedProject}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Activity
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add New Activity</DialogTitle>
-                <DialogDescription>
-                  Add a new activity for {selectedProject ? projects.find(p => p._id === selectedProject)?.title : 'the selected project'} on {formatDate(selectedDate)}.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="title">Activity Title *</Label>
-                  <Input
-                    id="title"
-                    value={newActivity.title}
-                    onChange={(e) => setNewActivity(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="e.g., Foundation excavation"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="contractor">Contractor *</Label>
-                  <Input
-                    id="contractor"
-                    value={newActivity.contractor}
-                    onChange={(e) => setNewActivity(prev => ({ ...prev, contractor: e.target.value }))}
-                    placeholder="e.g., ABC Construction"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={newActivity.description}
-                    onChange={(e) => setNewActivity(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Additional details about the activity"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="priority">Priority</Label>
-                    <Select 
-                      value={newActivity.priority} 
-                      onValueChange={(value: DailyActivity['priority']) => 
-                        setNewActivity(prev => ({ ...prev, priority: value }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                        <SelectItem value="urgent">Urgent</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="duration">Duration (minutes)</Label>
-                    <Input
-                      id="duration"
-                      type="number"
-                      value={newActivity.estimatedDuration || ''}
-                      onChange={(e) => setNewActivity(prev => ({ 
-                        ...prev, 
-                        estimatedDuration: parseInt(e.target.value) || undefined 
-                      }))}
-                      placeholder="60"
-                    />
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddActivity} disabled={loading}>
-                  {loading ? 'Adding...' : 'Add Activity'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+        <Button onClick={() => setIsAddDialogOpen(true)} disabled={!selectedProject}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Activity
+        </Button>
       </div>
 
-      {/* Project and Date Selector */}
+      {/* Project and Date Selection */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex items-center gap-3">
-              <Label>Project:</Label>
-              <Select value={selectedProject} onValueChange={setSelectedProject}>
-                <SelectTrigger className="w-64">
-                  <SelectValue placeholder="Select a project" />
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Project Selection */}
+            <div>
+              <Label>Select Project</Label>
+              <Select
+                value={selectedProject}
+                onValueChange={setSelectedProject}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a project" />
                 </SelectTrigger>
                 <SelectContent>
                   {projects.map((project) => (
                     <SelectItem key={project._id} value={project._id}>
-                      {project.title} - {project.client.name}
+                      {project.title}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            
-            <div className="flex items-center gap-3">
-              <Label>Date:</Label>
-              <div className="flex items-center gap-2">
+
+            {/* Date Selection */}
+            <div>
+              <Label>Select Date</Label>
+              <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="icon"
                   onClick={() => handleDateChange(-1)}
                 >
-                  ←
+                  <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Input
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-40"
+                  className="flex-1"
                 />
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="icon"
                   onClick={() => handleDateChange(1)}
                 >
-                  →
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
               {isToday && (
-                <Badge variant="secondary">Today</Badge>
+                <p className="text-sm text-blue-600 mt-1">Today&apos;s activities</p>
               )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Stats */}
+      {/* Summary Statistics */}
       {dailyProgress && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-gray-900">
-                {dailyProgress.summary.totalActivities}
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <p className="text-sm text-gray-600">Total Activities</p>
+                <p className="text-3xl font-bold">{dailyProgress.summary.totalActivities}</p>
               </div>
-              <div className="text-sm text-gray-600">Total</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">
-                {dailyProgress.summary.completed}
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <p className="text-sm text-gray-600">Completed</p>
+                <p className="text-3xl font-bold text-green-600">{dailyProgress.summary.completed}</p>
               </div>
-              <div className="text-sm text-gray-600">Completed</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">
-                {dailyProgress.summary.inProgress}
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <p className="text-sm text-gray-600">In Progress</p>
+                <p className="text-3xl font-bold text-blue-600">{dailyProgress.summary.inProgress}</p>
               </div>
-              <div className="text-sm text-gray-600">In Progress</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-gray-600">
-                {dailyProgress.summary.pending}
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <p className="text-sm text-gray-600">Delayed</p>
+                <p className="text-3xl font-bold text-red-600">{dailyProgress.summary.delayed}</p>
               </div>
-              <div className="text-sm text-gray-600">Pending</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-red-600">
-                {dailyProgress.summary.delayed}
-              </div>
-              <div className="text-sm text-gray-600">Delayed</div>
             </CardContent>
           </Card>
         </div>
       )}
 
       {/* Activities List */}
-      {loading ? (
-        <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-32 bg-gray-200 rounded animate-pulse"></div>
-          ))}
-        </div>
-      ) : dailyProgress?.activities && dailyProgress.activities.length > 0 ? (
-        <div className="space-y-4">
-          {dailyProgress.activities.map((activity) => (
-            <Card key={activity._id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            {formatDate(selectedDate)}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+              <p className="text-gray-600 mt-4">Loading activities...</p>
+            </div>
+          ) : !dailyProgress || dailyProgress.activities.length === 0 ? (
+            <div className="text-center py-8">
+              <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">No activities scheduled for this date</p>
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => setIsAddDialogOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add First Activity
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {dailyProgress.activities.map((activity) => (
+                <div
+                  key={activity._id}
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex-1">
                       <h3 className="font-semibold text-lg">{activity.title}</h3>
+                      <p className="text-sm text-gray-600 mt-1">{activity.description}</p>
+                    </div>
+                    <div className="flex gap-2">
                       <Badge className={getStatusColor(activity.status)}>
                         {activity.status.replace('_', ' ')}
                       </Badge>
@@ -623,37 +596,43 @@ export default function AdminDailyActivitiesPage() {
                         {activity.priority}
                       </Badge>
                     </div>
-                    
-                    {activity.description && (
-                      <p className="text-gray-600 mb-3">{activity.description}</p>
-                    )}
-                    
-                    <div className="flex items-center gap-6 text-sm text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <User className="h-4 w-4" />
-                        {activity.contractor}
-                      </div>
-                      {activity.estimatedDuration && (
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          {activity.estimatedDuration} min
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <CalendarIcon className="h-4 w-4" />
-                        {new Date(activity.plannedDate).toLocaleDateString()}
-                      </div>
-                    </div>
                   </div>
-                  
-                  <div className="flex gap-2">
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
+                    <div>
+                      <p className="text-gray-600">Contractor</p>
+                      <p className="font-medium">{activity.contractor}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Supervisor</p>
+                      <p className="font-medium">{activity.supervisor || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Planned Date</p>
+                      <p className="font-medium">
+                        {new Date(activity.plannedDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                    {activity.estimatedDuration && (
+                      <div>
+                        <p className="text-gray-600">Duration</p>
+                        <p className="font-medium">{activity.estimatedDuration} mins</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {activity.comments && (
+                    <div className="mt-3 p-3 bg-gray-50 rounded">
+                      <p className="text-sm text-gray-700">{activity.comments}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 mt-4">
                     <Select
                       value={activity.status}
-                      onValueChange={(value: DailyActivity['status']) =>
-                        activity._id && handleUpdateActivityStatus(activity._id, value)
-                      }
+                      onValueChange={(value) => handleUpdateActivityStatus(activity._id, value as DailyActivity['status'])}
                     >
-                      <SelectTrigger className="w-32">
+                      <SelectTrigger className="w-40">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -665,30 +644,124 @@ export default function AdminDailyActivitiesPage() {
                     </Select>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <CalendarIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Activities Scheduled</h3>
-            <p className="text-gray-600 mb-4">
-              {selectedProject 
-                ? `No activities have been added for ${formatDate(selectedDate)}.`
-                : 'Select a project to view or add daily activities.'
-              }
-            </p>
-            {selectedProject && (
-              <Button onClick={() => setIsAddDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add First Activity
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Activity Dialog - ADDED SUPERVISOR FIELD */}
+      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add Daily Activity</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="title">Activity Title *</Label>
+              <Input
+                id="title"
+                value={newActivity.title}
+                onChange={(e) => setNewActivity({ ...newActivity, title: e.target.value })}
+                placeholder="e.g., Foundation excavation"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={newActivity.description}
+                onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
+                placeholder="Detailed description of the activity"
+                rows={3}
+              />
+            </div>
+
+            {/* ADDED: Contractor and Supervisor in a grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="contractor">Contractor *</Label>
+                <Input
+                  id="contractor"
+                  value={newActivity.contractor}
+                  onChange={(e) => setNewActivity({ ...newActivity, contractor: e.target.value })}
+                  placeholder="Contractor name"
+                />
+              </div>
+
+              {/* ADDED: Supervisor field */}
+              <div>
+                <Label htmlFor="supervisor">Supervisor *</Label>
+                <Input
+                  id="supervisor"
+                  value={newActivity.supervisor}
+                  onChange={(e) => setNewActivity({ ...newActivity, supervisor: e.target.value })}
+                  placeholder="Supervisor name"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="estimatedDuration">Duration (minutes)</Label>
+                <Input
+                  id="estimatedDuration"
+                  type="number"
+                  value={newActivity.estimatedDuration || ''}
+                  onChange={(e) => setNewActivity({ ...newActivity, estimatedDuration: parseInt(e.target.value) || 60 })}
+                  placeholder="60"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="priority">Priority</Label>
+                <Select
+                  value={newActivity.priority}
+                  onValueChange={(value) => setNewActivity({ ...newActivity, priority: value as DailyActivity['priority'] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="status">Status</Label>
+              <Select
+                value={newActivity.status}
+                onValueChange={(value) => setNewActivity({ ...newActivity, status: value as DailyActivity['status'] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="delayed">Delayed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddActivity} disabled={loading}>
+              {loading ? 'Adding...' : 'Add Activity'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

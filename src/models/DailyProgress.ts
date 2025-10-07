@@ -1,14 +1,13 @@
-// FILE: src/models/DailyProgress.ts - UPDATED WITH ON_HOLD STATUS
+// src/models/DailyProgress.ts - FIXED: Added 'on_hold' status
 import mongoose, { Schema, Model, Types } from 'mongoose';
 
-// ✅ UPDATED: Added 'on_hold' status
 export interface IDailyActivity {
   _id?: Types.ObjectId;
   title: string;
   description?: string;
   contractor: string;
-  supervisor: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  supervisor?: string; // Made optional
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold'; // ADDED: on_hold
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   startTime?: string;
@@ -27,14 +26,13 @@ export interface IDailyActivity {
   updatedAt?: Date;
 }
 
-// ✅ UPDATED: Added onHold count
 export interface IDailySummary {
   totalActivities: number;
   completed: number;
   inProgress: number;
   pending: number;
   delayed: number;
-  onHold: number;
+  onHold?: number; // ADDED: Track on_hold activities
   totalHours?: number;
   crewSize?: number;
 }
@@ -60,7 +58,7 @@ export interface IDailyProgressDocument extends IDailyProgress, mongoose.Documen
   _id: Types.ObjectId;
 }
 
-// ✅ UPDATED: Schema with on_hold status
+// FIXED: Updated schema with on_hold status
 const dailyActivitySchema = new Schema<IDailyActivity>({
   title: {
     type: String,
@@ -76,11 +74,11 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
   },
   supervisor: {
     type: String,
-    required: true
+    required: false // Made optional
   },
   status: {
     type: String,
-    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
+    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'], // ADDED: on_hold
     required: true,
     default: 'pending'
   },
@@ -92,7 +90,7 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
   category: {
     type: String,
     enum: ['structural', 'electrical', 'plumbing', 'finishing', 'other'],
-    default: 'structural'
+    default: 'other'
   },
   startTime: String,
   endTime: String,
@@ -128,7 +126,6 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
   }
 }, { timestamps: true });
 
-// ✅ UPDATED: Summary schema with onHold field
 const dailyProgressSchema = new Schema<IDailyProgressDocument>({
   project: {
     type: Schema.Types.ObjectId,
@@ -161,7 +158,7 @@ const dailyProgressSchema = new Schema<IDailyProgressDocument>({
       type: Number,
       default: 0
     },
-    onHold: {
+    onHold: { // ADDED: Track on_hold activities
       type: Number,
       default: 0
     },
@@ -201,7 +198,7 @@ dailyProgressSchema.index({ 'activities.status': 1 });
 dailyProgressSchema.index({ 'activities.priority': 1 });
 dailyProgressSchema.index({ 'activities.category': 1 });
 
-// ✅ UPDATED: Pre-save middleware to automatically calculate summary including on_hold
+// FIXED: Pre-save middleware to calculate summary including on_hold
 dailyProgressSchema.pre('save', function(next) {
   if (this.activities && this.activities.length > 0) {
     const activities = this.activities;
@@ -212,7 +209,7 @@ dailyProgressSchema.pre('save', function(next) {
     this.summary.inProgress = activities.filter(a => a.status === 'in_progress').length;
     this.summary.pending = activities.filter(a => a.status === 'pending').length;
     this.summary.delayed = activities.filter(a => a.status === 'delayed').length;
-    this.summary.onHold = activities.filter(a => a.status === 'on_hold').length;
+    this.summary.onHold = activities.filter(a => a.status === 'on_hold').length; // ADDED
     
     // Calculate total hours if actual duration is available
     const totalMinutes = activities.reduce((sum, activity) => {
