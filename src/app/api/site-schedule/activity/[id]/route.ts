@@ -1,4 +1,6 @@
-// src/app/api/site-schedule/activity/[id]/route.ts - FIXED: Made supervisor optional
+// src/app/api/site-schedule/activity/[id]/route.ts
+// UPDATED: Added startDate, endDate; Removed duration fields
+
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -15,24 +17,22 @@ type PopulatedDailyProgressDocument = HydratedDocument<IDailyProgressDocument> &
   project: PopulatedProject;
 };
 
+// UPDATED: Response interface - priority is now required (not optional)
 interface ActivityResponse {
   _id: string;
   title: string;
   description?: string;
   contractor: string;
-  supervisor?: string; // FIXED: Made optional to match model
+  supervisor?: string;
+  startDate: string; // ADDED: Required start date-time
+  endDate: string;   // ADDED: Required end date-time
   status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  priority: 'low' | 'medium' | 'high' | 'urgent'; // FIXED: Required, not optional
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
-  startTime?: string;
-  endTime?: string;
-  estimatedDuration?: number;
-  actualDuration?: number;
-  plannedDate?: string;
-  actualDate?: string;
   comments?: string;
-  images?: string[];
-  incidentReport?: string;
+  images?: string[]; // ADDED: S3 image URLs
+  plannedDate?: string; // Legacy field
+  actualDate?: string;  // Legacy field
   progress?: number;
   projectId: string;
   projectTitle: string;
@@ -54,7 +54,7 @@ interface AuthSession {
   user: SessionUser;
 }
 
-// Field updater with on_hold status
+// UPDATED: Type-safe field updater with new fields
 function updateActivityField(
   activity: IDailyActivity,
   field: keyof IDailyActivity,
@@ -67,8 +67,6 @@ function updateActivityField(
       }
       break;
     case 'description':
-    case 'startTime':
-    case 'endTime':
     case 'comments':
     case 'incidentReport':
       if (typeof value === 'string' || value === undefined) {
@@ -85,28 +83,40 @@ function updateActivityField(
         activity.supervisor = value;
       }
       break;
+    // ADDED: Handle new date fields
+    case 'startDate':
+    case 'endDate':
+      if (typeof value === 'string' && value) {
+        activity[field] = new Date(value);
+      } else if (value instanceof Date) {
+        activity[field] = value;
+      }
+      break;
     case 'status':
       if (value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'delayed' || value === 'on_hold') {
         activity.status = value;
       }
       break;
     case 'priority':
-      if (value === 'low' || value === 'medium' || value === 'high' || value === 'urgent' || value === undefined) {
+      // FIXED: Priority is required, so only accept valid enum values
+      if (value === 'low' || value === 'medium' || value === 'high' || value === 'urgent') {
         activity.priority = value;
       }
+      // Don't allow undefined since priority is required
       break;
     case 'category':
-      if (value === 'structural' || value === 'electrical' || value === 'plumbing' || value === 'finishing' || value === 'other' || value === undefined) {
+      if (value === 'structural' || value === 'electrical' || value === 'plumbing' || value === 'finishing' || value === 'other') {
         activity.category = value;
+      } else if (value === undefined) {
+        activity.category = undefined;
       }
       break;
-    case 'estimatedDuration':
-    case 'actualDuration':
     case 'progress':
       if (typeof value === 'number' || value === undefined) {
-        activity[field] = value;
+        activity.progress = value;
       }
       break;
+    // Legacy date fields
     case 'plannedDate':
     case 'actualDate':
       if (typeof value === 'string' && value) {
@@ -116,8 +126,10 @@ function updateActivityField(
       }
       break;
     case 'images':
-      if (Array.isArray(value) || value === undefined) {
+      if (Array.isArray(value)) {
         activity.images = value;
+      } else if (value === undefined) {
+        activity.images = undefined;
       }
       break;
     case 'createdBy':
@@ -183,6 +195,8 @@ async function validateAuth(requiredRoles: string[] = ['project_manager', 'super
   return { error: null, session };
 }
 
+
+// UPDATED: Transform function - priority always has a value
 function transformActivityToResponse(
   activity: IDailyActivity,
   dailyProgress: PopulatedDailyProgressDocument
@@ -192,19 +206,16 @@ function transformActivityToResponse(
     title: activity.title,
     description: activity.description,
     contractor: activity.contractor,
-    supervisor: activity.supervisor, // Now matches optional type
+    supervisor: activity.supervisor,
+    startDate: activity.startDate ? activity.startDate.toISOString() : new Date().toISOString(),
+    endDate: activity.endDate ? activity.endDate.toISOString() : new Date().toISOString(),
     status: activity.status,
-    priority: activity.priority,
+    priority: activity.priority, // Now required, will always have a value (default: 'medium')
     category: activity.category,
-    startTime: activity.startTime,
-    endTime: activity.endTime,
-    estimatedDuration: activity.estimatedDuration,
-    actualDuration: activity.actualDuration,
+    comments: activity.comments,
+    images: activity.images || [],
     plannedDate: activity.plannedDate?.toISOString(),
     actualDate: activity.actualDate?.toISOString(),
-    comments: activity.comments,
-    images: activity.images,
-    incidentReport: activity.incidentReport,
     progress: activity.progress,
     projectId: dailyProgress.project._id.toString(),
     projectTitle: dailyProgress.project.title,
@@ -215,7 +226,6 @@ function transformActivityToResponse(
     updatedAt: activity.updatedAt?.toISOString()
   };
 }
-
 function isPopulatedDailyProgress(
   doc: HydratedDocument<IDailyProgressDocument>
 ): doc is PopulatedDailyProgressDocument {
@@ -268,7 +278,7 @@ export async function GET(
   }, 'GET /api/site-schedule/activity/[id]');
 }
 
-// PUT update specific activity - WITH AUTO-TRIGGERS
+// PUT update specific activity - UPDATED with new fields
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -290,6 +300,19 @@ export async function PUT(
       body = await request.json() as Record<string, unknown>;
     } catch (error) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
+    }
+
+    // ADDED: Validate date fields if present
+    if (body.startDate && body.endDate) {
+      const startDateTime = new Date(body.startDate as string);
+      const endDateTime = new Date(body.endDate as string);
+
+      if (endDateTime <= startDateTime) {
+        return NextResponse.json(
+          { error: "End date must be after start date" },
+          { status: 400 }
+        );
+      }
     }
 
     const dailyProgress = await DailyProgress.findOne({
@@ -315,10 +338,14 @@ export async function PUT(
     const activityTitle = currentActivity.title;
     const projectId = dailyProgress.project.toString();
     
+    // UPDATED: Allowed fields list with new fields
     const allowedFields: (keyof IDailyActivity)[] = [
-      'title', 'description', 'contractor', 'supervisor', 'status', 'priority', 'category',
-      'startTime', 'endTime', 'estimatedDuration', 'actualDuration', 'plannedDate', 'actualDate',
+      'title', 'description', 'contractor', 'supervisor', 
+      'startDate', 'endDate', // ADDED
+      'status', 'priority', 'category',
+      'plannedDate', 'actualDate', // Legacy
       'comments', 'images', 'incidentReport', 'progress'
+      // REMOVED: estimatedDuration, actualDuration, startTime, endTime
     ];
 
     allowedFields.forEach(field => {

@@ -1,7 +1,7 @@
-// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - ADDED: Supervisor field
+// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - UPDATED: Added startDate, endDate, image upload; Removed duration
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { 
   Calendar, 
@@ -13,7 +13,9 @@ import {
   AlertTriangle,
   Edit,
   Trash2,
-  X
+  X,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -36,8 +38,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import Image from 'next/image';
 
-// FIXED: Proper TypeScript interfaces
+// UPDATED: TypeScript interfaces with new fields
 interface Project {
   _id: string;
   title: string;
@@ -49,14 +52,14 @@ interface DailyActivity {
   title: string;
   description: string;
   contractor: string;
-  supervisor: string; // ADDED: Supervisor field
-  plannedDate: string;
-  actualDate?: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  supervisor?: string;
+  startDate: string; // ADDED: Required start date-time
+  endDate: string;   // ADDED: Required end date-time
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   comments?: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  estimatedDuration?: number;
-  actualDuration?: number;
+  images?: string[]; // ADDED: S3 image URLs
+  // REMOVED: estimatedDuration and actualDuration
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -77,25 +80,30 @@ interface DailyProgress {
   approved: boolean;
 }
 
-// Correct API response interface
 interface ProjectsApiResponse {
   success: boolean;
   data?: {
     projects?: Project[];
-    pagination?: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-    };
+    pagination?: Record<string, unknown>;
   };
   error?: string;
 }
 
-export default function AdminDailyActivitiesPage() {
-  const { toast } = useToast();
+// ADDED: Helper function to format datetime-local input value
+const formatDateTimeLocal = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+export default function AdminDailySchedulePage() {
   const { data: session } = useSession();
-  
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // State management
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
@@ -104,146 +112,213 @@ export default function AdminDailyActivitiesPage() {
   );
   const [dailyProgress, setDailyProgress] = useState<DailyProgress | null>(null);
   const [loading, setLoading] = useState(false);
-  const [projectsLoading, setProjectsLoading] = useState(true);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-
-  // Form state for new activity - ADDED supervisor field
-  const [newActivity, setNewActivity] = useState<Omit<DailyActivity, '_id'>>({
+  
+  // UPDATED: New activity state with new required fields
+  const [newActivity, setNewActivity] = useState<Partial<DailyActivity>>({
     title: '',
     description: '',
     contractor: '',
-    supervisor: '', // ADDED: Supervisor field
-    plannedDate: selectedDate,
+    supervisor: '',
+    startDate: formatDateTimeLocal(new Date()), // ADDED: Default to current time
+    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)), // ADDED: Default to 1 hour from now
     status: 'pending',
     priority: 'medium',
-    estimatedDuration: 60
+    comments: ''
   });
 
+  // ADDED: Image upload state
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreview, setImagePreview] = useState<string[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+
+  // Fetch projects
   const fetchProjects = useCallback(async () => {
-    const abortController = new AbortController();
-    
     try {
-      setProjectsLoading(true);
-      
-      const response = await fetch('/api/projects?limit=100', {
-        signal: abortController.signal,
-        headers: {
-          'Content-Type': 'application/json'
+      const response = await fetch('/api/projects?limit=100');
+      if (response.ok) {
+        const data: ProjectsApiResponse = await response.json();
+        if (data.success && data.data?.projects) {
+          setProjects(data.data.projects);
+          if (data.data.projects.length > 0 && !selectedProject) {
+            setSelectedProject(data.data.projects[0]._id);
+          }
         }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: ProjectsApiResponse = await response.json();
-      
-      console.log('API Response:', data);
-      
-      if (data.success) {
-        const projectsData = data.data?.projects || [];
-        
-        console.log('Projects Data:', projectsData);
-        
-        setProjects(projectsData);
-        
-        if (projectsData.length > 0 && !selectedProject) {
-          setSelectedProject(projectsData[0]._id);
-        }
-      } else {
-        console.warn('No projects found or API returned error:', data.error);
-        setProjects([]);
-        toast({
-          variant: 'default',
-          title: 'No Projects',
-          description: data.error || 'No projects available. Please create a project first.',
-        });
       }
     } catch (error) {
-      if (error instanceof Error && error.name !== 'AbortError') {
-        console.error('Error fetching projects:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Failed to load projects. Please refresh the page.',
-        });
-        setProjects([]);
-      }
-    } finally {
-      setProjectsLoading(false);
+      console.error('Error fetching projects:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to load projects',
+      });
     }
+  }, [selectedProject, toast]);
 
-    return () => {
-      abortController.abort();
-    };
-  }, [toast]);
-
+  // Fetch daily progress
   const fetchDailyProgress = useCallback(async () => {
     if (!selectedProject || !selectedDate) return;
 
-    const abortController = new AbortController();
-    
     try {
       setLoading(true);
-      
       const response = await fetch(
-        `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate}`,
-        {
-          signal: abortController.signal,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
+        `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate}`
       );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
       
-      if (data.success) {
-        setDailyProgress(data.data);
-      } else {
-        setDailyProgress({
-          project: selectedProject,
-          date: selectedDate,
-          activities: [],
-          summary: {
-            totalActivities: 0,
-            completed: 0,
-            inProgress: 0,
-            pending: 0,
-            delayed: 0
-          },
-          approved: false
-        });
+      if (response.ok) {
+        const data = await response.json();
+        setDailyProgress(data.data || null);
       }
     } catch (error) {
-      if (error instanceof Error && error.name !== 'AbortError') {
-        console.error('Error fetching daily progress:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Failed to load daily activities.',
-        });
-      }
+      console.error('Error fetching daily progress:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to load daily progress',
+      });
     } finally {
       setLoading(false);
     }
-
-    return () => {
-      abortController.abort();
-    };
   }, [selectedProject, selectedDate, toast]);
 
-  // UPDATED: Validation includes supervisor
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  useEffect(() => {
+    if (selectedProject && selectedDate) {
+      fetchDailyProgress();
+    }
+  }, [selectedProject, selectedDate, fetchDailyProgress]);
+
+  // ADDED: Handle image file selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    
+    // Validate file types and sizes
+    const validFiles = files.filter(file => {
+      const isImage = file.type.startsWith('image/');
+      const isValidSize = file.size <= 10 * 1024 * 1024; // 10MB max
+      
+      if (!isImage) {
+        toast({
+          variant: 'destructive',
+          title: 'Invalid file type',
+          description: `${file.name} is not an image file`,
+        });
+        return false;
+      }
+      
+      if (!isValidSize) {
+        toast({
+          variant: 'destructive',
+          title: 'File too large',
+          description: `${file.name} exceeds 10MB limit`,
+        });
+        return false;
+      }
+      
+      return true;
+    });
+
+    setSelectedImages(prev => [...prev, ...validFiles]);
+    
+    // Generate previews
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(prev => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // ADDED: Remove selected image
+  const removeImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+    setImagePreview(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // ADDED: Upload images to S3
+  const uploadImages = async (): Promise<string[]> => {
+    if (selectedImages.length === 0) return [];
+
+    setUploadingImages(true);
+    const uploadedUrls: string[] = [];
+
+    try {
+      for (const file of selectedImages) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('projectId', selectedProject);
+        formData.append('description', 'Daily activity image');
+        formData.append('isPublic', 'true');
+
+        const response = await fetch('/api/files', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data?.url) {
+            uploadedUrls.push(result.data.url);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error uploading images:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Upload Error',
+        description: 'Some images failed to upload',
+      });
+    } finally {
+      setUploadingImages(false);
+    }
+
+    return uploadedUrls;
+  };
+
+  // UPDATED: Add activity with validation for new required fields
   const handleAddActivity = async () => {
-    if (!selectedProject || !newActivity.title.trim() || !newActivity.contractor.trim() || !newActivity.supervisor.trim()) {
+    // Validation
+    if (!selectedProject) {
       toast({
         variant: 'destructive',
         title: 'Validation Error',
-        description: 'Please fill in all required fields (Title, Contractor, and Supervisor).',
+        description: 'Please select a project',
+      });
+      return;
+    }
+
+    if (!newActivity.title?.trim() || !newActivity.contractor?.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'Please fill in all required fields (Title and Contractor)',
+      });
+      return;
+    }
+
+    // ADDED: Validate start and end dates
+    if (!newActivity.startDate || !newActivity.endDate) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'Start Date and End Date are required',
+      });
+      return;
+    }
+
+    const startDateTime = new Date(newActivity.startDate);
+    const endDateTime = new Date(newActivity.endDate);
+
+    if (endDateTime <= startDateTime) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'End Date must be after Start Date',
       });
       return;
     }
@@ -251,16 +326,18 @@ export default function AdminDailyActivitiesPage() {
     try {
       setLoading(true);
 
+      // ADDED: Upload images first
+      const imageUrls = await uploadImages();
+
       const requestBody = {
         projectId: selectedProject,
         date: selectedDate,
         activity: {
           ...newActivity,
-          plannedDate: selectedDate
+          images: imageUrls, // ADDED: Include uploaded image URLs
+          // REMOVED: estimatedDuration and actualDuration
         }
       };
-
-      console.log('Request Body:', requestBody);
 
       const response = await fetch('/api/site-schedule/daily', {
         method: 'POST',
@@ -270,11 +347,8 @@ export default function AdminDailyActivitiesPage() {
         body: JSON.stringify(requestBody),
       });
 
-      console.log('Response Status:', response.status);
-
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Error Response:', errorData);
         throw new Error(errorData.error || 'Failed to add activity');
       }
 
@@ -283,20 +357,26 @@ export default function AdminDailyActivitiesPage() {
       if (data.success) {
         setDailyProgress(data.data);
         setIsAddDialogOpen(false);
+        
+        // Reset form
+        const now = new Date();
         setNewActivity({
           title: '',
           description: '',
           contractor: '',
-          supervisor: '', // ADDED: Reset supervisor
-          plannedDate: selectedDate,
+          supervisor: '',
+          startDate: formatDateTimeLocal(now),
+          endDate: formatDateTimeLocal(new Date(now.getTime() + 3600000)),
           status: 'pending',
           priority: 'medium',
-          estimatedDuration: 60
+          comments: ''
         });
+        setSelectedImages([]);
+        setImagePreview([]);
         
         toast({
           title: 'Success',
-          description: 'Activity added successfully.',
+          description: 'Activity added successfully',
         });
       }
     } catch (error) {
@@ -304,13 +384,14 @@ export default function AdminDailyActivitiesPage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to add activity.',
+        description: error instanceof Error ? error.message : 'Failed to add activity',
       });
     } finally {
       setLoading(false);
     }
   };
 
+  // Update activity status
   const handleUpdateActivityStatus = async (activityId: string, newStatus: DailyActivity['status']) => {
     if (!selectedProject || !activityId) return;
 
@@ -341,7 +422,7 @@ export default function AdminDailyActivitiesPage() {
         setDailyProgress(data.data);
         toast({
           title: 'Success',
-          description: 'Activity updated successfully.',
+          description: 'Activity updated successfully',
         });
       }
     } catch (error) {
@@ -349,124 +430,68 @@ export default function AdminDailyActivitiesPage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update activity.',
+        description: error instanceof Error ? error.message : 'Failed to update activity',
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDateChange = (increment: number) => {
+  // Navigate dates
+  const changeDate = (direction: 'prev' | 'next') => {
     const currentDate = new Date(selectedDate);
-    currentDate.setDate(currentDate.getDate() + increment);
-    setSelectedDate(currentDate.toISOString().split('T')[0]);
+    const newDate = new Date(currentDate);
+    
+    if (direction === 'prev') {
+      newDate.setDate(currentDate.getDate() - 1);
+    } else {
+      newDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    setSelectedDate(newDate.toISOString().split('T')[0]);
   };
 
-  useEffect(() => {
-    fetchProjects();
-  }, []);
-
-  useEffect(() => {
-    if (selectedProject && selectedDate) {
-      fetchDailyProgress();
-    }
-  }, [selectedProject, selectedDate, fetchDailyProgress]);
-
-  const getStatusColor = (status: DailyActivity['status']) => {
+  // Get status badge color
+  const getStatusBadgeClass = (status: string) => {
     switch (status) {
-      case 'pending': return 'bg-gray-100 text-gray-800';
-      case 'in_progress': return 'bg-blue-100 text-blue-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'delayed': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'in_progress':
+        return 'bg-blue-100 text-blue-800';
+      case 'pending':
+        return 'bg-gray-100 text-gray-800';
+      case 'delayed':
+        return 'bg-red-100 text-red-800';
+      case 'on_hold':
+        return 'bg-yellow-100 text-yellow-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
-
-  const getPriorityColor = (priority: DailyActivity['priority']) => {
-    switch (priority) {
-      case 'low': return 'bg-gray-100 text-gray-800';
-      case 'medium': return 'bg-blue-100 text-blue-800';
-      case 'high': return 'bg-yellow-100 text-yellow-800';
-      case 'urgent': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
-
-  const isToday = selectedDate === new Date().toISOString().split('T')[0];
-
-  if (projectsLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="h-32 bg-gray-200 rounded mb-6"></div>
-          <div className="space-y-4">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-24 bg-gray-200 rounded"></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (projects.length === 0) {
-    return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center py-12">
-              <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Projects Available</h3>
-              <p className="text-gray-600 mb-4">
-                You need to create a project before you can add daily activities.
-              </p>
-              <Button onClick={() => window.location.href = '/admin/projects'}>
-                Go to Projects
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Daily Site Activities</h1>
-          <p className="text-gray-600 mt-1">Track and manage daily construction activities</p>
+          <h1 className="text-3xl font-bold text-gray-900">Daily Site Activities</h1>
+          <p className="text-gray-600 mt-1">Manage and track daily construction activities</p>
         </div>
-        <Button onClick={() => setIsAddDialogOpen(true)} disabled={!selectedProject}>
+        <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Task
+          Add Activity
         </Button>
       </div>
 
-      {/* Project and Date Selection */}
+      {/* Filters */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Project Selection */}
-            <div>
-              <Label>Select Project</Label>
-              <Select
-                value={selectedProject}
-                onValueChange={setSelectedProject}
-              >
+        <CardContent className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="project">Project</Label>
+              <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a project" />
+                  <SelectValue placeholder="Select project" />
                 </SelectTrigger>
                 <SelectContent>
                   {projects.map((project) => (
@@ -478,18 +503,18 @@ export default function AdminDailyActivitiesPage() {
               </Select>
             </div>
 
-            {/* Date Selection */}
-            <div>
-              <Label>Select Date</Label>
+            <div className="space-y-2">
+              <Label htmlFor="date">Date</Label>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => handleDateChange(-1)}
+                  onClick={() => changeDate('prev')}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Input
+                  id="date"
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
@@ -498,82 +523,40 @@ export default function AdminDailyActivitiesPage() {
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => handleDateChange(1)}
+                  onClick={() => changeDate('next')}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
-              {isToday && (
-                <p className="text-sm text-blue-600 mt-1">Today&apos;s activities</p>
-              )}
             </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Summary Statistics */}
-      {dailyProgress && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-gray-600">Total Activities</p>
-                <p className="text-3xl font-bold">{dailyProgress.summary.totalActivities}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-gray-600">Completed</p>
-                <p className="text-3xl font-bold text-green-600">{dailyProgress.summary.completed}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-gray-600">In Progress</p>
-                <p className="text-3xl font-bold text-blue-600">{dailyProgress.summary.inProgress}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-sm text-gray-600">Delayed</p>
-                <p className="text-3xl font-bold text-red-600">{dailyProgress.summary.delayed}</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Activities List */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5" />
-            {formatDate(selectedDate)}
+            Activities for {new Date(selectedDate).toLocaleDateString()}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-              <p className="text-gray-600 mt-4">Loading activities...</p>
+              <p className="text-gray-500">Loading activities...</p>
             </div>
           ) : !dailyProgress || dailyProgress.activities.length === 0 ? (
             <div className="text-center py-8">
-              <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No activities scheduled for this date</p>
+              <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">No activities scheduled for this date</p>
               <Button
-                variant="outline"
-                className="mt-4"
                 onClick={() => setIsAddDialogOpen(true)}
+                className="mt-4"
+                variant="outline"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add First Task
+                Add First Activity
               </Button>
             </div>
           ) : (
@@ -583,43 +566,65 @@ export default function AdminDailyActivitiesPage() {
                   key={activity._id}
                   className="border rounded-lg p-4 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg">{activity.title}</h3>
-                      <p className="text-sm text-gray-600 mt-1">{activity.description}</p>
+                      {activity.description && (
+                        <p className="text-sm text-gray-600 mt-1">{activity.description}</p>
+                      )}
                     </div>
                     <div className="flex gap-2">
-                      <Badge className={getStatusColor(activity.status)}>
+                      <Badge className={getStatusBadgeClass(activity.status)}>
                         {activity.status.replace('_', ' ')}
                       </Badge>
-                      <Badge className={getPriorityColor(activity.priority)}>
-                        {activity.priority}
-                      </Badge>
+                      <Badge variant="outline">{activity.priority}</Badge>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
                     <div>
                       <p className="text-gray-600">Contractor</p>
                       <p className="font-medium">{activity.contractor}</p>
                     </div>
-                    <div>
-                      <p className="text-gray-600">Supervisor</p>
-                      <p className="font-medium">{activity.supervisor || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Planned Date</p>
-                      <p className="font-medium">
-                        {new Date(activity.plannedDate).toLocaleDateString()}
-                      </p>
-                    </div>
-                    {activity.estimatedDuration && (
+                    {activity.supervisor && (
                       <div>
-                        <p className="text-gray-600">Duration</p>
-                        <p className="font-medium">{activity.estimatedDuration} mins</p>
+                        <p className="text-gray-600">Supervisor</p>
+                        <p className="font-medium">{activity.supervisor}</p>
                       </div>
                     )}
+                    {/* ADDED: Display start and end dates */}
+                    <div>
+                      <p className="text-gray-600">Start Date</p>
+                      <p className="font-medium">
+                        {new Date(activity.startDate).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">End Date</p>
+                      <p className="font-medium">
+                        {new Date(activity.endDate).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
+
+                  {/* ADDED: Display images */}
+                  {activity.images && activity.images.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-sm text-gray-600 mb-2">Images:</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {activity.images.map((imageUrl, index) => (
+                          <div key={index} className="relative w-20 h-20">
+                            <Image
+                              src={imageUrl}
+                              alt={`Activity image ${index + 1}`}
+                              fill
+                              className="object-cover rounded border"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {activity.comments && (
                     <div className="mt-3 p-3 bg-gray-50 rounded">
@@ -640,6 +645,7 @@ export default function AdminDailyActivitiesPage() {
                         <SelectItem value="in_progress">In Progress</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
                         <SelectItem value="delayed">Delayed</SelectItem>
+                        <SelectItem value="on_hold">On Hold</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -650,72 +656,87 @@ export default function AdminDailyActivitiesPage() {
         </CardContent>
       </Card>
 
-      {/* Add Activity Dialog - ADDED SUPERVISOR FIELD */}
+      {/* UPDATED: Add Activity Dialog with new fields */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Daily Task</DialogTitle>
+            <DialogTitle>Add Daily Activity</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="title">Task Name *</Label>
-              <Input
-                id="title"
-                value={newActivity.title}
-                onChange={(e) => setNewActivity({ ...newActivity, title: e.target.value })}
-                placeholder="e.g., Foundation excavation"
-              />
-            </div>
 
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={newActivity.description}
-                onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
-                placeholder="Detailed description of the activity"
-                rows={3}
-              />
-            </div>
-
-            {/* ADDED: Contractor and Supervisor in a grid */}
+          <div className="grid gap-6 py-4">
+            {/* Basic Information */}
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="title">Activity Title *</Label>
+                <Input
+                  id="title"
+                  value={newActivity.title || ''}
+                  onChange={(e) => setNewActivity({ ...newActivity, title: e.target.value })}
+                  placeholder="e.g., Foundation concrete pouring"
+                />
+              </div>
+
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={newActivity.description || ''}
+                  onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
+                  placeholder="Detailed description of the activity..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="contractor">Contractor *</Label>
                 <Input
                   id="contractor"
-                  value={newActivity.contractor}
+                  value={newActivity.contractor || ''}
                   onChange={(e) => setNewActivity({ ...newActivity, contractor: e.target.value })}
                   placeholder="Contractor name"
                 />
               </div>
 
-              {/* ADDED: Supervisor field */}
-              <div>
-                <Label htmlFor="supervisor">Supervisor *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="supervisor">Supervisor</Label>
                 <Input
                   id="supervisor"
-                  value={newActivity.supervisor}
+                  value={newActivity.supervisor || ''}
                   onChange={(e) => setNewActivity({ ...newActivity, supervisor: e.target.value })}
                   placeholder="Supervisor name"
                 />
               </div>
             </div>
 
+            {/* ADDED: Start and End Date-Time */}
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="estimatedDuration">Duration (minutes)</Label>
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date & Time *</Label>
                 <Input
-                  id="estimatedDuration"
-                  type="number"
-                  value={newActivity.estimatedDuration || ''}
-                  onChange={(e) => setNewActivity({ ...newActivity, estimatedDuration: parseInt(e.target.value) || 60 })}
-                  placeholder="60"
+                  id="startDate"
+                  type="datetime-local"
+                  value={newActivity.startDate || ''}
+                  onChange={(e) => setNewActivity({ ...newActivity, startDate: e.target.value })}
+                  required
                 />
               </div>
 
-              <div>
-                <Label htmlFor="priority">Priority</Label>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date & Time *</Label>
+                <Input
+                  id="endDate"
+                  type="datetime-local"
+                  value={newActivity.endDate || ''}
+                  onChange={(e) => setNewActivity({ ...newActivity, endDate: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Priority and Status */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="priority">Priority *</Label>
                 <Select
                   value={newActivity.priority}
                   onValueChange={(value) => setNewActivity({ ...newActivity, priority: value as DailyActivity['priority'] })}
@@ -731,24 +752,105 @@ export default function AdminDailyActivitiesPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={newActivity.status}
+                  onValueChange={(value) => setNewActivity({ ...newActivity, status: value as DailyActivity['status'] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="delayed">Delayed</SelectItem>
+                    <SelectItem value="on_hold">On Hold</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div>
-              <Label htmlFor="status">Status</Label>
-              <Select
-                value={newActivity.status}
-                onValueChange={(value) => setNewActivity({ ...newActivity, status: value as DailyActivity['status'] })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="delayed">Delayed</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* Comments */}
+            <div className="space-y-2">
+              <Label htmlFor="comments">Internal Comments</Label>
+              <Textarea
+                id="comments"
+                value={newActivity.comments || ''}
+                onChange={(e) => setNewActivity({ ...newActivity, comments: e.target.value })}
+                placeholder="Add any internal notes or comments..."
+                rows={3}
+              />
+            </div>
+
+            {/* ADDED: Image Upload Section */}
+            <div className="space-y-2">
+              <Label>Activity Images</Label>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageSelect}
+                  className="hidden"
+                />
+                
+                {imagePreview.length === 0 ? (
+                  <div className="text-center">
+                    <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600 mb-2">
+                      Click to upload activity images
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <ImageIcon className="h-4 w-4 mr-2" />
+                      Select Images
+                    </Button>
+                    <p className="text-xs text-gray-500 mt-2">
+                      PNG, JPG, GIF up to 10MB each
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="grid grid-cols-4 gap-2 mb-3">
+                      {imagePreview.map((preview, index) => (
+                        <div key={index} className="relative">
+                          <img
+                            src={preview}
+                            alt={`Preview ${index + 1}`}
+                            className="w-full h-24 object-cover rounded border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-1 right-1 h-6 w-6"
+                            onClick={() => removeImage(index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add More Images
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -756,8 +858,11 @@ export default function AdminDailyActivitiesPage() {
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddActivity} disabled={loading}>
-              {loading ? 'Adding...' : 'Add Task'}
+            <Button 
+              onClick={handleAddActivity} 
+              disabled={loading || uploadingImages}
+            >
+              {loading ? 'Adding...' : uploadingImages ? 'Uploading Images...' : 'Add Activity'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,20 +1,24 @@
-// FILE 1: src/app/(dashboard)/manager/site-schedule/activity/[id]/edit/page.tsx
-// ✅ CREATED: The missing activity edit page that was causing 404 errors
+// src/app/(dashboard)/manager/site-schedule/activity/[id]/edit/page.tsx
+// UPDATED: Added startDate, endDate, image display; Removed duration fields
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, use } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { 
   ArrowLeft, 
   Save, 
   Calendar, 
   Clock, 
-  User, 
+  User,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  Loader2,
+  ImageIcon,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,32 +34,54 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { formatDate } from '@/lib/utils';
 
-// TypeScript interfaces following the established patterns
+// UPDATED: TypeScript interfaces with new fields, removed duration
 interface ActivityFormData {
   title: string;
   description: string;
   contractor: string;
   supervisor: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  startDate: string; // ADDED: Required start date-time
+  endDate: string;   // ADDED: Required end date-time
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  estimatedDuration: number;
-  actualDuration?: number;
   comments: string;
   category: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
-  plannedDate: string;
-  actualDate?: string;
+  images: string[]; // ADDED: S3 image URLs
+  // REMOVED: estimatedDuration and actualDuration
 }
 
 interface ActivityData extends ActivityFormData {
   _id: string;
   projectId: string;
   projectTitle: string;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
+  date: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+interface ActivityResponse {
+  success: boolean;
+  data?: ActivityData;
+  error?: string;
+}
+
+// Props interface for Next.js 15 dynamic routes
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+// ADDED: Helper function to format datetime-local input value
+const formatDateTimeLocal = (date: Date | string): string => {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
 
 // Helper functions for styling
 const getStatusColor = (status: string): string => {
@@ -64,6 +90,7 @@ const getStatusColor = (status: string): string => {
     case 'in_progress': return 'bg-blue-100 text-blue-800';
     case 'pending': return 'bg-yellow-100 text-yellow-800';
     case 'delayed': return 'bg-red-100 text-red-800';
+    case 'on_hold': return 'bg-orange-100 text-orange-800';
     default: return 'bg-gray-100 text-gray-800';
   }
 };
@@ -78,14 +105,14 @@ const getPriorityColor = (priority: string): string => {
   }
 };
 
-export default function EditActivityPage() {
-  const params = useParams();
+export default function EditActivityPage({ params }: PageProps) {
   const router = useRouter();
   const { data: session } = useSession();
   const { toast } = useToast();
 
-  // Extract activity ID from params
-  const activityId = params.id as string;
+  // FIXED: Properly unwrap params promise for Next.js 15
+  const unwrappedParams = use(params);
+  const activityId = unwrappedParams.id;
 
   // State management
   const [activity, setActivity] = useState<ActivityData | null>(null);
@@ -94,14 +121,13 @@ export default function EditActivityPage() {
     description: '',
     contractor: '',
     supervisor: '',
+    startDate: formatDateTimeLocal(new Date()), // ADDED
+    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)), // ADDED
     status: 'pending',
     priority: 'medium',
-    estimatedDuration: 60,
-    actualDuration: undefined,
     comments: '',
     category: 'structural',
-    plannedDate: '',
-    actualDate: undefined
+    images: [] // ADDED
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -111,36 +137,38 @@ export default function EditActivityPage() {
     try {
       setLoading(true);
       
-      // Since we don't have a specific activity endpoint, we'll need to fetch from daily progress
-      // This is a simplified approach - in production, you'd want a dedicated endpoint
       const response = await fetch(`/api/site-schedule/activity/${activityId}`);
       
       if (response.ok) {
-        const data = await response.json();
-        const activityData = data.data;
+        const data: ActivityResponse = await response.json();
         
-        setActivity(activityData);
-        setFormData({
-          title: activityData.title || '',
-          description: activityData.description || '',
-          contractor: activityData.contractor || '',
-          supervisor: activityData.supervisor || '',
-          status: activityData.status || 'pending',
-          priority: activityData.priority || 'medium',
-          estimatedDuration: activityData.estimatedDuration || 60,
-          actualDuration: activityData.actualDuration || undefined,
-          comments: activityData.comments || '',
-          category: activityData.category || 'structural',
-          plannedDate: activityData.plannedDate ? new Date(activityData.plannedDate).toISOString().split('T')[0] : '',
-          actualDate: activityData.actualDate ? new Date(activityData.actualDate).toISOString().split('T')[0] : undefined
-        });
+        if (data.success && data.data) {
+          const activityData = data.data;
+          
+          setActivity(activityData);
+          setFormData({
+            title: activityData.title || '',
+            description: activityData.description || '',
+            contractor: activityData.contractor || '',
+            supervisor: activityData.supervisor || '',
+            startDate: activityData.startDate ? formatDateTimeLocal(activityData.startDate) : formatDateTimeLocal(new Date()),
+            endDate: activityData.endDate ? formatDateTimeLocal(activityData.endDate) : formatDateTimeLocal(new Date(Date.now() + 3600000)),
+            status: activityData.status || 'pending',
+            priority: activityData.priority || 'medium',
+            comments: activityData.comments || '',
+            category: activityData.category || 'structural',
+            images: activityData.images || []
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Activity Not Found",
+            description: "The requested activity could not be loaded.",
+          });
+          router.push('/manager/site-schedule/daily');
+        }
       } else {
-        // If specific endpoint doesn't exist, show a message but don't break
-        toast({
-          variant: "destructive",
-          title: "Activity Not Found",
-          description: "The requested activity could not be loaded. It may have been deleted or moved.",
-        });
+        throw new Error('Failed to fetch activity');
       }
     } catch (error) {
       console.error('Error fetching activity:', error);
@@ -149,16 +177,34 @@ export default function EditActivityPage() {
         title: "Error",
         description: "Failed to load activity data. Please try again.",
       });
+      router.push('/manager/site-schedule/daily');
     } finally {
       setLoading(false);
     }
-  }, [activityId, toast]);
+  }, [activityId, toast, router]);
 
-  // Update form data
-  const updateFormData = (field: keyof ActivityFormData, value: string | number | undefined) => {
+  useEffect(() => {
+    if (activityId) {
+      fetchActivity();
+    }
+  }, [activityId, fetchActivity]);
+
+  // Update form data - Type-safe field updates
+  const updateFormField = <K extends keyof ActivityFormData>(
+    field: K,
+    value: ActivityFormData[K]
+  ) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
+    }));
+  };
+
+  // ADDED: Remove image from form
+  const removeImage = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index)
     }));
   };
 
@@ -173,17 +219,49 @@ export default function EditActivityPage() {
       return;
     }
 
+    // ADDED: Validate start and end dates
+    if (!formData.startDate || !formData.endDate) {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Start Date and End Date are required.",
+      });
+      return;
+    }
+
+    const startDateTime = new Date(formData.startDate);
+    const endDateTime = new Date(formData.endDate);
+
+    if (endDateTime <= startDateTime) {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "End Date must be after Start Date.",
+      });
+      return;
+    }
+
     try {
       setSaving(true);
 
       // Prepare update data
       const updateData = {
         projectId: activity.projectId,
-        date: activity.plannedDate.split('T')[0], // Extract date part
+        date: activity.date,
         activityId: activity._id,
         updates: {
-          ...formData,
-          actualDate: formData.status === 'completed' ? (formData.actualDate || new Date().toISOString()) : formData.actualDate
+          title: formData.title,
+          description: formData.description,
+          contractor: formData.contractor,
+          supervisor: formData.supervisor,
+          startDate: formData.startDate, // ADDED
+          endDate: formData.endDate, // ADDED
+          status: formData.status,
+          priority: formData.priority,
+          category: formData.category,
+          comments: formData.comments,
+          images: formData.images // ADDED
+          // REMOVED: estimatedDuration, actualDuration
         }
       };
 
@@ -201,7 +279,6 @@ export default function EditActivityPage() {
           description: "Activity updated successfully!",
         });
         
-        // Redirect back to daily activities or site schedule
         router.push('/manager/site-schedule/daily');
       } else {
         const errorData = await response.json();
@@ -219,108 +296,92 @@ export default function EditActivityPage() {
     }
   };
 
-  // Load activity on mount
-  useEffect(() => {
-    if (activityId) {
-      fetchActivity();
-    }
-  }, [fetchActivity]);
-
-  // Loading state
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="h-96 bg-gray-200 rounded"></div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600">Loading activity...</p>
         </div>
       </div>
     );
   }
 
-  // Activity not found state
-  if (!activity && !loading) {
+  if (!activity) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Activity Not Found</h2>
+          <p className="text-gray-600 mb-4">The requested activity could not be loaded.</p>
           <Link href="/manager/site-schedule/daily">
-            <Button variant="outline" size="sm">
+            <Button>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Daily Activities
             </Button>
           </Link>
         </div>
-        
-        <Card>
-          <CardContent className="p-12 text-center">
-            <AlertTriangle className="h-12 w-12 text-red-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Activity Not Found</h3>
-            <p className="text-gray-600 mb-4">
-              The requested activity could not be found. It may have been deleted or moved.
-            </p>
-            <Link href="/manager/site-schedule/daily">
-              <Button>Return to Daily Activities</Button>
-            </Link>
-          </CardContent>
-        </Card>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header with Navigation */}
+    <div className="space-y-6 max-w-5xl mx-auto p-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link href="/manager/site-schedule/daily">
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Daily Activities
+              Back
             </Button>
           </Link>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Edit Activity</h1>
-            <p className="text-gray-600 mt-1">Modify activity details and track progress</p>
+            <p className="text-gray-600 mt-1">Update activity details and status</p>
           </div>
         </div>
-        
-        <div className="flex items-center gap-3">
-          {activity && (
-            <div className="flex items-center gap-2">
-              <Badge className={getStatusColor(activity.status)}>
-                {activity.status.replace('_', ' ')}
-              </Badge>
-              <Badge className={getPriorityColor(activity.priority)}>
-                {activity.priority}
-              </Badge>
-            </div>
-          )}
+        <div className="flex gap-2">
+          <Badge className={getStatusColor(activity.status)}>
+            {activity.status.replace('_', ' ')}
+          </Badge>
+          <Badge className={getPriorityColor(activity.priority)}>
+            {activity.priority}
+          </Badge>
         </div>
       </div>
 
-      {/* Activity Information */}
-      {activity && (
+      {/* Activity Info Card */}
+      {activity.projectTitle && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-blue-600" />
-              Activity Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <CardContent className="p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
                 <span className="font-medium text-gray-600">Project:</span>
                 <p className="text-gray-900">{activity.projectTitle}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-600">Created:</span>
-                <p className="text-gray-900">{formatDate(new Date(activity.createdAt))}</p>
+                <span className="font-medium text-gray-600">Date:</span>
+                <p className="text-gray-900">
+                  {new Date(activity.date).toLocaleDateString()}
+                </p>
               </div>
-              <div>
-                <span className="font-medium text-gray-600">Last Updated:</span>
-                <p className="text-gray-900">{formatDate(new Date(activity.updatedAt))}</p>
-              </div>
+              {activity.createdAt && (
+                <div>
+                  <span className="font-medium text-gray-600">Created:</span>
+                  <p className="text-gray-900">
+                    {new Date(activity.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+              {activity.updatedAt && (
+                <div>
+                  <span className="font-medium text-gray-600">Last Updated:</span>
+                  <p className="text-gray-900">
+                    {new Date(activity.updatedAt).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -343,7 +404,7 @@ export default function EditActivityPage() {
                 <Input
                   id="title"
                   value={formData.title}
-                  onChange={(e) => updateFormData('title', e.target.value)}
+                  onChange={(e) => updateFormField('title', e.target.value)}
                   placeholder="e.g., Foundation excavation"
                 />
               </div>
@@ -353,7 +414,7 @@ export default function EditActivityPage() {
                 <Input
                   id="contractor"
                   value={formData.contractor}
-                  onChange={(e) => updateFormData('contractor', e.target.value)}
+                  onChange={(e) => updateFormField('contractor', e.target.value)}
                   placeholder="e.g., ABC Construction"
                 />
               </div>
@@ -363,38 +424,43 @@ export default function EditActivityPage() {
                 <Input
                   id="supervisor"
                   value={formData.supervisor}
-                  onChange={(e) => updateFormData('supervisor', e.target.value)}
+                  onChange={(e) => updateFormField('supervisor', e.target.value)}
                   placeholder="e.g., John Smith"
                 />
               </div>
 
+              {/* ADDED: Start Date & Time */}
               <div>
-                <Label htmlFor="category">Category</Label>
-                <Select 
-                  value={formData.category} 
-                  onValueChange={(value: ActivityFormData['category']) => updateFormData('category', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="structural">Structural</SelectItem>
-                    <SelectItem value="electrical">Electrical</SelectItem>
-                    <SelectItem value="plumbing">Plumbing</SelectItem>
-                    <SelectItem value="finishing">Finishing</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="startDate">Start Date & Time *</Label>
+                <Input
+                  id="startDate"
+                  type="datetime-local"
+                  value={formData.startDate}
+                  onChange={(e) => updateFormField('startDate', e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* ADDED: End Date & Time */}
+              <div>
+                <Label htmlFor="endDate">End Date & Time *</Label>
+                <Input
+                  id="endDate"
+                  type="datetime-local"
+                  value={formData.endDate}
+                  onChange={(e) => updateFormField('endDate', e.target.value)}
+                  required
+                />
               </div>
             </div>
 
-            {/* Status and Progress */}
+            {/* Status and Category */}
             <div className="space-y-4">
               <div>
                 <Label htmlFor="status">Status</Label>
-                <Select 
-                  value={formData.status} 
-                  onValueChange={(value: ActivityFormData['status']) => updateFormData('status', value)}
+                <Select
+                  value={formData.status}
+                  onValueChange={(value) => updateFormField('status', value as ActivityFormData['status'])}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -404,15 +470,16 @@ export default function EditActivityPage() {
                     <SelectItem value="in_progress">In Progress</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="delayed">Delayed</SelectItem>
+                    <SelectItem value="on_hold">On Hold</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div>
-                <Label htmlFor="priority">Priority</Label>
-                <Select 
-                  value={formData.priority} 
-                  onValueChange={(value: ActivityFormData['priority']) => updateFormData('priority', value)}
+                <Label htmlFor="priority">Priority *</Label>
+                <Select
+                  value={formData.priority}
+                  onValueChange={(value) => updateFormField('priority', value as ActivityFormData['priority'])}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -427,96 +494,109 @@ export default function EditActivityPage() {
               </div>
 
               <div>
-                <Label htmlFor="plannedDate">Planned Date</Label>
-                <Input
-                  id="plannedDate"
-                  type="date"
-                  value={formData.plannedDate}
-                  onChange={(e) => updateFormData('plannedDate', e.target.value)}
-                />
+                <Label htmlFor="category">Category</Label>
+                <Select
+                  value={formData.category}
+                  onValueChange={(value) => updateFormField('category', value as ActivityFormData['category'])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="structural">Structural</SelectItem>
+                    <SelectItem value="electrical">Electrical</SelectItem>
+                    <SelectItem value="plumbing">Plumbing</SelectItem>
+                    <SelectItem value="finishing">Finishing</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
-              {formData.status === 'completed' && (
-                <div>
-                  <Label htmlFor="actualDate">Actual Completion Date</Label>
-                  <Input
-                    id="actualDate"
-                    type="date"
-                    value={formData.actualDate || ''}
-                    onChange={(e) => updateFormData('actualDate', e.target.value)}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Duration */}
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="estimatedDuration">Estimated Duration (minutes)</Label>
-                <Input
-                  id="estimatedDuration"
-                  type="number"
-                  value={formData.estimatedDuration}
-                  onChange={(e) => updateFormData('estimatedDuration', parseInt(e.target.value) || 60)}
-                  min="15"
-                  step="15"
-                />
-              </div>
-
-              {(formData.status === 'completed' || formData.status === 'in_progress') && (
-                <div>
-                  <Label htmlFor="actualDuration">Actual Duration (minutes)</Label>
-                  <Input
-                    id="actualDuration"
-                    type="number"
-                    value={formData.actualDuration || ''}
-                    onChange={(e) => updateFormData('actualDuration', parseInt(e.target.value) || undefined)}
-                    min="0"
-                    step="15"
-                    placeholder="Leave empty if not completed"
-                  />
-                </div>
-              )}
+              {/* REMOVED: Duration fields */}
             </div>
 
             {/* Description and Comments */}
-            <div className="space-y-4">
+            <div className="space-y-4 md:col-span-2">
               <div>
                 <Label htmlFor="description">Description</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
-                  onChange={(e) => updateFormData('description', e.target.value)}
+                  onChange={(e) => updateFormField('description', e.target.value)}
                   placeholder="Describe the activity details..."
                   rows={3}
                 />
               </div>
 
               <div>
-                <Label htmlFor="comments">Comments</Label>
+                <Label htmlFor="comments">Internal Comments</Label>
                 <Textarea
                   id="comments"
                   value={formData.comments}
-                  onChange={(e) => updateFormData('comments', e.target.value)}
-                  placeholder="Add any additional comments or notes..."
+                  onChange={(e) => updateFormField('comments', e.target.value)}
+                  placeholder="Add any internal notes or comments..."
                   rows={3}
                 />
               </div>
             </div>
+
+            {/* ADDED: Image Display Section */}
+            {formData.images.length > 0 && (
+              <div className="md:col-span-2">
+                <Label>Activity Images</Label>
+                <div className="grid grid-cols-4 gap-4 mt-2">
+                  {formData.images.map((imageUrl, index) => (
+                    <div key={index} className="relative group">
+                      <div className="relative w-full h-32">
+                        <Image
+                          src={imageUrl}
+                          alt={`Activity image ${index + 1}`}
+                          fill
+                          className="object-cover rounded border"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => removeImage(index)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Click the X button to remove an image
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Action Buttons */}
           <div className="flex items-center justify-end gap-3 mt-6 pt-6 border-t">
             <Link href="/manager/site-schedule/daily">
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline" disabled={saving}>
+                Cancel
+              </Button>
             </Link>
             <Button 
               onClick={handleSave} 
               disabled={saving || !formData.title.trim() || !formData.contractor.trim()}
               className="flex items-center gap-2"
             >
-              <Save className="h-4 w-4" />
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Save Changes
+                </>
+              )}
             </Button>
           </div>
         </CardContent>

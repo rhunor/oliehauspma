@@ -1,4 +1,4 @@
-// src/app/api/site-schedule/daily/route.ts - FIXED: Better error handling and validation
+// src/app/api/site-schedule/daily/route.ts - FIXED: Type-safe field updates
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST new daily activity - FIXED: Better validation and error handling
+// POST new daily activity - FIXED: Type-safe with proper validation
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { projectId, date, activity } = body;
 
-    // FIXED: Better validation
+    // Validate required fields
     if (!projectId || !date || !activity) {
       return NextResponse.json(
         { error: "Project ID, date, and activity data are required" },
@@ -108,7 +108,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // FIXED: Validate required activity fields
     if (!activity.title || !activity.contractor) {
       return NextResponse.json(
         { error: "Activity title and contractor are required" },
@@ -116,7 +115,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // FIXED: Validate ObjectId
+    // Validate required startDate and endDate
+    if (!activity.startDate || !activity.endDate) {
+      return NextResponse.json(
+        { error: "Start date and end date are required" },
+        { status: 400 }
+      );
+    }
+
+    // Validate that endDate is after startDate
+    const startDateTime = new Date(activity.startDate);
+    const endDateTime = new Date(activity.endDate);
+
+    if (endDateTime <= startDateTime) {
+      return NextResponse.json(
+        { error: "End date must be after start date" },
+        { status: 400 }
+      );
+    }
+
+    if (!activity.priority) {
+      return NextResponse.json(
+        { error: "Priority is required" },
+        { status: 400 }
+      );
+    }
+
+    // Validate ObjectId
     if (!Types.ObjectId.isValid(projectId)) {
       return NextResponse.json(
         { error: "Invalid project ID" },
@@ -131,7 +156,6 @@ export async function POST(request: NextRequest) {
     }) as IDailyProgressDocument | null;
 
     if (!dailyProgress) {
-      // FIXED: Create new document with proper structure
       dailyProgress = new DailyProgress({
         project: new Types.ObjectId(projectId),
         date: new Date(date),
@@ -141,7 +165,8 @@ export async function POST(request: NextRequest) {
           completed: 0,
           inProgress: 0,
           pending: 0,
-          delayed: 0
+          delayed: 0,
+          onHold: 0
         },
         approved: false,
         createdBy: new Types.ObjectId(session.user.id),
@@ -150,24 +175,23 @@ export async function POST(request: NextRequest) {
       }) as IDailyProgressDocument;
     }
 
-    // FIXED: Prepare the new activity with proper types
+    // FIXED: Create properly typed new activity object
     const newActivity: IDailyActivity = {
-      _id: new Types.ObjectId(), // Generate new ID
+      _id: new Types.ObjectId(),
       title: activity.title,
       description: activity.description || '',
       contractor: activity.contractor,
       supervisor: activity.supervisor,
+      startDate: new Date(activity.startDate),
+      endDate: new Date(activity.endDate),
       plannedDate: activity.plannedDate ? new Date(activity.plannedDate) : new Date(date),
       actualDate: activity.actualDate ? new Date(activity.actualDate) : undefined,
       status: activity.status || 'pending',
-      priority: activity.priority || 'medium',
+      priority: activity.priority,
       category: activity.category || 'other',
-      startTime: activity.startTime,
-      endTime: activity.endTime,
-      estimatedDuration: activity.estimatedDuration || undefined,
-      actualDuration: activity.actualDuration || undefined,
       progress: activity.progress || 0,
       comments: activity.comments,
+      clientComments: [],
       images: activity.images || [],
       incidentReport: activity.incidentReport,
       createdBy: new Types.ObjectId(session.user.id),
@@ -185,9 +209,10 @@ export async function POST(request: NextRequest) {
     dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
+    dailyProgress.summary.onHold = activities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
     dailyProgress.updatedAt = new Date();
 
-    // FIXED: Save with error handling
+    // Save with error handling
     try {
       await dailyProgress.save();
     } catch (saveError) {
@@ -219,7 +244,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT update existing activity
+// PUT update existing activity - FIXED: Type-safe field updates
 export async function PUT(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -251,6 +276,19 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Validate date fields if being updated
+    if (updates.startDate && updates.endDate) {
+      const startDateTime = new Date(updates.startDate);
+      const endDateTime = new Date(updates.endDate);
+
+      if (endDateTime <= startDateTime) {
+        return NextResponse.json(
+          { error: "End date must be after start date" },
+          { status: 400 }
+        );
+      }
+    }
+
     const dailyProgress = await DailyProgress.findOne({
       project: projectId,
       date: new Date(date)
@@ -276,22 +314,70 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Update activity fields
-    activities[activityIndex] = {
-      ...activities[activityIndex],
-      ...updates,
-      updatedBy: new Types.ObjectId(session.user.id),
-      updatedAt: new Date()
-    };
+    // FIXED: Type-safe field updates using proper approach
+    const activity = activities[activityIndex];
+    
+    // Update string fields
+    if (updates.title !== undefined) activity.title = updates.title;
+    if (updates.description !== undefined) activity.description = updates.description;
+    if (updates.contractor !== undefined) activity.contractor = updates.contractor;
+    if (updates.supervisor !== undefined) activity.supervisor = updates.supervisor;
+    if (updates.comments !== undefined) activity.comments = updates.comments;
+    if (updates.incidentReport !== undefined) activity.incidentReport = updates.incidentReport;
+    
+    // Update date fields
+    if (updates.startDate !== undefined) {
+      activity.startDate = new Date(updates.startDate);
+    }
+    if (updates.endDate !== undefined) {
+      activity.endDate = new Date(updates.endDate);
+    }
+    if (updates.plannedDate !== undefined) {
+      activity.plannedDate = updates.plannedDate ? new Date(updates.plannedDate) : undefined;
+    }
+    if (updates.actualDate !== undefined) {
+      activity.actualDate = updates.actualDate ? new Date(updates.actualDate) : undefined;
+    }
+    
+    // Update enum fields
+    if (updates.status !== undefined) activity.status = updates.status;
+    if (updates.priority !== undefined) activity.priority = updates.priority;
+    if (updates.category !== undefined) activity.category = updates.category;
+    
+    // Update number field
+    if (updates.progress !== undefined) activity.progress = updates.progress;
+    
+    // Update array fields
+    if (updates.images !== undefined) {
+      activity.images = Array.isArray(updates.images) ? updates.images : [];
+    }
 
-    // Update summary statistics
+    // Update metadata
+    activity.updatedAt = new Date();
+    activity.updatedBy = new Types.ObjectId(session.user.id);
+    dailyProgress.updatedAt = new Date();
+
+    // Recalculate summary
+    dailyProgress.summary.totalActivities = activities.length;
     dailyProgress.summary.completed = activities.filter((a: IDailyActivity) => a.status === 'completed').length;
     dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
-    dailyProgress.updatedAt = new Date();
+    dailyProgress.summary.onHold = activities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
 
-    await dailyProgress.save();
+    // Save changes
+    try {
+      await dailyProgress.save();
+    } catch (saveError) {
+      console.error("Error saving updates:", saveError);
+      return NextResponse.json(
+        { 
+          error: "Failed to update activity",
+          details: saveError instanceof Error ? saveError.message : "Unknown error"
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -300,9 +386,12 @@ export async function PUT(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error("Error updating activity:", error);
+    console.error("Error updating daily activity:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { 
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : "Unknown error"
+      },
       { status: 500 }
     );
   }
@@ -337,7 +426,7 @@ export async function DELETE(request: NextRequest) {
 
     if (!projectId || !date || !activityId) {
       return NextResponse.json(
-        { error: "Project ID, date, and activity ID are required" },
+        { error: "All parameters are required" },
         { status: 400 }
       );
     }
@@ -359,13 +448,14 @@ export async function DELETE(request: NextRequest) {
       (a: IDailyActivity) => a._id?.toString() !== activityId
     );
 
-    // Update summary statistics
+    // Recalculate summary
     const activities = dailyProgress.activities;
     dailyProgress.summary.totalActivities = activities.length;
     dailyProgress.summary.completed = activities.filter((a: IDailyActivity) => a.status === 'completed').length;
     dailyProgress.summary.inProgress = activities.filter((a: IDailyActivity) => a.status === 'in_progress').length;
     dailyProgress.summary.pending = activities.filter((a: IDailyActivity) => a.status === 'pending').length;
     dailyProgress.summary.delayed = activities.filter((a: IDailyActivity) => a.status === 'delayed').length;
+    dailyProgress.summary.onHold = activities.filter((a: IDailyActivity) => a.status === 'on_hold').length;
     dailyProgress.updatedAt = new Date();
 
     await dailyProgress.save();

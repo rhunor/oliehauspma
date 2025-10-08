@@ -1,23 +1,37 @@
-// src/models/DailyProgress.ts - FIXED: Added 'on_hold' status
+// src/models/DailyProgress.ts - UPDATED: Added startDate, endDate, clientComments; Removed duration fields
 import mongoose, { Schema, Model, Types } from 'mongoose';
+
+// Client comment interface for activity-specific client feedback
+export interface IClientComment {
+  _id?: Types.ObjectId;
+  userId: Types.ObjectId;
+  userName: string;
+  userRole: string;
+  content: string;
+  attachments?: string[]; // S3 URLs for any attached images/files
+  createdAt: Date;
+  updatedAt?: Date;
+}
 
 export interface IDailyActivity {
   _id?: Types.ObjectId;
   title: string;
   description?: string;
   contractor: string;
-  supervisor?: string; // Made optional
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold'; // ADDED: on_hold
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  supervisor?: string;
+  // ADDED: Required start and end date-time fields
+  startDate: Date; // Required - when activity starts
+  endDate: Date;   // Required - when activity ends
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  priority: 'low' | 'medium' | 'high' | 'urgent'; // KEPT as requested
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
-  startTime?: string;
-  endTime?: string;
-  estimatedDuration?: number;
-  actualDuration?: number;
-  plannedDate?: Date;
-  actualDate?: Date;
-  comments?: string;
-  images?: string[];
+  // REMOVED: estimatedDuration and actualDuration fields completely
+  plannedDate?: Date; // Legacy field - keeping for backward compatibility
+  actualDate?: Date;  // Legacy field - keeping for backward compatibility
+  comments?: string; // Internal manager/admin comments
+  // ADDED: Client comments array for client feedback
+  clientComments?: IClientComment[];
+  images?: string[]; // S3 URLs for uploaded images
   incidentReport?: string;
   progress?: number;
   createdBy?: Types.ObjectId;
@@ -32,8 +46,8 @@ export interface IDailySummary {
   inProgress: number;
   pending: number;
   delayed: number;
-  onHold?: number; // ADDED: Track on_hold activities
-  totalHours?: number;
+  onHold?: number;
+  // REMOVED: totalHours field since we removed duration tracking
   crewSize?: number;
 }
 
@@ -58,11 +72,40 @@ export interface IDailyProgressDocument extends IDailyProgress, mongoose.Documen
   _id: Types.ObjectId;
 }
 
-// FIXED: Updated schema with on_hold status
+// Client comment sub-schema
+const clientCommentSchema = new Schema<IClientComment>({
+  userId: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  userName: {
+    type: String,
+    required: true
+  },
+  userRole: {
+    type: String,
+    required: true
+  },
+  content: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  attachments: [String], // S3 URLs
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: Date
+}, { timestamps: false }); // Disable automatic timestamps for sub-document
+
+// UPDATED: Daily activity schema with new required fields
 const dailyActivitySchema = new Schema<IDailyActivity>({
   title: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
   description: {
     type: String,
@@ -74,41 +117,41 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
   },
   supervisor: {
     type: String,
-    required: false // Made optional
+    required: false
+  },
+  // ADDED: Required start and end date-time
+  startDate: {
+    type: Date,
+    required: true
+  },
+  endDate: {
+    type: Date,
+    required: true
   },
   status: {
     type: String,
-    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'], // ADDED: on_hold
+    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
     required: true,
     default: 'pending'
   },
   priority: {
     type: String,
     enum: ['low', 'medium', 'high', 'urgent'],
-    default: 'medium'
+    default: 'medium',
+    required: true // KEPT priority as required
   },
   category: {
     type: String,
     enum: ['structural', 'electrical', 'plumbing', 'finishing', 'other'],
     default: 'other'
   },
-  startTime: String,
-  endTime: String,
-  estimatedDuration: {
-    type: Number,
-    default: 60
-  },
-  actualDuration: {
-    type: Number
-  },
-  plannedDate: {
-    type: Date
-  },
-  actualDate: {
-    type: Date
-  },
-  comments: String,
-  images: [String],
+  // REMOVED: estimatedDuration and actualDuration completely
+  plannedDate: Date, // Legacy - keeping for backward compatibility
+  actualDate: Date,  // Legacy - keeping for backward compatibility
+  comments: String, // Internal comments
+  // ADDED: Client comments array
+  clientComments: [clientCommentSchema],
+  images: [String], // S3 URLs for images
   incidentReport: String,
   progress: {
     type: Number,
@@ -158,14 +201,11 @@ const dailyProgressSchema = new Schema<IDailyProgressDocument>({
       type: Number,
       default: 0
     },
-    onHold: { // ADDED: Track on_hold activities
+    onHold: {
       type: Number,
       default: 0
     },
-    totalHours: {
-      type: Number,
-      default: 0
-    },
+    // REMOVED: totalHours field
     crewSize: {
       type: Number,
       default: 0
@@ -197,8 +237,10 @@ dailyProgressSchema.index({ project: 1, date: -1 });
 dailyProgressSchema.index({ 'activities.status': 1 });
 dailyProgressSchema.index({ 'activities.priority': 1 });
 dailyProgressSchema.index({ 'activities.category': 1 });
+dailyProgressSchema.index({ 'activities.startDate': 1 });
+dailyProgressSchema.index({ 'activities.endDate': 1 });
 
-// FIXED: Pre-save middleware to calculate summary including on_hold
+// UPDATED: Pre-save middleware (removed totalHours calculation)
 dailyProgressSchema.pre('save', function(next) {
   if (this.activities && this.activities.length > 0) {
     const activities = this.activities;
@@ -209,13 +251,9 @@ dailyProgressSchema.pre('save', function(next) {
     this.summary.inProgress = activities.filter(a => a.status === 'in_progress').length;
     this.summary.pending = activities.filter(a => a.status === 'pending').length;
     this.summary.delayed = activities.filter(a => a.status === 'delayed').length;
-    this.summary.onHold = activities.filter(a => a.status === 'on_hold').length; // ADDED
+    this.summary.onHold = activities.filter(a => a.status === 'on_hold').length;
     
-    // Calculate total hours if actual duration is available
-    const totalMinutes = activities.reduce((sum, activity) => {
-      return sum + (activity.actualDuration || activity.estimatedDuration || 0);
-    }, 0);
-    this.summary.totalHours = Math.round((totalMinutes / 60) * 100) / 100;
+    // REMOVED: totalHours calculation
   }
   
   next();

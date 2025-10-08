@@ -1,7 +1,7 @@
-//src/app/(dashboard)/manager/site-schedule/daily/page.tsx
+// src/app/(dashboard)/manager/site-schedule/daily/page.tsx - UPDATED: Added startDate, endDate, image upload; Removed duration
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { 
@@ -15,7 +15,9 @@ import {
   AlertCircle,
   ArrowLeft,
   Save,
-  X
+  X,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,8 +43,9 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
+import Image from 'next/image';
 
-// TypeScript interfaces
+// UPDATED: TypeScript interfaces with new fields
 interface ManagerProject {
   _id: string;
   title: string;
@@ -59,15 +62,15 @@ interface DailyActivity {
   title: string;
   description: string;
   contractor: string;
-  plannedDate: string;
-  actualDate?: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  supervisor?: string;
+  startDate: string; // ADDED: Required start date-time
+  endDate: string;   // ADDED: Required end date-time
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   comments?: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  estimatedDuration?: number;
-  actualDuration?: number;
-  supervisor?: string;
+  images?: string[]; // ADDED: S3 image URLs
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
+  // REMOVED: estimatedDuration and actualDuration
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -84,7 +87,7 @@ interface DailyProgress {
     inProgress: number;
     pending: number;
     delayed: number;
-    totalHours?: number;
+    // REMOVED: totalHours
     crewSize?: number;
     weatherConditions?: string;
   };
@@ -94,68 +97,62 @@ interface DailyProgress {
   updatedAt?: string;
 }
 
-// Utility functions
-const getStatusColor = (status: string): string => {
-  switch (status) {
-    case 'completed': return 'bg-green-100 text-green-800 border-green-200';
-    case 'in_progress': return 'bg-blue-100 text-blue-800 border-blue-200';
-    case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'delayed': return 'bg-red-100 text-red-800 border-red-200';
-    default: return 'bg-gray-100 text-gray-800 border-gray-200';
-  }
+// ADDED: Helper function to format datetime-local input value
+const formatDateTimeLocal = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-const getPriorityColor = (priority: string): string => {
-  switch (priority) {
-    case 'urgent': return 'bg-red-100 text-red-800 border-red-200';
-    case 'high': return 'bg-orange-100 text-orange-800 border-orange-200';
-    case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'low': return 'bg-green-100 text-green-800 border-green-200';
-    default: return 'bg-gray-100 text-gray-800 border-gray-200';
-  }
-};
-
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
-    case 'in_progress': return <Clock className="h-4 w-4 text-blue-500" />;
-    case 'pending': return <Clock className="h-4 w-4 text-yellow-500" />;
-    case 'delayed': return <AlertCircle className="h-4 w-4 text-red-500" />;
-    default: return <Clock className="h-4 w-4 text-gray-400" />;
-  }
-};
-
-export default function ManagerDailyActivitiesPage() {
+export default function ManagerDailySchedulePage() {
   const { data: session } = useSession();
   const { toast } = useToast();
-  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // State management
   const [projects, setProjects] = useState<ManagerProject[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
   const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<string>('all');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
-  // Form state for new activity
+  // UPDATED: New activity state with new required fields
   const [newActivity, setNewActivity] = useState<Partial<DailyActivity>>({
     title: '',
     description: '',
     contractor: '',
-    plannedDate: new Date().toISOString().split('T')[0],
+    supervisor: '',
+    startDate: formatDateTimeLocal(new Date()), // ADDED: Default to current time
+    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)), // ADDED: Default to 1 hour from now
     status: 'pending',
     priority: 'medium',
     category: 'other',
-    estimatedDuration: 4
+    comments: ''
   });
 
-  // Fetch data functions
+  // ADDED: Image upload state
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreview, setImagePreview] = useState<string[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+
+  // Fetch projects managed by current user
   const fetchProjects = useCallback(async () => {
     try {
-      const response = await fetch('/api/projects?manager=true');
+      const response = await fetch('/api/projects?limit=100&role=manager');
       if (response.ok) {
         const data = await response.json();
-        setProjects(data.data.data || []);
+        if (data.success && data.data?.projects) {
+          setProjects(data.data.projects);
+          if (data.data.projects.length > 0 && !selectedProject) {
+            setSelectedProject(data.data.projects[0]._id);
+          }
+        }
       }
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -165,8 +162,9 @@ export default function ManagerDailyActivitiesPage() {
         description: "Failed to load projects",
       });
     }
-  }, [toast]);
+  }, [selectedProject, toast]);
 
+  // Fetch daily progress
   const fetchDailyProgress = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -198,9 +196,108 @@ export default function ManagerDailyActivitiesPage() {
     loadData();
   }, [loadData]);
 
-  // Form handlers
+  // ADDED: Handle image file selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    
+    // Validate file types and sizes
+    const validFiles = files.filter(file => {
+      const isImage = file.type.startsWith('image/');
+      const isValidSize = file.size <= 10 * 1024 * 1024; // 10MB max
+      
+      if (!isImage) {
+        toast({
+          variant: 'destructive',
+          title: 'Invalid file type',
+          description: `${file.name} is not an image file`,
+        });
+        return false;
+      }
+      
+      if (!isValidSize) {
+        toast({
+          variant: 'destructive',
+          title: 'File too large',
+          description: `${file.name} exceeds 10MB limit`,
+        });
+        return false;
+      }
+      
+      return true;
+    });
+
+    setSelectedImages(prev => [...prev, ...validFiles]);
+    
+    // Generate previews
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(prev => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // ADDED: Remove selected image
+  const removeImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+    setImagePreview(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // ADDED: Upload images to S3
+  const uploadImages = async (): Promise<string[]> => {
+    if (selectedImages.length === 0) return [];
+
+    setUploadingImages(true);
+    const uploadedUrls: string[] = [];
+
+    try {
+      for (const file of selectedImages) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('projectId', selectedProject);
+        formData.append('description', 'Daily activity image');
+        formData.append('isPublic', 'true');
+
+        const response = await fetch('/api/files', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data?.url) {
+            uploadedUrls.push(result.data.url);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error uploading images:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Upload Error',
+        description: 'Some images failed to upload',
+      });
+    } finally {
+      setUploadingImages(false);
+    }
+
+    return uploadedUrls;
+  };
+
+  // UPDATED: Add activity with validation for new required fields
   const handleAddActivity = async () => {
-    if (!selectedProject || selectedProject === 'all' || selectedProject === 'none' || !newActivity.title || !newActivity.contractor) {
+    // Validation
+    if (!selectedProject || selectedProject === 'all' || selectedProject === 'none') {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Please select a project",
+      });
+      return;
+    }
+
+    if (!newActivity.title || !newActivity.contractor) {
       toast({
         variant: "destructive",
         title: "Validation Error",
@@ -209,11 +306,38 @@ export default function ManagerDailyActivitiesPage() {
       return;
     }
 
+    // ADDED: Validate start and end dates
+    if (!newActivity.startDate || !newActivity.endDate) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'Start Date and End Date are required',
+      });
+      return;
+    }
+
+    const startDateTime = new Date(newActivity.startDate);
+    const endDateTime = new Date(newActivity.endDate);
+
+    if (endDateTime <= startDateTime) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'End Date must be after Start Date',
+      });
+      return;
+    }
+
     try {
+      // ADDED: Upload images first
+      const imageUrls = await uploadImages();
+
       const activityData = {
         ...newActivity,
         project: selectedProject,
-        createdBy: session?.user?.id
+        createdBy: session?.user?.id,
+        images: imageUrls, // ADDED: Include uploaded image URLs
+        // REMOVED: estimatedDuration and actualDuration
       };
 
       const response = await fetch('/api/site-schedule/daily/activities', {
@@ -229,17 +353,22 @@ export default function ManagerDailyActivitiesPage() {
         });
         
         // Reset form and close dialog
+        const now = new Date();
         setNewActivity({
           title: '',
           description: '',
           contractor: '',
-          plannedDate: new Date().toISOString().split('T')[0],
+          supervisor: '',
+          startDate: formatDateTimeLocal(now),
+          endDate: formatDateTimeLocal(new Date(now.getTime() + 3600000)),
           status: 'pending',
           priority: 'medium',
           category: 'other',
-          estimatedDuration: 4
+          comments: ''
         });
         setSelectedProject('all');
+        setSelectedImages([]);
+        setImagePreview([]);
         setIsAddDialogOpen(false);
         
         // Refresh data
@@ -257,6 +386,7 @@ export default function ManagerDailyActivitiesPage() {
     }
   };
 
+  // Calculate statistics
   const calculateStats = () => {
     const allActivities = dailyProgress.flatMap(dp => dp.activities);
     return {
@@ -269,6 +399,24 @@ export default function ManagerDailyActivitiesPage() {
   };
 
   const stats = calculateStats();
+
+  // Get status badge color
+  const getStatusBadgeClass = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'in_progress':
+        return 'bg-blue-100 text-blue-800';
+      case 'pending':
+        return 'bg-gray-100 text-gray-800';
+      case 'delayed':
+        return 'bg-red-100 text-red-800';
+      case 'on_hold':
+        return 'bg-yellow-100 text-yellow-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
 
   if (loading) {
     return (
@@ -287,7 +435,7 @@ export default function ManagerDailyActivitiesPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* FIXED: Responsive Header */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
           <Link href="/manager/site-schedule" className="self-start">
@@ -306,7 +454,7 @@ export default function ManagerDailyActivitiesPage() {
           </div>
         </div>
         
-        {/* FIXED: Responsive Add Activity Button */}
+        {/* Add Activity Dialog */}
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
             <Button className="w-full sm:w-auto flex items-center justify-center gap-2">
@@ -314,7 +462,7 @@ export default function ManagerDailyActivitiesPage() {
               Add Activity
             </Button>
           </DialogTrigger>
-          <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add Daily Activity</DialogTitle>
               <DialogDescription>
@@ -322,8 +470,8 @@ export default function ManagerDailyActivitiesPage() {
               </DialogDescription>
             </DialogHeader>
             
-            {/* FIXED: Responsive Form Layout */}
-            <div className="grid gap-4 py-4">
+            <div className="grid gap-6 py-4">
+              {/* Project and Date Selection */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="project">Project *</Label>
@@ -340,80 +488,88 @@ export default function ManagerDailyActivitiesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                
+              </div>
+
+              {/* Basic Information */}
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="plannedDate">Planned Date</Label>
+                  <Label htmlFor="title">Activity Title *</Label>
                   <Input
-                    id="plannedDate"
-                    type="date"
-                    value={newActivity.plannedDate}
-                    onChange={(e) => setNewActivity({...newActivity, plannedDate: e.target.value})}
+                    id="title"
+                    value={newActivity.title || ''}
+                    onChange={(e) => setNewActivity({...newActivity, title: e.target.value})}
+                    placeholder="e.g., Foundation concrete pouring"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={newActivity.description || ''}
+                    onChange={(e) => setNewActivity({...newActivity, description: e.target.value})}
+                    placeholder="Detailed description of the activity..."
+                    rows={3}
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="title">Activity Title *</Label>
-                <Input
-                  id="title"
-                  value={newActivity.title}
-                  onChange={(e) => setNewActivity({...newActivity, title: e.target.value})}
-                  placeholder="e.g., Foundation concrete pouring"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={newActivity.description}
-                  onChange={(e) => setNewActivity({...newActivity, description: e.target.value})}
-                  placeholder="Detailed description of the activity..."
-                  rows={3}
-                />
-              </div>
-
+              {/* Contractor and Supervisor */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="contractor">Contractor *</Label>
                   <Input
                     id="contractor"
-                    value={newActivity.contractor}
+                    value={newActivity.contractor || ''}
                     onChange={(e) => setNewActivity({...newActivity, contractor: e.target.value})}
                     placeholder="Contractor name"
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="supervisor">Supervisor</Label>
                   <Input
                     id="supervisor"
                     value={newActivity.supervisor || ''}
                     onChange={(e) => setNewActivity({...newActivity, supervisor: e.target.value})}
-                    placeholder="Site supervisor"
+                    placeholder="Supervisor name"
                   />
                 </div>
               </div>
 
+              {/* ADDED: Start and End Date-Time */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="startDate">Start Date & Time *</Label>
+                  <Input
+                    id="startDate"
+                    type="datetime-local"
+                    value={newActivity.startDate || ''}
+                    onChange={(e) => setNewActivity({...newActivity, startDate: e.target.value})}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">End Date & Time *</Label>
+                  <Input
+                    id="endDate"
+                    type="datetime-local"
+                    value={newActivity.endDate || ''}
+                    onChange={(e) => setNewActivity({...newActivity, endDate: e.target.value})}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Priority, Status, Category */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select value={newActivity.status || 'pending'} onValueChange={(value: 'pending' | 'in_progress' | 'completed' | 'delayed') => setNewActivity({...newActivity, status: value})}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="in_progress">In Progress</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="delayed">Delayed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="priority">Priority</Label>
-                  <Select value={newActivity.priority || 'medium'} onValueChange={(value: 'low' | 'medium' | 'high' | 'urgent') => setNewActivity({...newActivity, priority: value})}>
+                  <Label htmlFor="priority">Priority *</Label>
+                  <Select
+                    value={newActivity.priority}
+                    onValueChange={(value) => setNewActivity({...newActivity, priority: value as DailyActivity['priority']})}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -425,10 +581,32 @@ export default function ManagerDailyActivitiesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                
+
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select
+                    value={newActivity.status}
+                    onValueChange={(value) => setNewActivity({...newActivity, status: value as DailyActivity['status']})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="delayed">Delayed</SelectItem>
+                      <SelectItem value="on_hold">On Hold</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="category">Category</Label>
-                  <Select value={newActivity.category || 'other'} onValueChange={(value: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other') => setNewActivity({...newActivity, category: value})}>
+                  <Select
+                    value={newActivity.category}
+                    onValueChange={(value) => setNewActivity({...newActivity, category: value as DailyActivity['category']})}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -443,313 +621,255 @@ export default function ManagerDailyActivitiesPage() {
                 </div>
               </div>
 
+              {/* Comments */}
               <div className="space-y-2">
-                <Label htmlFor="estimatedDuration">Estimated Duration (hours)</Label>
-                <Input
-                  id="estimatedDuration"
-                  type="number"
-                  min="0.5"
-                  step="0.5"
-                  value={newActivity.estimatedDuration}
-                  onChange={(e) => setNewActivity({...newActivity, estimatedDuration: parseFloat(e.target.value)})}
+                <Label htmlFor="comments">Internal Comments</Label>
+                <Textarea
+                  id="comments"
+                  value={newActivity.comments || ''}
+                  onChange={(e) => setNewActivity({...newActivity, comments: e.target.value})}
+                  placeholder="Add any internal notes or comments..."
+                  rows={3}
                 />
               </div>
+
+              {/* ADDED: Image Upload Section */}
+              <div className="space-y-2">
+                <Label>Activity Images</Label>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+                  
+                  {imagePreview.length === 0 ? (
+                    <div className="text-center">
+                      <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-600 mb-2">
+                        Click to upload activity images
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <ImageIcon className="h-4 w-4 mr-2" />
+                        Select Images
+                      </Button>
+                      <p className="text-xs text-gray-500 mt-2">
+                        PNG, JPG, GIF up to 10MB each
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="grid grid-cols-4 gap-2 mb-3">
+                        {imagePreview.map((preview, index) => (
+                          <div key={index} className="relative">
+                            <img
+                              src={preview}
+                              alt={`Preview ${index + 1}`}
+                              className="w-full h-24 object-cover rounded border"
+                            />
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="absolute top-1 right-1 h-6 w-6"
+                              onClick={() => removeImage(index)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add More Images
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            
-            <DialogFooter className="flex flex-col sm:flex-row gap-2">
-              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} className="w-full sm:w-auto">
-                <X className="h-4 w-4 mr-2" />
+
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => setIsAddDialogOpen(false)}
+              >
                 Cancel
               </Button>
-              <Button onClick={handleAddActivity} className="w-full sm:w-auto">
-                <Save className="h-4 w-4 mr-2" />
-                Add Activity
+              <Button 
+                onClick={handleAddActivity}
+                disabled={uploadingImages}
+              >
+                {uploadingImages ? 'Uploading Images...' : 'Add Activity'}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
 
-      {/* FIXED: Responsive Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <div className="flex-1">
-              <Label htmlFor="project-filter" className="text-sm">Filter by Project</Label>
-              <Select value={selectedProject} onValueChange={setSelectedProject}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All projects" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map((project) => (
-                    <SelectItem key={project._id} value={project._id}>
-                      {project.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="flex-1 sm:flex-none sm:w-48">
-              <Label htmlFor="date-filter" className="text-sm">Filter by Date</Label>
-              <Input
-                id="date-filter"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* FIXED: Responsive Stats Cards */}
+      {/* Statistics Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
         <Card>
-          <CardContent className="p-3 sm:p-4 text-center">
-            <p className="text-xs sm:text-sm text-gray-600">Total</p>
-            <p className="text-lg sm:text-2xl font-bold">{stats.total}</p>
+          <CardContent className="p-4">
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-600">Total</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-3 sm:p-4 text-center">
-            <p className="text-xs sm:text-sm text-gray-600">Completed</p>
-            <p className="text-lg sm:text-2xl font-bold text-green-600">{stats.completed}</p>
+          <CardContent className="p-4">
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-600">Completed</p>
+              <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-3 sm:p-4 text-center">
-            <p className="text-xs sm:text-sm text-gray-600">In Progress</p>
-            <p className="text-lg sm:text-2xl font-bold text-blue-600">{stats.inProgress}</p>
+          <CardContent className="p-4">
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-600">In Progress</p>
+              <p className="text-2xl font-bold text-blue-600">{stats.inProgress}</p>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-3 sm:p-4 text-center">
-            <p className="text-xs sm:text-sm text-gray-600">Pending</p>
-            <p className="text-lg sm:text-2xl font-bold text-yellow-600">{stats.pending}</p>
+          <CardContent className="p-4">
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-600">Pending</p>
+              <p className="text-2xl font-bold text-gray-600">{stats.pending}</p>
+            </div>
           </CardContent>
         </Card>
-        <Card className="col-span-2 sm:col-span-1">
-          <CardContent className="p-3 sm:p-4 text-center">
-            <p className="text-xs sm:text-sm text-gray-600">Delayed</p>
-            <p className="text-lg sm:text-2xl font-bold text-red-600">{stats.delayed}</p>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-600">Delayed</p>
+              <p className="text-2xl font-bold text-red-600">{stats.delayed}</p>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* FIXED: Responsive Activities List */}
-      {dailyProgress.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <CalendarCheck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Activities Found</h3>
-            <Button onClick={() => setIsAddDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add First Activity
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {dailyProgress.map((progress) => (
-            <Card key={progress._id} className="overflow-hidden">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <CalendarCheck className="h-5 w-5 text-blue-600" />
-                    {formatDate(new Date(progress.date))}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {progress.activities.length} activities
-                    </Badge>
-                    {projects.find(p => p._id === progress.project) && (
-                      <Badge variant="secondary" className="text-xs">
-                        {projects.find(p => p._id === progress.project)?.title}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              
-              <CardContent className="pt-0">
-                {/* FIXED: Responsive Activities Grid */}
-                <div className="space-y-3">
-                  {progress.activities.map((activity) => (
-                    <div key={activity._id} className="border rounded-lg p-3 sm:p-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex flex-col lg:flex-row lg:items-start gap-3">
-                        {/* Activity Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
-                            <div className="min-w-0 flex-1">
-                              <h4 className="font-medium text-gray-900 line-clamp-1">{activity.title}</h4>
-                              {activity.description && (
-                                <p className="text-sm text-gray-600 mt-1 line-clamp-2">{activity.description}</p>
-                              )}
-                            </div>
-                            
-                            {/* Status and Priority Badges */}
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              {getStatusIcon(activity.status)}
-                              <Badge className={`text-xs border ${getStatusColor(activity.status)}`}>
-                                {activity.status.replace('_', ' ')}
-                              </Badge>
-                              <Badge className={`text-xs border ${getPriorityColor(activity.priority)}`}>
-                                {activity.priority}
-                              </Badge>
-                            </div>
-                          </div>
-                          
-                          {/* FIXED: Responsive Activity Details */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-sm text-gray-600">
-                            <div className="truncate">
-                              <span className="font-medium">Contractor:</span>
-                              <p className="truncate">{activity.contractor}</p>
-                            </div>
-                            <div>
-                              <span className="font-medium">Planned:</span>
-                              <p>{formatDate(new Date(activity.plannedDate))}</p>
-                            </div>
-                            {activity.supervisor && (
-                              <div className="truncate">
-                                <span className="font-medium">Supervisor:</span>
-                                <p className="truncate">{activity.supervisor}</p>
-                              </div>
-                            )}
-                            {activity.estimatedDuration && (
-                              <div>
-                                <span className="font-medium">Duration:</span>
-                                <p>{activity.estimatedDuration}h estimated</p>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Additional Details */}
-                          {activity.actualDate && (
-                            <div className="mt-2 text-sm">
-                              <span className="font-medium text-gray-600">Actual Date:</span>
-                              <span className="ml-2">{formatDate(new Date(activity.actualDate))}</span>
-                            </div>
-                          )}
-                          
-                          {activity.comments && (
-                            <div className="mt-2">
-                              <span className="font-medium text-gray-600 text-sm">Comments:</span>
-                              <p className="text-sm text-gray-700 mt-1 line-clamp-2">{activity.comments}</p>
-                            </div>
-                          )}
-                          
-                          {activity.category && activity.category !== 'other' && (
-                            <div className="mt-2">
-                              <Badge variant="outline" className="text-xs capitalize">
-                                {activity.category}
-                              </Badge>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* FIXED: Responsive Action Buttons */}
-                        <div className="flex lg:flex-col items-center gap-2 flex-shrink-0">
-                          <Link href={`/manager/site-schedule/activity/${activity._id}/edit`} className="flex-1 lg:flex-none">
-                            <Button variant="outline" size="sm" className="w-full lg:w-auto">
-                              <Edit className="h-4 w-4 lg:mr-0 sm:mr-2" />
-                              <span className="lg:hidden">Edit</span>
-                            </Button>
-                          </Link>
-                          <Button variant="outline" size="sm" className="flex-1 lg:flex-none text-red-600 hover:text-red-700 hover:bg-red-50">
-                            <Trash2 className="h-4 w-4 lg:mr-0 sm:mr-2" />
-                            <span className="lg:hidden">Delete</span>
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                
-                {/* Progress Summary */}
-                {progress.summary && (
-                  <div className="mt-4 pt-4 border-t bg-gray-50 -mx-4 px-4 py-3 rounded-b-lg">
-                    <h5 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
-                      <User className="h-4 w-4" />
-                      Daily Summary
-                    </h5>
-                    
-                    {/* FIXED: Responsive Summary Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-sm">
-                      <div className="text-center">
-                        <p className="text-gray-600">Total</p>
-                        <p className="font-semibold">{progress.summary.totalActivities}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-gray-600">Completed</p>
-                        <p className="font-semibold text-green-600">{progress.summary.completed}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-gray-600">In Progress</p>
-                        <p className="font-semibold text-blue-600">{progress.summary.inProgress}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-gray-600">Pending</p>
-                        <p className="font-semibold text-yellow-600">{progress.summary.pending}</p>
-                      </div>
-                      {progress.summary.totalHours && (
-                        <div className="text-center">
-                          <p className="text-gray-600">Hours</p>
-                          <p className="font-semibold">{progress.summary.totalHours}h</p>
-                        </div>
-                      )}
-                      {progress.summary.crewSize && (
-                        <div className="text-center">
-                          <p className="text-gray-600">Crew Size</p>
-                          <p className="font-semibold">{progress.summary.crewSize}</p>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {progress.summary.weatherConditions && (
-                      <div className="mt-2 text-sm">
-                        <span className="font-medium text-gray-600">Weather:</span>
-                        <span className="ml-2">{progress.summary.weatherConditions}</span>
-                      </div>
-                    )}
-                    
-                    {progress.notes && (
-                      <div className="mt-2">
-                        <span className="font-medium text-gray-600 text-sm">Notes:</span>
-                        <p className="text-sm text-gray-700 mt-1">{progress.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-      
-      {/* FIXED: Responsive Footer Actions */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4">
-        <p className="text-sm text-gray-600 text-center sm:text-left">
-          {dailyProgress.length > 0 ? (
-            <>Showing {dailyProgress.length} day{dailyProgress.length !== 1 ? 's' : ''} of progress</>
+      {/* Activities List */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Activities</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {dailyProgress.length === 0 ? (
+            <div className="text-center py-8">
+              <CalendarCheck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">No activities found</p>
+              <Button
+                onClick={() => setIsAddDialogOpen(true)}
+                className="mt-4"
+                variant="outline"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add First Activity
+              </Button>
+            </div>
           ) : (
-            'No activities found for the selected criteria'
+            <div className="space-y-4">
+              {dailyProgress.flatMap(dp => dp.activities).map((activity) => (
+                <div
+                  key={activity._id}
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-lg">{activity.title}</h3>
+                      {activity.description && (
+                        <p className="text-sm text-gray-600 mt-1">{activity.description}</p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Badge className={getStatusBadgeClass(activity.status)}>
+                        {activity.status.replace('_', ' ')}
+                      </Badge>
+                      <Badge variant="outline">{activity.priority}</Badge>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
+                    <div>
+                      <p className="text-gray-600">Contractor</p>
+                      <p className="font-medium truncate">{activity.contractor}</p>
+                    </div>
+                    {activity.supervisor && (
+                      <div>
+                        <p className="text-gray-600">Supervisor</p>
+                        <p className="font-medium truncate">{activity.supervisor}</p>
+                      </div>
+                    )}
+                    {/* ADDED: Display start and end dates */}
+                    <div>
+                      <p className="text-gray-600">Start Date</p>
+                      <p className="font-medium">
+                        {new Date(activity.startDate).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">End Date</p>
+                      <p className="font-medium">
+                        {new Date(activity.endDate).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ADDED: Display images */}
+                  {activity.images && activity.images.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-sm text-gray-600 mb-2">Images:</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {activity.images.map((imageUrl, index) => (
+                          <div key={index} className="relative w-20 h-20">
+                            <Image
+                              src={imageUrl}
+                              alt={`Activity image ${index + 1}`}
+                              fill
+                              className="object-cover rounded border"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {activity.comments && (
+                    <div className="mt-3 p-3 bg-gray-50 rounded">
+                      <p className="text-sm text-gray-700">{activity.comments}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 mt-4">
+                    <Link href={`/manager/site-schedule/activity/${activity._id}/edit`}>
+                      <Button variant="outline" size="sm">
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </p>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <Link href="/manager/site-schedule" className="w-full sm:w-auto">
-            <Button variant="outline" className="w-full flex items-center justify-center gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Schedule
-            </Button>
-          </Link>
-          <Button onClick={() => setIsAddDialogOpen(true)} className="w-full sm:w-auto flex items-center justify-center gap-2">
-            <Plus className="h-4 w-4" />
-            Add Activity
-          </Button>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
