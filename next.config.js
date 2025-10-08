@@ -4,15 +4,66 @@ const nextConfig = {
     serverComponentsExternalPackages: ['mongoose'],
   },
   
-  // Image optimization configuration
+  // ✅ FIXED: Image optimization configuration with proper remotePatterns
   images: {
-    domains: [
-      'localhost',
-      'olivehaus.com',
-      'cdn.olivehaus.com',
-      's3.amazonaws.com',
-      'olivehaus-ppma-files.s3.amazonaws.com',
-      'cdn.jsdelivr.net',
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'localhost',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'olivehaus.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'cdn.olivehaus.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 's3.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'olivehaus-ppma-files.s3.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      // ✅ ADDED: Regional S3 hostname (eu-north-1)
+      {
+        protocol: 'https',
+        hostname: 'olivehaus-ppma-files.s3.eu-north-1.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      // ✅ ADDED: Wildcard for any S3 regional endpoint
+      {
+        protocol: 'https',
+        hostname: '**.s3.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      // ✅ ADDED: Alternative S3 format (region.amazonaws.com)
+      {
+        protocol: 'https',
+        hostname: '**.s3.*.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'cdn.jsdelivr.net',
+        port: '',
+        pathname: '/**',
+      },
     ],
     formats: ['image/webp', 'image/avif'],
     minimumCacheTTL: 3600, // 1 hour

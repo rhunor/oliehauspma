@@ -1,4 +1,4 @@
-// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - UPDATED: Added startDate, endDate, image upload; Removed duration
+// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - FIXED: Hydration errors and image config
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -40,7 +40,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 
-// UPDATED: TypeScript interfaces with new fields
+// TypeScript interfaces with proper types
 interface Project {
   _id: string;
   title: string;
@@ -53,13 +53,12 @@ interface DailyActivity {
   description: string;
   contractor: string;
   supervisor?: string;
-  startDate: string; // ADDED: Required start date-time
-  endDate: string;   // ADDED: Required end date-time
+  startDate: string;
+  endDate: string;
   status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   comments?: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  images?: string[]; // ADDED: S3 image URLs
-  // REMOVED: estimatedDuration and actualDuration
+  images?: string[];
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -89,7 +88,7 @@ interface ProjectsApiResponse {
   error?: string;
 }
 
-// ADDED: Helper function to format datetime-local input value
+// ✅ FIXED: Helper function to format datetime-local input value
 const formatDateTimeLocal = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -97,6 +96,26 @@ const formatDateTimeLocal = (date: Date): string => {
   const hours = String(date.getHours()).padStart(2, '0');
   const minutes = String(date.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+// ✅ ADDED: Helper function to format date consistently (ISO format - no locale issues)
+const formatDateForDisplay = (dateString: string): string => {
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${day}/${month}/${year}`;
+};
+
+// ✅ ADDED: Helper to format datetime for display (avoids toLocaleString issues)
+const formatDateTimeForDisplay = (dateString: string): string => {
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
 };
 
 export default function AdminDailySchedulePage() {
@@ -114,23 +133,29 @@ export default function AdminDailySchedulePage() {
   const [loading, setLoading] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   
-  // UPDATED: New activity state with new required fields
+  // ✅ ADDED: Client-side formatted date to prevent hydration errors
+  const [clientFormattedDate, setClientFormattedDate] = useState<string>('');
+  
   const [newActivity, setNewActivity] = useState<Partial<DailyActivity>>({
     title: '',
     description: '',
     contractor: '',
     supervisor: '',
-    startDate: formatDateTimeLocal(new Date()), // ADDED: Default to current time
-    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)), // ADDED: Default to 1 hour from now
+    startDate: formatDateTimeLocal(new Date()),
+    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)),
     status: 'pending',
     priority: 'medium',
     comments: ''
   });
 
-  // ADDED: Image upload state
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
+
+  // ✅ FIXED: Format date only on client to prevent hydration mismatch
+  useEffect(() => {
+    setClientFormattedDate(formatDateForDisplay(selectedDate));
+  }, [selectedDate]);
 
   // Fetch projects
   const fetchProjects = useCallback(async () => {
@@ -191,7 +216,7 @@ export default function AdminDailySchedulePage() {
     }
   }, [selectedProject, selectedDate, fetchDailyProgress]);
 
-  // ADDED: Handle image file selection
+  // Handle image file selection
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     
@@ -233,13 +258,13 @@ export default function AdminDailySchedulePage() {
     });
   };
 
-  // ADDED: Remove selected image
+  // Remove selected image
   const removeImage = (index: number) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
     setImagePreview(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ADDED: Upload images to S3
+  // Upload images to S3
   const uploadImages = async (): Promise<string[]> => {
     if (selectedImages.length === 0) return [];
 
@@ -280,7 +305,7 @@ export default function AdminDailySchedulePage() {
     return uploadedUrls;
   };
 
-  // UPDATED: Add activity with validation for new required fields
+  // Add activity with validation
   const handleAddActivity = async () => {
     // Validation
     if (!selectedProject) {
@@ -301,7 +326,6 @@ export default function AdminDailySchedulePage() {
       return;
     }
 
-    // ADDED: Validate start and end dates
     if (!newActivity.startDate || !newActivity.endDate) {
       toast({
         variant: 'destructive',
@@ -326,7 +350,7 @@ export default function AdminDailySchedulePage() {
     try {
       setLoading(true);
 
-      // ADDED: Upload images first
+      // Upload images first
       const imageUrls = await uploadImages();
 
       const requestBody = {
@@ -334,8 +358,7 @@ export default function AdminDailySchedulePage() {
         date: selectedDate,
         activity: {
           ...newActivity,
-          images: imageUrls, // ADDED: Include uploaded image URLs
-          // REMOVED: estimatedDuration and actualDuration
+          images: imageUrls,
         }
       };
 
@@ -538,7 +561,10 @@ export default function AdminDailySchedulePage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5" />
-            Activities for {new Date(selectedDate).toLocaleDateString()}
+            {/* ✅ FIXED: Use suppressHydrationWarning to prevent date mismatch */}
+            <span suppressHydrationWarning>
+              Activities for {clientFormattedDate || formatDateForDisplay(selectedDate)}
+            </span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -592,22 +618,22 @@ export default function AdminDailySchedulePage() {
                         <p className="font-medium">{activity.supervisor}</p>
                       </div>
                     )}
-                    {/* ADDED: Display start and end dates */}
+                    {/* ✅ FIXED: Use consistent date formatting without toLocaleString */}
                     <div>
                       <p className="text-gray-600">Start Date</p>
-                      <p className="font-medium">
-                        {new Date(activity.startDate).toLocaleString()}
+                      <p className="font-medium" suppressHydrationWarning>
+                        {formatDateTimeForDisplay(activity.startDate)}
                       </p>
                     </div>
                     <div>
                       <p className="text-gray-600">End Date</p>
-                      <p className="font-medium">
-                        {new Date(activity.endDate).toLocaleString()}
+                      <p className="font-medium" suppressHydrationWarning>
+                        {formatDateTimeForDisplay(activity.endDate)}
                       </p>
                     </div>
                   </div>
 
-                  {/* ADDED: Display images */}
+                  {/* Display images */}
                   {activity.images && activity.images.length > 0 && (
                     <div className="mb-3">
                       <p className="text-sm text-gray-600 mb-2">Images:</p>
@@ -656,7 +682,7 @@ export default function AdminDailySchedulePage() {
         </CardContent>
       </Card>
 
-      {/* UPDATED: Add Activity Dialog with new fields */}
+      {/* Add Activity Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -708,7 +734,7 @@ export default function AdminDailySchedulePage() {
               </div>
             </div>
 
-            {/* ADDED: Start and End Date-Time */}
+            {/* Start and End Date-Time */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="startDate">Start Date & Time *</Label>
@@ -785,7 +811,7 @@ export default function AdminDailySchedulePage() {
               />
             </div>
 
-            {/* ADDED: Image Upload Section */}
+            {/* Image Upload Section */}
             <div className="space-y-2">
               <Label>Activity Images</Label>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">

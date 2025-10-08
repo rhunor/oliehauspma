@@ -1,10 +1,17 @@
 /* src/app/globals.css - ENHANCED MOBILE-FIRST RESPONSIVE STYLES - TAILWIND v3.4.17 */
+@import url('https://fonts.googleapis.com/css2?family=Great+Vibes&family=Lato:wght@300;400;700&family=Oranienbaum&family=Playfair+Display:wght@400;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+
+       /* Custom Font Families */
+    --font-heading: 'Great Vibes', cursive;
+    --font-body: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-accent: 'Oranienbaum', serif;
+    --font-serif: 'Playfair Display', Georgia, serif;
 
     /* New OliveHaus Login Color Scheme */
     --color-soft-sage: 162 169 141;

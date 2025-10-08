@@ -262,40 +262,40 @@ function DashboardCard({
   color, 
   stats 
 }: DashboardCardProps) {
-  const colorClasses: Record<string, string> = {
-    blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
-    green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
-    purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
-    orange: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
-    red: 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
+  const iconColorClasses: Record<string, string> = {
+    blue: 'text-blue-600',
+    green: 'text-green-600',
+    purple: 'text-purple-600',
+    orange: 'text-orange-600',
+    red: 'text-red-600'
   };
-
   return (
     <Link href={href}>
-      <Card className="hover:shadow-lg transition-all duration-200 cursor-pointer group h-full hidden lg:block">
+      <Card className="hover:shadow-md transition-all duration-200 cursor-pointer group h-full hidden lg:block border border-gray-100">
         <CardContent className="p-0">
-          <div className={`bg-gradient-to-br ${colorClasses[color]} p-6 text-white relative overflow-hidden`}>
-            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-20">
-              <Icon className="h-24 w-24 transform rotate-12" />
+          {/* CHANGED: Removed gradient, now clean white with subtle shadow */}
+          <div className="bg-white p-6 relative overflow-hidden border-b border-gray-100">
+            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-10">
+              <Icon className={`h-24 w-24 transform rotate-12 ${iconColorClasses[color]}`} />
             </div>
             <div className="relative">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-white bg-opacity-20 rounded-lg">
-                  <Icon className="h-6 w-6" />
+                <div className="p-2 bg-gray-50 rounded-lg border border-gray-200">
+                  <Icon className={`h-6 w-6 ${iconColorClasses[color]}`} />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-lg">{title}</h3>
+                  <h3 className="font-semibold text-lg text-gray-900">{title}</h3>
                   {stats && (
                     <div className="flex items-center space-x-2 mt-1">
-                      <span className="text-2xl font-bold">{stats.value}</span>
-                      <span className="text-sm opacity-90">{stats.label}</span>
+                      <span className="text-2xl font-bold text-gray-900">{stats.value}</span>
+                      <span className="text-sm text-gray-600">{stats.label}</span>
                     </div>
                   )}
                 </div>
               </div>
             </div>
           </div>
-          <div className="p-4">
+          <div className="p-4 bg-white">
             <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
             <div className="flex items-center justify-between mt-4">
               <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
@@ -671,22 +671,22 @@ async function AdminDashboard() {
         </div>
 
         {/* Enhanced Header for desktop */}
-        <div className="hidden lg:block bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg p-6 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-3xl font-bold mb-2">
-                Welcome back, {session.user.name}!
-              </h2>
-              <p className="text-purple-100">
-                Oversee all system operations and maintain platform performance
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold">{stats.totalUsers}</p>
-              <p className="text-purple-100 text-sm">Total Users</p>
-            </div>
-          </div>
-        </div>
+      <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
+  <div className="flex items-center justify-between">
+    <div>
+      <h2 className="text-3xl font-bold mb-2 text-gray-900">
+        Welcome back, {session.user.name}!
+      </h2>
+      <p className="text-gray-600">
+        Oversee all system operations and maintain platform performance
+      </p>
+    </div>
+    <div className="text-right">
+      <p className="text-2xl font-bold text-gray-900"> {stats.totalUsers} </p>
+      <p className="text-gray-600 text-sm">Total Users</p>
+    </div>
+  </div>
+</div>
 
         {/* Updated Dashboard Cards with new features (desktop only) */}
         <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -839,36 +839,36 @@ async function AdminDashboard() {
             </Card>
 
             {/* Quick Actions */}
-            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <Settings className="h-5 w-5 text-blue-600" />
-                  Quick Actions
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Link href="/admin/users/new">
-                  <Button className="w-full justify-start bg-blue-600 hover:bg-blue-700 text-white">
-                    <PlusCircle className="h-4 w-4 mr-2" />
-                    Create New User
-                  </Button>
-                </Link>
-                
-                <Link href="/admin/analytics">
-                  <Button variant="outline" className="w-full justify-start">
-                    <BarChart3 className="h-4 w-4 mr-2" />
-                    View Analytics
-                  </Button>
-                </Link>
+            <Card className="bg-white border border-gray-100 shadow-sm">
+  <CardHeader>
+    <CardTitle className="text-lg font-semibold flex items-center gap-2 text-gray-900">
+      <Settings className="h-5 w-5 text-gray-600" />
+      Quick Actions
+    </CardTitle>
+  </CardHeader>
+  <CardContent className="space-y-3">
+    <Link href="/admin/users/new">
+      <Button className="w-full justify-start bg-blue-600 hover:bg-blue-700 text-white">
+        <PlusCircle className="h-4 w-4 mr-2" />
+        Create New User
+      </Button>
+    </Link>
+    
+    <Link href="/admin/analytics">
+      <Button variant="outline" className="w-full justify-start border-gray-200 hover:bg-gray-50">
+        <BarChart3 className="h-4 w-4 mr-2" />
+        View Analytics
+      </Button>
+    </Link>
 
-                <Link href="/admin/settings">
-                  <Button variant="outline" className="w-full justify-start">
-                    <Settings className="h-4 w-4 mr-2" />
-                    System Settings
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
+    <Link href="/admin/settings">
+      <Button variant="outline" className="w-full justify-start border-gray-200 hover:bg-gray-50">
+        <Settings className="h-4 w-4 mr-2" />
+        System Settings
+      </Button>
+    </Link>
+  </CardContent>
+</Card>
           </div>
 
           {/* Right Column - Recent Activity */}
