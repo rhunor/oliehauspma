@@ -376,7 +376,7 @@ export default function AdminSiteSchedulePage() {
                 <Link href="/admin/site-schedule/daily">
                   <Button>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Daily Activities
+                    Add Task
                   </Button>
                 </Link>
               </CardContent>

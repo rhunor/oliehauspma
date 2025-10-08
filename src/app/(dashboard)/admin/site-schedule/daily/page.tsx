@@ -450,7 +450,7 @@ export default function AdminDailyActivitiesPage() {
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)} disabled={!selectedProject}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Activity
+          Add Task
         </Button>
       </div>
 
@@ -573,7 +573,7 @@ export default function AdminDailyActivitiesPage() {
                 onClick={() => setIsAddDialogOpen(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add First Activity
+                Add First Task
               </Button>
             </div>
           ) : (
@@ -654,11 +654,11 @@ export default function AdminDailyActivitiesPage() {
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Add Daily Activity</DialogTitle>
+            <DialogTitle>Add Daily Task</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="title">Activity Title *</Label>
+              <Label htmlFor="title">Task Name *</Label>
               <Input
                 id="title"
                 value={newActivity.title}
@@ -757,7 +757,7 @@ export default function AdminDailyActivitiesPage() {
               Cancel
             </Button>
             <Button onClick={handleAddActivity} disabled={loading}>
-              {loading ? 'Adding...' : 'Add Activity'}
+              {loading ? 'Adding...' : 'Add Task'}
             </Button>
           </DialogFooter>
         </DialogContent>
