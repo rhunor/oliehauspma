@@ -5,6 +5,14 @@
 
 @layer base {
   :root {
+
+    /* New OliveHaus Login Color Scheme */
+    --color-soft-sage: 162 169 141;
+    --color-clay-peach: 218 165 140;
+    --color-pale-oat: 242 235 220;
+    --color-mist-grey: 210 215 220;
+    --color-warm-sand: 232 213 192;
+
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -32,6 +40,10 @@
     --mobile-safe-area-top: env(safe-area-inset-top, 0);
     --mobile-safe-area-bottom: env(safe-area-inset-bottom, 0);
     --mobile-touch-target: 44px;
+
+        /* Luxury gold for logo */
+
+    --luxury-gold: 212 175 55;
   }
 
   .dark {
@@ -628,6 +640,34 @@
 
 @layer utilities {
   /* Enhanced touch-friendly utilities */
+
+   .bg-soft-sage {
+    background-color: rgb(var(--color-soft-sage));
+  }
+  
+  .bg-clay-peach {
+    background-color: rgb(var(--color-clay-peach));
+  }
+  
+  .bg-pale-oat {
+    background-color: rgb(var(--color-pale-oat));
+  }
+  
+  .bg-mist-grey {
+    background-color: rgb(var(--color-mist-grey));
+  }
+  
+  .bg-warm-sand {
+    background-color: rgb(var(--color-warm-sand));
+  }
+  
+  .text-luxury-gold {
+    color: rgb(var(--luxury-gold));
+  }
+  
+  .bg-luxury-gold {
+    background-color: rgb(var(--luxury-gold));
+  }
   .touch-friendly {
     min-height: 44px;
     min-width: 44px;

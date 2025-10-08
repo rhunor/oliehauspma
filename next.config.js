@@ -12,6 +12,7 @@ const nextConfig = {
       'cdn.olivehaus.com',
       's3.amazonaws.com',
       'olivehaus-ppma-files.s3.amazonaws.com',
+      'cdn.jsdelivr.net',
     ],
     formats: ['image/webp', 'image/avif'],
     minimumCacheTTL: 3600, // 1 hour
