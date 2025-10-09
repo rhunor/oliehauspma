@@ -82,6 +82,7 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-family: var(--font-body); /* ADD THIS LINE */
   }
 
   /* Enhanced mobile-first responsive base styles */

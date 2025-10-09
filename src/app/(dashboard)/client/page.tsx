@@ -330,40 +330,41 @@ function DashboardCard({
   color, 
   stats 
 }: DashboardCardProps) {
-  const colorClasses: Record<string, string> = {
-    blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
-    green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
-    purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
-    orange: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
-    red: 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
+   const iconColorClasses: Record<string, string> = {
+    blue: 'text-blue-600',
+    green: 'text-green-600',
+    purple: 'text-purple-600',
+    orange: 'text-orange-600',
+    red: 'text-red-600'
   };
 
   return (
     <Link href={href}>
-      <Card className="hover:shadow-lg transition-all duration-200 cursor-pointer group h-full hidden lg:block">
+      <Card className="hover:shadow-md transition-all duration-200 cursor-pointer group h-full hidden lg:block border border-gray-100">
         <CardContent className="p-0">
-          <div className={`bg-gradient-to-br ${colorClasses[color]} p-6 text-white relative overflow-hidden`}>
-            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-20">
-              <Icon className="h-24 w-24 transform rotate-12" />
+          {/* CHANGED: Removed gradient, now clean white with subtle shadow */}
+          <div className="bg-white p-6 relative overflow-hidden border-b border-gray-100">
+            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-10">
+              <Icon className={`h-24 w-24 transform rotate-12 ${iconColorClasses[color]}`} />
             </div>
             <div className="relative">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-white bg-opacity-20 rounded-lg">
-                  <Icon className="h-6 w-6" />
+                <div className="p-2 bg-gray-50 rounded-lg border border-gray-200">
+                  <Icon className={`h-6 w-6 ${iconColorClasses[color]}`} />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-lg">{title}</h3>
+                  <h3 className="font-semibold text-lg text-gray-900">{title}</h3>
                   {stats && (
                     <div className="flex items-center space-x-2 mt-1">
-                      <span className="text-2xl font-bold">{stats.value}</span>
-                      <span className="text-sm opacity-90">{stats.label}</span>
+                      <span className="text-2xl font-bold text-gray-900">{stats.value}</span>
+                      <span className="text-sm text-gray-600">{stats.label}</span>
                     </div>
                   )}
                 </div>
               </div>
             </div>
           </div>
-          <div className="p-4">
+          <div className="p-4 bg-white">
             <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
             <div className="flex items-center justify-between mt-4">
               <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
@@ -377,7 +378,6 @@ function DashboardCard({
     </Link>
   );
 }
-
 // Work Schedule Widget Component (preserved)
 function WorkScheduleWidget({ 
   workSchedule, 

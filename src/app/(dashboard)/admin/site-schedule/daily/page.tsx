@@ -407,7 +407,7 @@ export default function AdminDailySchedulePage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to add activity',
+        description: error instanceof Error ? error.message : 'Failed to add Task',
       });
     } finally {
       setLoading(false);
@@ -502,7 +502,7 @@ export default function AdminDailySchedulePage() {
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Activity
+          Add Task
         </Button>
       </div>
 
@@ -582,7 +582,7 @@ export default function AdminDailySchedulePage() {
                 variant="outline"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add First Activity
+                Add First Task
               </Button>
             </div>
           ) : (
@@ -686,14 +686,14 @@ export default function AdminDailySchedulePage() {
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Daily Activity</DialogTitle>
+            <DialogTitle>Add Task</DialogTitle>
           </DialogHeader>
 
           <div className="grid gap-6 py-4">
             {/* Basic Information */}
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2 space-y-2">
-                <Label htmlFor="title">Activity Title *</Label>
+                <Label htmlFor="title">Task name *</Label>
                 <Input
                   id="title"
                   value={newActivity.title || ''}
@@ -813,7 +813,7 @@ export default function AdminDailySchedulePage() {
 
             {/* Image Upload Section */}
             <div className="space-y-2">
-              <Label>Activity Images</Label>
+              <Label>Task Images</Label>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
                 <input
                   ref={fileInputRef}
@@ -828,7 +828,7 @@ export default function AdminDailySchedulePage() {
                   <div className="text-center">
                     <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-sm text-gray-600 mb-2">
-                      Click to upload activity images
+                      Click to upload Tasks images
                     </p>
                     <Button
                       type="button"
@@ -888,7 +888,7 @@ export default function AdminDailySchedulePage() {
               onClick={handleAddActivity} 
               disabled={loading || uploadingImages}
             >
-              {loading ? 'Adding...' : uploadingImages ? 'Uploading Images...' : 'Add Activity'}
+              {loading ? 'Adding...' : uploadingImages ? 'Uploading Images...' : 'Add Tasks'}
             </Button>
           </DialogFooter>
         </DialogContent>
