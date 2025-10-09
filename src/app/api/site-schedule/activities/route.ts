@@ -1,5 +1,5 @@
 // src/app/api/site-schedule/activities/route.ts
-// UPDATED: Added startDate, endDate; Removed duration fields
+// UPDATED: Added 'to-do' status support
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -9,21 +9,20 @@ import DailyProgress, { IDailyActivity } from "@/models/DailyProgress";
 import Project from "@/models/Project";
 import { Types } from "mongoose";
 
-// UPDATED: Response interface with new fields
+// UPDATED: Response interface with 'to-do' status
 interface ActivityResponse {
   _id: string;
   title: string;
   description?: string;
   contractor: string;
   supervisor?: string;
-  startDate: string; // ADDED: Required start date-time
-  endDate: string;   // ADDED: Required end date-time
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  startDate: string;
+  endDate: string;
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold'; // UPDATED: Added 'to-do'
   priority: string;
   category: string;
   comments?: string;
-  images?: string[]; // ADDED: S3 image URLs
-  // REMOVED: estimatedDuration and actualDuration
+  images?: string[];
   projectId: string;
   projectTitle: string;
   date: Date;
@@ -31,12 +30,10 @@ interface ActivityResponse {
   updatedAt: Date | string;
 }
 
-// Type-safe MongoDB query filter
 interface QueryFilter {
   project?: { $in: Types.ObjectId[] } | Types.ObjectId;
 }
 
-// Type-safe populated project interface
 interface PopulatedProject {
   _id: Types.ObjectId;
   title: string;
@@ -66,7 +63,6 @@ export async function GET(request: NextRequest) {
     let query: QueryFilter = {};
     let projectIds: Types.ObjectId[] = [];
 
-    // If manager filter is requested, get only manager's projects
     if (isManager && session.user.role === 'project_manager') {
       const managerProjects = await Project.find(
         { managers: session.user.id },
@@ -86,23 +82,19 @@ export async function GET(request: NextRequest) {
       query = { project: { $in: projectIds } };
     }
 
-    // If specific project is requested
     if (projectId) {
       query = { ...query, project: new Types.ObjectId(projectId) };
     }
 
-    // FIXED: Type-safe populate with generic
     const dailyProgressDocs = await DailyProgress.find(query)
       .populate<{ project: PopulatedProject }>('project', 'title')
       .sort({ date: -1 })
       .limit(limit)
       .skip(skip);
 
-    // Extract and flatten all activities
     const allActivities: ActivityResponse[] = [];
     
     dailyProgressDocs.forEach(doc => {
-      // Type guard to ensure project is populated
       if (!doc.project || typeof doc.project !== 'object' || !('title' in doc.project)) {
         return;
       }
@@ -110,26 +102,24 @@ export async function GET(request: NextRequest) {
       const populatedProject = doc.project as PopulatedProject;
 
       doc.activities.forEach((activity: IDailyActivity) => {
-        // Filter by status if requested
+        // Filter by status if requested (including 'to-do')
         if (status && activity.status !== status) {
           return;
         }
 
-        // UPDATED: Map activity with new fields, removed duration
         allActivities.push({
           _id: activity._id?.toString() || '',
           title: activity.title || '',
           description: activity.description,
           contractor: activity.contractor || '',
           supervisor: activity.supervisor,
-          startDate: activity.startDate ? activity.startDate.toISOString() : new Date().toISOString(), // ADDED
-          endDate: activity.endDate ? activity.endDate.toISOString() : new Date().toISOString(), // ADDED
-          status: activity.status || 'pending',
+          startDate: activity.startDate ? activity.startDate.toISOString() : new Date().toISOString(),
+          endDate: activity.endDate ? activity.endDate.toISOString() : new Date().toISOString(),
+          status: activity.status || 'to-do', // UPDATED: Default to 'to-do'
           priority: activity.priority || 'medium',
           category: activity.category || 'other',
           comments: activity.comments,
-          images: activity.images || [], // ADDED
-          // REMOVED: estimatedDuration and actualDuration
+          images: activity.images || [],
           projectId: populatedProject._id.toString(),
           projectTitle: populatedProject.title,
           date: doc.date,
@@ -139,7 +129,6 @@ export async function GET(request: NextRequest) {
       });
     });
 
-    // Sort activities by creation date (newest first)
     allActivities.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );

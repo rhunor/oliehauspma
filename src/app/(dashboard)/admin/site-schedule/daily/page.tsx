@@ -1,8 +1,10 @@
-// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - FIXED: Hydration errors and image config
+// src/app/(dashboard)/admin/site-schedule/daily/page.tsx - UPDATED: Added 'to-do' status + Image Lightbox
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
+import Image from 'next/image';
 import { 
   Calendar, 
   Plus, 
@@ -15,7 +17,9 @@ import {
   Trash2,
   X,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ZoomIn,
+  ArrowLeft
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,9 +42,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import Image from 'next/image';
 
-// TypeScript interfaces with proper types
+// UPDATED: TypeScript interfaces with 'to-do' status
 interface Project {
   _id: string;
   title: string;
@@ -55,7 +58,7 @@ interface DailyActivity {
   supervisor?: string;
   startDate: string;
   endDate: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   comments?: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   images?: string[];
@@ -75,6 +78,7 @@ interface DailyProgress {
     inProgress: number;
     pending: number;
     delayed: number;
+    toDo?: number; // ADDED
   };
   approved: boolean;
 }
@@ -88,7 +92,7 @@ interface ProjectsApiResponse {
   error?: string;
 }
 
-// ✅ FIXED: Helper function to format datetime-local input value
+// Helper function to format datetime-local input
 const formatDateTimeLocal = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -98,24 +102,20 @@ const formatDateTimeLocal = (date: Date): string => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-// ✅ ADDED: Helper function to format date consistently (ISO format - no locale issues)
-const formatDateForDisplay = (dateString: string): string => {
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${day}/${month}/${year}`;
-};
-
-// ✅ ADDED: Helper to format datetime for display (avoids toLocaleString issues)
+// Helper to format datetime for display (hydration-safe)
 const formatDateTimeForDisplay = (dateString: string): string => {
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${day}/${month}/${year} ${hours}:${minutes}`;
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return 'Invalid date';
+  }
 };
 
 export default function AdminDailySchedulePage() {
@@ -123,39 +123,36 @@ export default function AdminDailySchedulePage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // State management
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [dailyProgress, setDailyProgress] = useState<DailyProgress | null>(null);
   const [loading, setLoading] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  
-  // ✅ ADDED: Client-side formatted date to prevent hydration errors
-  const [clientFormattedDate, setClientFormattedDate] = useState<string>('');
-  
-  const [newActivity, setNewActivity] = useState<Partial<DailyActivity>>({
-    title: '',
-    description: '',
-    contractor: '',
-    supervisor: '',
-    startDate: formatDateTimeLocal(new Date()),
-    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)),
-    status: 'pending',
-    priority: 'medium',
-    comments: ''
-  });
 
+  // ADDED: Image lightbox state
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  // Image upload state
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
 
-  // ✅ FIXED: Format date only on client to prevent hydration mismatch
-  useEffect(() => {
-    setClientFormattedDate(formatDateForDisplay(selectedDate));
-  }, [selectedDate]);
+  const now = new Date();
+  const [newActivity, setNewActivity] = useState<Omit<DailyActivity, '_id'>>({
+    title: '',
+    description: '',
+    contractor: '',
+    supervisor: '',
+    startDate: formatDateTimeLocal(now),
+    endDate: formatDateTimeLocal(new Date(now.getTime() + 3600000)),
+    status: 'to-do', // UPDATED: Default to 'to-do'
+    priority: 'medium',
+    comments: '',
+    images: []
+  });
 
   // Fetch projects
   const fetchProjects = useCallback(async () => {
@@ -163,12 +160,7 @@ export default function AdminDailySchedulePage() {
       const response = await fetch('/api/projects?limit=100');
       if (response.ok) {
         const data: ProjectsApiResponse = await response.json();
-        if (data.success && data.data?.projects) {
-          setProjects(data.data.projects);
-          if (data.data.projects.length > 0 && !selectedProject) {
-            setSelectedProject(data.data.projects[0]._id);
-          }
-        }
+        setProjects(data.data?.projects || []);
       }
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -178,7 +170,7 @@ export default function AdminDailySchedulePage() {
         description: 'Failed to load projects',
       });
     }
-  }, [selectedProject, toast]);
+  }, [toast]);
 
   // Fetch daily progress
   const fetchDailyProgress = useCallback(async () => {
@@ -189,10 +181,10 @@ export default function AdminDailySchedulePage() {
       const response = await fetch(
         `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate}`
       );
-      
+
       if (response.ok) {
         const data = await response.json();
-        setDailyProgress(data.data || null);
+        setDailyProgress(data.data);
       }
     } catch (error) {
       console.error('Error fetching daily progress:', error);
@@ -216,40 +208,14 @@ export default function AdminDailySchedulePage() {
     }
   }, [selectedProject, selectedDate, fetchDailyProgress]);
 
-  // Handle image file selection
+  // Image selection handler
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    
-    // Validate file types and sizes
-    const validFiles = files.filter(file => {
-      const isImage = file.type.startsWith('image/');
-      const isValidSize = file.size <= 10 * 1024 * 1024; // 10MB max
-      
-      if (!isImage) {
-        toast({
-          variant: 'destructive',
-          title: 'Invalid file type',
-          description: `${file.name} is not an image file`,
-        });
-        return false;
-      }
-      
-      if (!isValidSize) {
-        toast({
-          variant: 'destructive',
-          title: 'File too large',
-          description: `${file.name} exceeds 10MB limit`,
-        });
-        return false;
-      }
-      
-      return true;
-    });
+    if (files.length === 0) return;
 
-    setSelectedImages(prev => [...prev, ...validFiles]);
-    
-    // Generate previews
-    validFiles.forEach(file => {
+    setSelectedImages(prev => [...prev, ...files]);
+
+    files.forEach(file => {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(prev => [...prev, reader.result as string]);
@@ -258,7 +224,7 @@ export default function AdminDailySchedulePage() {
     });
   };
 
-  // Remove selected image
+  // Remove image
   const removeImage = (index: number) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
     setImagePreview(prev => prev.filter((_, i) => i !== index));
@@ -305,9 +271,8 @@ export default function AdminDailySchedulePage() {
     return uploadedUrls;
   };
 
-  // Add activity with validation
+  // Add activity
   const handleAddActivity = async () => {
-    // Validation
     if (!selectedProject) {
       toast({
         variant: 'destructive',
@@ -390,7 +355,7 @@ export default function AdminDailySchedulePage() {
           supervisor: '',
           startDate: formatDateTimeLocal(now),
           endDate: formatDateTimeLocal(new Date(now.getTime() + 3600000)),
-          status: 'pending',
+          status: 'to-do', // UPDATED: Reset to 'to-do'
           priority: 'medium',
           comments: ''
         });
@@ -407,7 +372,7 @@ export default function AdminDailySchedulePage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to add Task',
+        description: error instanceof Error ? error.message : 'Failed to add activity',
       });
     } finally {
       setLoading(false);
@@ -416,11 +381,9 @@ export default function AdminDailySchedulePage() {
 
   // Update activity status
   const handleUpdateActivityStatus = async (activityId: string, newStatus: DailyActivity['status']) => {
-    if (!selectedProject || !activityId) return;
+    if (!selectedProject || !selectedDate) return;
 
     try {
-      setLoading(true);
-
       const response = await fetch('/api/site-schedule/daily', {
         method: 'PUT',
         headers: {
@@ -434,47 +397,25 @@ export default function AdminDailySchedulePage() {
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update activity');
-      }
-
-      const data = await response.json();
-      
-      if (data.success) {
+      if (response.ok) {
+        const data = await response.json();
         setDailyProgress(data.data);
         toast({
           title: 'Success',
-          description: 'Activity updated successfully',
+          description: 'Activity status updated',
         });
       }
     } catch (error) {
-      console.error('Error updating activity:', error);
+      console.error('Error updating activity status:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update activity',
+        description: 'Failed to update activity status',
       });
-    } finally {
-      setLoading(false);
     }
   };
 
-  // Navigate dates
-  const changeDate = (direction: 'prev' | 'next') => {
-    const currentDate = new Date(selectedDate);
-    const newDate = new Date(currentDate);
-    
-    if (direction === 'prev') {
-      newDate.setDate(currentDate.getDate() - 1);
-    } else {
-      newDate.setDate(currentDate.getDate() + 1);
-    }
-    
-    setSelectedDate(newDate.toISOString().split('T')[0]);
-  };
-
-  // Get status badge color
+  // Get status badge color - UPDATED: Include to-do
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case 'completed':
@@ -487,34 +428,83 @@ export default function AdminDailySchedulePage() {
         return 'bg-red-100 text-red-800';
       case 'on_hold':
         return 'bg-yellow-100 text-yellow-800';
+      case 'to-do': // ADDED
+        return 'bg-purple-100 text-purple-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
   };
 
+  // ADDED: Open lightbox with images
+  const openLightbox = (images: string[], startIndex: number = 0) => {
+    setLightboxImages(images);
+    setCurrentImageIndex(startIndex);
+    setLightboxOpen(true);
+  };
+
+  // ADDED: Navigate lightbox
+  const handlePrevImage = () => {
+    setCurrentImageIndex(prev => 
+      prev === 0 ? lightboxImages.length - 1 : prev - 1
+    );
+  };
+
+  const handleNextImage = () => {
+    setCurrentImageIndex(prev => 
+      prev === lightboxImages.length - 1 ? 0 : prev + 1
+    );
+  };
+
+  // ADDED: Keyboard navigation for lightbox
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!lightboxOpen) return;
+      
+      if (e.key === 'Escape') {
+        setLightboxOpen(false);
+      } else if (e.key === 'ArrowLeft') {
+        handlePrevImage();
+      } else if (e.key === 'ArrowRight') {
+        handleNextImage();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxOpen]);
+
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto px-4 py-6 max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Daily Site Activities</h1>
-          <p className="text-gray-600 mt-1">Manage and track daily construction activities</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Link href="/admin/dashboard">
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Daily Site Schedule</h1>
+            <p className="text-sm text-gray-600">Manage daily construction activities</p>
+          </div>
         </div>
-        <Button onClick={() => setIsAddDialogOpen(true)}>
+
+        <Button onClick={() => setIsAddDialogOpen(true)} disabled={!selectedProject}>
           <Plus className="h-4 w-4 mr-2" />
           Add Task
         </Button>
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <Card className="mb-6">
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="project">Project</Label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select project" />
+                  <SelectValue placeholder="Select a project" />
                 </SelectTrigger>
                 <SelectContent>
                   {projects.map((project) => (
@@ -528,29 +518,12 @@ export default function AdminDailySchedulePage() {
 
             <div className="space-y-2">
               <Label htmlFor="date">Date</Label>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => changeDate('prev')}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Input
-                  id="date"
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => changeDate('next')}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+              <Input
+                id="date"
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
             </div>
           </div>
         </CardContent>
@@ -559,39 +532,31 @@ export default function AdminDailySchedulePage() {
       {/* Activities List */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            {/* ✅ FIXED: Use suppressHydrationWarning to prevent date mismatch */}
-            <span suppressHydrationWarning>
-              Activities for {clientFormattedDate || formatDateForDisplay(selectedDate)}
-            </span>
-          </CardTitle>
+          <CardTitle>Activities for {selectedDate}</CardTitle>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {!selectedProject ? (
             <div className="text-center py-8">
-              <p className="text-gray-500">Loading activities...</p>
+              <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">Please select a project to view activities</p>
+            </div>
+          ) : loading ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Loading...</p>
             </div>
           ) : !dailyProgress || dailyProgress.activities.length === 0 ? (
             <div className="text-center py-8">
               <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">No activities scheduled for this date</p>
-              <Button
-                onClick={() => setIsAddDialogOpen(true)}
-                className="mt-4"
-                variant="outline"
-              >
+              <p className="text-gray-500">No activities for this date</p>
+              <Button onClick={() => setIsAddDialogOpen(true)} className="mt-4" variant="outline">
                 <Plus className="h-4 w-4 mr-2" />
-                Add First Task
+                Add First Activity
               </Button>
             </div>
           ) : (
             <div className="space-y-4">
               {dailyProgress.activities.map((activity) => (
-                <div
-                  key={activity._id}
-                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
-                >
+                <div key={activity._id} className="border rounded-lg p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg">{activity.title}</h3>
@@ -599,12 +564,9 @@ export default function AdminDailySchedulePage() {
                         <p className="text-sm text-gray-600 mt-1">{activity.description}</p>
                       )}
                     </div>
-                    <div className="flex gap-2">
-                      <Badge className={getStatusBadgeClass(activity.status)}>
-                        {activity.status.replace('_', ' ')}
-                      </Badge>
-                      <Badge variant="outline">{activity.priority}</Badge>
-                    </div>
+                    <Badge className={getStatusBadgeClass(activity.status)}>
+                      {activity.status.replace('_', ' ').replace('-', ' ')}
+                    </Badge>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
@@ -618,7 +580,6 @@ export default function AdminDailySchedulePage() {
                         <p className="font-medium">{activity.supervisor}</p>
                       </div>
                     )}
-                    {/* ✅ FIXED: Use consistent date formatting without toLocaleString */}
                     <div>
                       <p className="text-gray-600">Start Date</p>
                       <p className="font-medium" suppressHydrationWarning>
@@ -633,19 +594,27 @@ export default function AdminDailySchedulePage() {
                     </div>
                   </div>
 
-                  {/* Display images */}
+                  {/* UPDATED: Clickable images that open lightbox */}
                   {activity.images && activity.images.length > 0 && (
                     <div className="mb-3">
                       <p className="text-sm text-gray-600 mb-2">Images:</p>
                       <div className="flex gap-2 flex-wrap">
                         {activity.images.map((imageUrl, index) => (
-                          <div key={index} className="relative w-20 h-20">
+                          <div 
+                            key={index} 
+                            className="relative w-20 h-20 cursor-pointer hover:opacity-80 transition-opacity group"
+                            onClick={() => openLightbox(activity.images || [], index)}
+                          >
                             <Image
                               src={imageUrl}
                               alt={`Activity image ${index + 1}`}
                               fill
                               className="object-cover rounded border"
                             />
+                            {/* Zoom icon overlay */}
+                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center rounded">
+                              <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -667,6 +636,7 @@ export default function AdminDailySchedulePage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="to-do">To-Do</SelectItem>
                         <SelectItem value="pending">Pending</SelectItem>
                         <SelectItem value="in_progress">In Progress</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
@@ -682,7 +652,7 @@ export default function AdminDailySchedulePage() {
         </CardContent>
       </Card>
 
-      {/* Add Activity Dialog */}
+     {/* Add Activity Dialog - UPDATED: Added 'to-do' to status options */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -734,16 +704,15 @@ export default function AdminDailySchedulePage() {
               </div>
             </div>
 
-            {/* Start and End Date-Time */}
+            {/* Date and Time */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="startDate">Start Date & Time *</Label>
                 <Input
                   id="startDate"
                   type="datetime-local"
-                  value={newActivity.startDate || ''}
+                  value={newActivity.startDate}
                   onChange={(e) => setNewActivity({ ...newActivity, startDate: e.target.value })}
-                  required
                 />
               </div>
 
@@ -752,17 +721,16 @@ export default function AdminDailySchedulePage() {
                 <Input
                   id="endDate"
                   type="datetime-local"
-                  value={newActivity.endDate || ''}
+                  value={newActivity.endDate}
                   onChange={(e) => setNewActivity({ ...newActivity, endDate: e.target.value })}
-                  required
                 />
               </div>
             </div>
 
-            {/* Priority and Status */}
+            {/* Status and Priority - UPDATED: Added 'to-do' option */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="priority">Priority *</Label>
+                <Label htmlFor="priority">Priority</Label>
                 <Select
                   value={newActivity.priority}
                   onValueChange={(value) => setNewActivity({ ...newActivity, priority: value as DailyActivity['priority'] })}
@@ -789,6 +757,7 @@ export default function AdminDailySchedulePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="to-do">To-Do</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -828,7 +797,7 @@ export default function AdminDailySchedulePage() {
                   <div className="text-center">
                     <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
                     <p className="text-sm text-gray-600 mb-2">
-                      Click to upload Tasks images
+                      Click to upload activity images
                     </p>
                     <Button
                       type="button"
@@ -884,15 +853,76 @@ export default function AdminDailySchedulePage() {
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleAddActivity} 
-              disabled={loading || uploadingImages}
-            >
-              {loading ? 'Adding...' : uploadingImages ? 'Uploading Images...' : 'Add Tasks'}
+            <Button onClick={handleAddActivity} disabled={loading || uploadingImages}>
+              {uploadingImages ? 'Uploading Images...' : loading ? 'Adding...' : 'Add Task'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ADDED: Image Lightbox Modal */}
+      {lightboxOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div className="relative w-full h-full flex items-center justify-center p-4">
+            {/* Close Button */}
+            <button
+              onClick={() => setLightboxOpen(false)}
+              className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10"
+            >
+              <X className="h-8 w-8" /></button>
+
+            {/* Previous Button */}
+            {lightboxImages.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePrevImage();
+                }}
+                className="absolute left-4 text-white hover:text-gray-300 transition-colors z-10"
+              >
+                <ChevronLeft className="h-12 w-12" />
+              </button>
+            )}
+
+            {/* Image */}
+            <div 
+              className="relative max-w-6xl max-h-[90vh] w-full h-full flex items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Image
+                src={lightboxImages[currentImageIndex]}
+                alt={`Image ${currentImageIndex + 1}`}
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+
+            {/* Next Button */}
+            {lightboxImages.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNextImage();
+                }}
+                className="absolute right-4 text-white hover:text-gray-300 transition-colors z-10"
+              >
+                <ChevronRight className="h-12 w-12" />
+              </button>
+            )}
+
+            {/* Image Counter */}
+            {lightboxImages.length > 1 && (
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded-full">
+                {currentImageIndex + 1} / {lightboxImages.length}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

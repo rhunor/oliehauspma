@@ -1,9 +1,9 @@
 // src/app/(dashboard)/manager/site-schedule/activity/[id]/edit/page.tsx
-// UPDATED: Added startDate, endDate, image display; Removed duration fields
+// UPDATED: Added 'to-do' status, enhanced image management with upload capability
 
 "use client";
 
-import { useState, useEffect, useCallback, use } from 'react';
+import { useState, useEffect, useCallback, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
@@ -18,7 +18,9 @@ import {
   CheckCircle,
   Loader2,
   ImageIcon,
-  X
+  X,
+  Upload,
+  Plus
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,20 +37,19 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 
-// UPDATED: TypeScript interfaces with new fields, removed duration
+// UPDATED: TypeScript interfaces with 'to-do' status
 interface ActivityFormData {
   title: string;
   description: string;
   contractor: string;
   supervisor: string;
-  startDate: string; // ADDED: Required start date-time
-  endDate: string;   // ADDED: Required end date-time
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  startDate: string;
+  endDate: string;
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   comments: string;
   category: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
-  images: string[]; // ADDED: S3 image URLs
-  // REMOVED: estimatedDuration and actualDuration
+  images: string[];
 }
 
 interface ActivityData extends ActivityFormData {
@@ -67,12 +68,11 @@ interface ActivityResponse {
   error?: string;
 }
 
-// Props interface for Next.js 15 dynamic routes
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-// ADDED: Helper function to format datetime-local input value
+// Helper function to format datetime-local input value
 const formatDateTimeLocal = (date: Date | string): string => {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
   const year = dateObj.getFullYear();
@@ -83,68 +83,48 @@ const formatDateTimeLocal = (date: Date | string): string => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-// Helper functions for styling
-const getStatusColor = (status: string): string => {
-  switch (status) {
-    case 'completed': return 'bg-green-100 text-green-800';
-    case 'in_progress': return 'bg-blue-100 text-blue-800';
-    case 'pending': return 'bg-yellow-100 text-yellow-800';
-    case 'delayed': return 'bg-red-100 text-red-800';
-    case 'on_hold': return 'bg-orange-100 text-orange-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-};
-
-const getPriorityColor = (priority: string): string => {
-  switch (priority) {
-    case 'urgent': return 'bg-red-100 text-red-800';
-    case 'high': return 'bg-orange-100 text-orange-800';
-    case 'medium': return 'bg-blue-100 text-blue-800';
-    case 'low': return 'bg-green-100 text-green-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-};
-
 export default function EditActivityPage({ params }: PageProps) {
+  const resolvedParams = use(params);
+  const activityId = resolvedParams.id;
   const router = useRouter();
   const { data: session } = useSession();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // FIXED: Properly unwrap params promise for Next.js 15
-  const unwrappedParams = use(params);
-  const activityId = unwrappedParams.id;
-
-  // State management
   const [activity, setActivity] = useState<ActivityData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // ADDED: New image upload state
+  const [newImages, setNewImages] = useState<File[]>([]);
+  const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+
   const [formData, setFormData] = useState<ActivityFormData>({
     title: '',
     description: '',
     contractor: '',
     supervisor: '',
-    startDate: formatDateTimeLocal(new Date()), // ADDED
-    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)), // ADDED
-    status: 'pending',
+    startDate: formatDateTimeLocal(new Date()),
+    endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)),
+    status: 'to-do', // UPDATED: Default to 'to-do'
     priority: 'medium',
     comments: '',
     category: 'structural',
-    images: [] // ADDED
+    images: []
   });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
 
   // Fetch activity data
   const fetchActivity = useCallback(async () => {
     try {
       setLoading(true);
-      
-      const response = await fetch(`/api/site-schedule/activity/${activityId}`);
+      const response = await fetch(`/api/site-schedule/daily/activities/${activityId}`);
       
       if (response.ok) {
         const data: ActivityResponse = await response.json();
+        const activityData = data.data;
         
-        if (data.success && data.data) {
-          const activityData = data.data;
-          
+        if (activityData) {
           setActivity(activityData);
           setFormData({
             title: activityData.title || '',
@@ -153,7 +133,7 @@ export default function EditActivityPage({ params }: PageProps) {
             supervisor: activityData.supervisor || '',
             startDate: activityData.startDate ? formatDateTimeLocal(activityData.startDate) : formatDateTimeLocal(new Date()),
             endDate: activityData.endDate ? formatDateTimeLocal(activityData.endDate) : formatDateTimeLocal(new Date(Date.now() + 3600000)),
-            status: activityData.status || 'pending',
+            status: activityData.status || 'to-do',
             priority: activityData.priority || 'medium',
             comments: activityData.comments || '',
             category: activityData.category || 'structural',
@@ -200,12 +180,75 @@ export default function EditActivityPage({ params }: PageProps) {
     }));
   };
 
-  // ADDED: Remove image from form
+  // ADDED: Handle new image selection
+  const handleNewImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setNewImages(prev => [...prev, ...files]);
+
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewImagePreviews(prev => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // ADDED: Remove new image preview
+  const removeNewImage = (index: number) => {
+    setNewImages(prev => prev.filter((_, i) => i !== index));
+    setNewImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Remove existing image
   const removeImage = (index: number) => {
     setFormData(prev => ({
       ...prev,
       images: prev.images.filter((_, i) => i !== index)
     }));
+  };
+
+  // ADDED: Upload new images to S3
+  const uploadNewImages = async (): Promise<string[]> => {
+    if (newImages.length === 0) return [];
+
+    setUploadingImages(true);
+    const uploadedUrls: string[] = [];
+
+    try {
+      for (const file of newImages) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('projectId', activity?.projectId || '');
+        formData.append('description', 'Activity image');
+        formData.append('isPublic', 'true');
+
+        const response = await fetch('/api/files', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data?.url) {
+            uploadedUrls.push(result.data.url);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error uploading images:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Upload Error',
+        description: 'Some images failed to upload',
+      });
+    } finally {
+      setUploadingImages(false);
+    }
+
+    return uploadedUrls;
   };
 
   // Save activity changes
@@ -219,7 +262,6 @@ export default function EditActivityPage({ params }: PageProps) {
       return;
     }
 
-    // ADDED: Validate start and end dates
     if (!formData.startDate || !formData.endDate) {
       toast({
         variant: "destructive",
@@ -244,6 +286,10 @@ export default function EditActivityPage({ params }: PageProps) {
     try {
       setSaving(true);
 
+      // ADDED: Upload new images first
+      const newImageUrls = await uploadNewImages();
+      const allImages = [...formData.images, ...newImageUrls];
+
       // Prepare update data
       const updateData = {
         projectId: activity.projectId,
@@ -254,14 +300,13 @@ export default function EditActivityPage({ params }: PageProps) {
           description: formData.description,
           contractor: formData.contractor,
           supervisor: formData.supervisor,
-          startDate: formData.startDate, // ADDED
-          endDate: formData.endDate, // ADDED
+          startDate: formData.startDate,
+          endDate: formData.endDate,
           status: formData.status,
           priority: formData.priority,
           category: formData.category,
           comments: formData.comments,
-          images: formData.images // ADDED
-          // REMOVED: estimatedDuration, actualDuration
+          images: allImages // UPDATED: Include all images (existing + new)
         }
       };
 
@@ -278,6 +323,10 @@ export default function EditActivityPage({ params }: PageProps) {
           title: "Success",
           description: "Activity updated successfully!",
         });
+        
+        // Clear new image state
+        setNewImages([]);
+        setNewImagePreviews([]);
         
         router.push('/manager/site-schedule/daily');
       } else {
@@ -298,10 +347,9 @@ export default function EditActivityPage({ params }: PageProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-          <p className="text-gray-600">Loading activity...</p>
+      <div className="container mx-auto px-4 py-6 max-w-4xl">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
         </div>
       </div>
     );
@@ -309,15 +357,15 @@ export default function EditActivityPage({ params }: PageProps) {
 
   if (!activity) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
+      <div className="container mx-auto px-4 py-6 max-w-4xl">
+        <div className="text-center py-12">
           <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Activity Not Found</h2>
-          <p className="text-gray-600 mb-4">The requested activity could not be loaded.</p>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Activity Not Found</h2>
+          <p className="text-gray-600 mb-4">The activity you&apos;re looking for could not be found.</p>
           <Link href="/manager/site-schedule/daily">
             <Button>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Daily Activities
+              Back to Daily Schedule
             </Button>
           </Link>
         </div>
@@ -326,9 +374,9 @@ export default function EditActivityPage({ params }: PageProps) {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto p-6">
+    <div className="container mx-auto px-4 py-6 max-w-4xl">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <Link href="/manager/site-schedule/daily">
             <Button variant="outline" size="sm">
@@ -337,126 +385,89 @@ export default function EditActivityPage({ params }: PageProps) {
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Edit Activity</h1>
-            <p className="text-gray-600 mt-1">Update activity details and status</p>
+            <h1 className="text-2xl font-bold text-gray-900">Edit Activity</h1>
+            <p className="text-sm text-gray-600">Update activity details</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Badge className={getStatusColor(activity.status)}>
-            {activity.status.replace('_', ' ')}
-          </Badge>
-          <Badge className={getPriorityColor(activity.priority)}>
-            {activity.priority}
-          </Badge>
-        </div>
       </div>
-
-      {/* Activity Info Card */}
-      {activity.projectTitle && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <span className="font-medium text-gray-600">Project:</span>
-                <p className="text-gray-900">{activity.projectTitle}</p>
-              </div>
-              <div>
-                <span className="font-medium text-gray-600">Date:</span>
-                <p className="text-gray-900">
-                  {new Date(activity.date).toLocaleDateString()}
-                </p>
-              </div>
-              {activity.createdAt && (
-                <div>
-                  <span className="font-medium text-gray-600">Created:</span>
-                  <p className="text-gray-900">
-                    {new Date(activity.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
-              )}
-              {activity.updatedAt && (
-                <div>
-                  <span className="font-medium text-gray-600">Last Updated:</span>
-                  <p className="text-gray-900">
-                    {new Date(activity.updatedAt).toLocaleDateString()}
-                  </p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Edit Form */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            Edit Activity Details
-          </CardTitle>
+          <CardTitle>Activity Details</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid gap-6">
             {/* Basic Information */}
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="title">Activity Title *</Label>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="md:col-span-2 space-y-2">
+                <Label htmlFor="title">Task Name *</Label>
                 <Input
                   id="title"
                   value={formData.title}
                   onChange={(e) => updateFormField('title', e.target.value)}
-                  placeholder="e.g., Foundation excavation"
+                  placeholder="e.g., Foundation concrete pouring"
                 />
               </div>
 
-              <div>
+              <div className="md:col-span-2 space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => updateFormField('description', e.target.value)}
+                  placeholder="Detailed description..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="contractor">Contractor *</Label>
                 <Input
                   id="contractor"
                   value={formData.contractor}
                   onChange={(e) => updateFormField('contractor', e.target.value)}
-                  placeholder="e.g., ABC Construction"
+                  placeholder="Contractor name"
                 />
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="supervisor">Supervisor</Label>
                 <Input
                   id="supervisor"
                   value={formData.supervisor}
                   onChange={(e) => updateFormField('supervisor', e.target.value)}
-                  placeholder="e.g., John Smith"
+                  placeholder="Supervisor name"
                 />
               </div>
+            </div>
 
-              {/* ADDED: Start Date & Time */}
-              <div>
+            {/* Date and Time */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label htmlFor="startDate">Start Date & Time *</Label>
                 <Input
                   id="startDate"
                   type="datetime-local"
                   value={formData.startDate}
                   onChange={(e) => updateFormField('startDate', e.target.value)}
-                  required
                 />
               </div>
 
-              {/* ADDED: End Date & Time */}
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="endDate">End Date & Time *</Label>
                 <Input
                   id="endDate"
                   type="datetime-local"
                   value={formData.endDate}
                   onChange={(e) => updateFormField('endDate', e.target.value)}
-                  required
                 />
               </div>
             </div>
 
-            {/* Status and Category */}
-            <div className="space-y-4">
-              <div>
+            {/* Status, Priority, Category - UPDATED: Added 'to-do' option */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
                 <Select
                   value={formData.status}
@@ -466,6 +477,7 @@ export default function EditActivityPage({ params }: PageProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="to-do">To-Do</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -475,8 +487,8 @@ export default function EditActivityPage({ params }: PageProps) {
                 </Select>
               </div>
 
-              <div>
-                <Label htmlFor="priority">Priority *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="priority">Priority</Label>
                 <Select
                   value={formData.priority}
                   onValueChange={(value) => updateFormField('priority', value as ActivityFormData['priority'])}
@@ -493,7 +505,7 @@ export default function EditActivityPage({ params }: PageProps) {
                 </Select>
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
                 <Select
                   value={formData.category}
@@ -511,39 +523,24 @@ export default function EditActivityPage({ params }: PageProps) {
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* REMOVED: Duration fields */}
             </div>
 
-            {/* Description and Comments */}
-            <div className="space-y-4 md:col-span-2">
-              <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => updateFormField('description', e.target.value)}
-                  placeholder="Describe the activity details..."
-                  rows={3}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="comments">Internal Comments</Label>
-                <Textarea
-                  id="comments"
-                  value={formData.comments}
-                  onChange={(e) => updateFormField('comments', e.target.value)}
-                  placeholder="Add any internal notes or comments..."
-                  rows={3}
-                />
-              </div>
+            {/* Comments */}
+            <div className="space-y-2">
+              <Label htmlFor="comments">Internal Comments</Label>
+              <Textarea
+                id="comments"
+                value={formData.comments}
+                onChange={(e) => updateFormField('comments', e.target.value)}
+                placeholder="Add any internal notes or comments..."
+                rows={3}
+              />
             </div>
 
-            {/* ADDED: Image Display Section */}
+            {/* Existing Images */}
             {formData.images.length > 0 && (
               <div className="md:col-span-2">
-                <Label>Activity Images</Label>
+                <Label>Current Images</Label>
                 <div className="grid grid-cols-4 gap-4 mt-2">
                   {formData.images.map((imageUrl, index) => (
                     <div key={index} className="relative group">
@@ -572,21 +569,91 @@ export default function EditActivityPage({ params }: PageProps) {
                 </p>
               </div>
             )}
+
+            {/* ADDED: Add New Images Section */}
+            <div className="space-y-2">
+              <Label>Add New Images</Label>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleNewImageSelect}
+                  className="hidden"
+                />
+                
+                {newImagePreviews.length === 0 ? (
+                  <div className="text-center">
+                    <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600 mb-2">
+                      Upload additional images
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <ImageIcon className="h-4 w-4 mr-2" />
+                      Select Images
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="grid grid-cols-4 gap-2 mb-3">
+                      {newImagePreviews.map((preview, index) => (
+                        <div key={index} className="relative">
+                          <img
+                            src={preview}
+                            alt={`New image ${index + 1}`}
+                            className="w-full h-24 object-cover rounded border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-1 right-1 h-6 w-6"
+                            onClick={() => removeNewImage(index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add More
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex items-center justify-end gap-3 mt-6 pt-6 border-t">
             <Link href="/manager/site-schedule/daily">
-              <Button variant="outline" disabled={saving}>
+              <Button variant="outline" disabled={saving || uploadingImages}>
                 Cancel
               </Button>
             </Link>
             <Button 
               onClick={handleSave} 
-              disabled={saving || !formData.title.trim() || !formData.contractor.trim()}
+              disabled={saving || uploadingImages || !formData.title.trim() || !formData.contractor.trim()}
               className="flex items-center gap-2"
             >
-              {saving ? (
+              {uploadingImages ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Uploading Images...
+                </>
+              ) : saving ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Saving...

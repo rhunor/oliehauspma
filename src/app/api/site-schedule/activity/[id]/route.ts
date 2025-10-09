@@ -1,5 +1,5 @@
 // src/app/api/site-schedule/activity/[id]/route.ts
-// UPDATED: Added startDate, endDate; Removed duration fields
+// UPDATED: Added 'to-do' status support
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -17,22 +17,22 @@ type PopulatedDailyProgressDocument = HydratedDocument<IDailyProgressDocument> &
   project: PopulatedProject;
 };
 
-// UPDATED: Response interface - priority is now required (not optional)
+// UPDATED: Response interface with 'to-do' status
 interface ActivityResponse {
   _id: string;
   title: string;
   description?: string;
   contractor: string;
   supervisor?: string;
-  startDate: string; // ADDED: Required start date-time
-  endDate: string;   // ADDED: Required end date-time
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
-  priority: 'low' | 'medium' | 'high' | 'urgent'; // FIXED: Required, not optional
+  startDate: string;
+  endDate: string;
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold'; // UPDATED: Added 'to-do'
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   comments?: string;
-  images?: string[]; // ADDED: S3 image URLs
-  plannedDate?: string; // Legacy field
-  actualDate?: string;  // Legacy field
+  images?: string[];
+  plannedDate?: string;
+  actualDate?: string;
   progress?: number;
   projectId: string;
   projectTitle: string;
@@ -54,7 +54,7 @@ interface AuthSession {
   user: SessionUser;
 }
 
-// UPDATED: Type-safe field updater with new fields
+// UPDATED: Type-safe field updater with 'to-do' status support
 function updateActivityField(
   activity: IDailyActivity,
   field: keyof IDailyActivity,
@@ -83,7 +83,6 @@ function updateActivityField(
         activity.supervisor = value;
       }
       break;
-    // ADDED: Handle new date fields
     case 'startDate':
     case 'endDate':
       if (typeof value === 'string' && value) {
@@ -93,19 +92,20 @@ function updateActivityField(
       }
       break;
     case 'status':
-      if (value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'delayed' || value === 'on_hold') {
+      // UPDATED: Added 'to-do' to valid status values
+      if (value === 'to-do' || value === 'pending' || value === 'in_progress' || 
+          value === 'completed' || value === 'delayed' || value === 'on_hold') {
         activity.status = value;
       }
       break;
     case 'priority':
-      // FIXED: Priority is required, so only accept valid enum values
       if (value === 'low' || value === 'medium' || value === 'high' || value === 'urgent') {
         activity.priority = value;
       }
-      // Don't allow undefined since priority is required
       break;
     case 'category':
-      if (value === 'structural' || value === 'electrical' || value === 'plumbing' || value === 'finishing' || value === 'other') {
+      if (value === 'structural' || value === 'electrical' || value === 'plumbing' || 
+          value === 'finishing' || value === 'other') {
         activity.category = value;
       } else if (value === undefined) {
         activity.category = undefined;
@@ -116,7 +116,6 @@ function updateActivityField(
         activity.progress = value;
       }
       break;
-    // Legacy date fields
     case 'plannedDate':
     case 'actualDate':
       if (typeof value === 'string' && value) {
@@ -195,8 +194,6 @@ async function validateAuth(requiredRoles: string[] = ['project_manager', 'super
   return { error: null, session };
 }
 
-
-// UPDATED: Transform function - priority always has a value
 function transformActivityToResponse(
   activity: IDailyActivity,
   dailyProgress: PopulatedDailyProgressDocument
@@ -210,7 +207,7 @@ function transformActivityToResponse(
     startDate: activity.startDate ? activity.startDate.toISOString() : new Date().toISOString(),
     endDate: activity.endDate ? activity.endDate.toISOString() : new Date().toISOString(),
     status: activity.status,
-    priority: activity.priority, // Now required, will always have a value (default: 'medium')
+    priority: activity.priority,
     category: activity.category,
     comments: activity.comments,
     images: activity.images || [],
@@ -226,6 +223,7 @@ function transformActivityToResponse(
     updatedAt: activity.updatedAt?.toISOString()
   };
 }
+
 function isPopulatedDailyProgress(
   doc: HydratedDocument<IDailyProgressDocument>
 ): doc is PopulatedDailyProgressDocument {
@@ -278,7 +276,7 @@ export async function GET(
   }, 'GET /api/site-schedule/activity/[id]');
 }
 
-// PUT update specific activity - UPDATED with new fields
+// PUT update specific activity
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -302,7 +300,6 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    // ADDED: Validate date fields if present
     if (body.startDate && body.endDate) {
       const startDateTime = new Date(body.startDate as string);
       const endDateTime = new Date(body.endDate as string);
@@ -333,19 +330,16 @@ export async function PUT(
 
     const currentActivity = dailyProgress.activities[activityIndex];
     
-    // Store old status to detect completion
     const oldStatus = currentActivity.status;
     const activityTitle = currentActivity.title;
     const projectId = dailyProgress.project.toString();
     
-    // UPDATED: Allowed fields list with new fields
     const allowedFields: (keyof IDailyActivity)[] = [
       'title', 'description', 'contractor', 'supervisor', 
-      'startDate', 'endDate', // ADDED
+      'startDate', 'endDate',
       'status', 'priority', 'category',
-      'plannedDate', 'actualDate', // Legacy
+      'plannedDate', 'actualDate',
       'comments', 'images', 'incidentReport', 'progress'
-      // REMOVED: estimatedDuration, actualDuration, startTime, endTime
     ];
 
     allowedFields.forEach(field => {
@@ -360,7 +354,6 @@ export async function PUT(
     dailyProgress.markModified(`activities.${activityIndex}`);
     await dailyProgress.save();
 
-    // AUTO-TRIGGER: If status changed to completed
     if (currentActivity.status === 'completed' && oldStatus !== 'completed') {
       const { updateProjectProgress, notifyClientOfTaskCompletion, notifyClientOfProgressUpdate } = 
         await import('@/lib/projectUtils');
@@ -371,7 +364,6 @@ export async function PUT(
         await notifyClientOfProgressUpdate(projectId, newProgress, session.user.id);
       } catch (notifError) {
         console.error('Error in auto-triggers:', notifError);
-        // Don't fail the request if notifications fail
       }
     }
 

@@ -1,5 +1,5 @@
 // src/app/(dashboard)/client/site-schedule/page.tsx
-// UPDATED: Added client comment functionality for daily activities
+// UPDATED: Added 'to-do' status support
 
 "use client";
 
@@ -25,19 +25,19 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 
-// TypeScript interfaces
+// UPDATED: TypeScript interfaces with 'to-do' status
 interface DailyActivity {
   _id: string;
   title: string;
   description?: string;
   contractor: string;
   supervisor?: string;
-  startDate: string; // ADDED
-  endDate: string;   // ADDED
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  startDate: string;
+  endDate: string;
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold'; // UPDATED: Added 'to-do'
   priority: 'low' | 'medium' | 'high' | 'urgent';
   comments?: string;
-  images?: string[]; // ADDED
+  images?: string[];
   projectTitle: string;
   date: string;
 }
@@ -66,12 +66,10 @@ export default function ClientSiteSchedulePage() {
   const [loading, setLoading] = useState(true);
   const [expandedActivity, setExpandedActivity] = useState<string | null>(null);
   
-  // Comment state
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [submittingComment, setSubmittingComment] = useState<Record<string, boolean>>({});
   const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
 
-  // Fetch activities
   const fetchActivities = useCallback(async () => {
     try {
       setLoading(true);
@@ -80,7 +78,6 @@ export default function ClientSiteSchedulePage() {
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.data) {
-          // Initialize with empty comments (will load on expand)
           const activitiesWithComments = data.data.map((activity: DailyActivity) => ({
             ...activity,
             clientComments: [],
@@ -101,7 +98,6 @@ export default function ClientSiteSchedulePage() {
     }
   }, [toast]);
 
-  // Fetch comments for a specific activity
   const fetchComments = useCallback(async (activityId: string) => {
     setLoadingComments(prev => ({ ...prev, [activityId]: true }));
     
@@ -111,7 +107,6 @@ export default function ClientSiteSchedulePage() {
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.data) {
-          // Update activity with comments
           setActivities(prev => prev.map(activity => 
             activity._id === activityId 
               ? {
@@ -135,14 +130,12 @@ export default function ClientSiteSchedulePage() {
     }
   }, [toast]);
 
-  // Handle expanding/collapsing activity
   const toggleActivity = async (activityId: string) => {
     if (expandedActivity === activityId) {
       setExpandedActivity(null);
     } else {
       setExpandedActivity(activityId);
       
-      // Fetch comments when expanding for the first time
       const activity = activities.find(a => a._id === activityId);
       if (activity && activity.clientComments.length === 0) {
         await fetchComments(activityId);
@@ -150,7 +143,6 @@ export default function ClientSiteSchedulePage() {
     }
   };
 
-  // Submit comment
   const handleSubmitComment = async (activityId: string) => {
     const content = commentText[activityId]?.trim();
     
@@ -187,7 +179,6 @@ export default function ClientSiteSchedulePage() {
         const data = await response.json();
         
         if (data.success && data.data) {
-          // Add new comment to the activity
           setActivities(prev => prev.map(activity => 
             activity._id === activityId 
               ? {
@@ -198,7 +189,6 @@ export default function ClientSiteSchedulePage() {
               : activity
           ));
 
-          // Clear comment input
           setCommentText(prev => ({ ...prev, [activityId]: '' }));
 
           toast({
@@ -222,7 +212,6 @@ export default function ClientSiteSchedulePage() {
     }
   };
 
-  // Delete comment
   const handleDeleteComment = async (activityId: string, commentId: string) => {
     if (!confirm('Are you sure you want to delete this comment?')) {
       return;
@@ -235,7 +224,6 @@ export default function ClientSiteSchedulePage() {
       );
 
       if (response.ok) {
-        // Remove comment from activity
         setActivities(prev => prev.map(activity => 
           activity._id === activityId 
             ? {
@@ -270,7 +258,7 @@ export default function ClientSiteSchedulePage() {
     }
   }, [session, fetchActivities]);
 
-  // Helper functions
+  // UPDATED: Helper function with 'to-do' status
   const getStatusBadgeClass = (status: string): string => {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-800';
@@ -278,6 +266,7 @@ export default function ClientSiteSchedulePage() {
       case 'pending': return 'bg-gray-100 text-gray-800';
       case 'delayed': return 'bg-red-100 text-red-800';
       case 'on_hold': return 'bg-yellow-100 text-yellow-800';
+      case 'to-do': return 'bg-purple-100 text-purple-800'; // ADDED
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -353,7 +342,7 @@ export default function ClientSiteSchedulePage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge className={getStatusBadgeClass(activity.status)}>
-                        {activity.status.replace('_', ' ')}
+                        {activity.status.replace('_', ' ').replace('-', ' ')}
                       </Badge>
                       <Button
                         variant="ghost"

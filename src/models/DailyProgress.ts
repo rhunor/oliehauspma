@@ -1,4 +1,4 @@
-// src/models/DailyProgress.ts - UPDATED: Added startDate, endDate, clientComments; Removed duration fields
+// src/models/DailyProgress.ts - UPDATED: Added 'to-do' status, startDate, endDate, clientComments; Removed duration fields
 import mongoose, { Schema, Model, Types } from 'mongoose';
 
 // Client comment interface for activity-specific client feedback
@@ -22,8 +22,9 @@ export interface IDailyActivity {
   // ADDED: Required start and end date-time fields
   startDate: Date; // Required - when activity starts
   endDate: Date;   // Required - when activity ends
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
-  priority: 'low' | 'medium' | 'high' | 'urgent'; // KEPT as requested
+  // UPDATED: Added 'to-do' status
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   // REMOVED: estimatedDuration and actualDuration fields completely
   plannedDate?: Date; // Legacy field - keeping for backward compatibility
@@ -47,7 +48,7 @@ export interface IDailySummary {
   pending: number;
   delayed: number;
   onHold?: number;
-  // REMOVED: totalHours field since we removed duration tracking
+  toDo?: number; // ADDED: Track to-do activities
   crewSize?: number;
 }
 
@@ -100,7 +101,7 @@ const clientCommentSchema = new Schema<IClientComment>({
   updatedAt: Date
 }, { timestamps: false }); // Disable automatic timestamps for sub-document
 
-// UPDATED: Daily activity schema with new required fields
+// UPDATED: Daily activity schema with 'to-do' status added
 const dailyActivitySchema = new Schema<IDailyActivity>({
   title: {
     type: String,
@@ -128,24 +129,24 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
     type: Date,
     required: true
   },
+  // UPDATED: Added 'to-do' to status enum
   status: {
     type: String,
-    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
+    enum: ['to-do', 'pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
     required: true,
-    default: 'pending'
+    default: 'to-do'
   },
   priority: {
     type: String,
     enum: ['low', 'medium', 'high', 'urgent'],
     default: 'medium',
-    required: true // KEPT priority as required
+    required: true
   },
   category: {
     type: String,
     enum: ['structural', 'electrical', 'plumbing', 'finishing', 'other'],
     default: 'other'
   },
-  // REMOVED: estimatedDuration and actualDuration completely
   plannedDate: Date, // Legacy - keeping for backward compatibility
   actualDate: Date,  // Legacy - keeping for backward compatibility
   comments: String, // Internal comments
@@ -205,7 +206,11 @@ const dailyProgressSchema = new Schema<IDailyProgressDocument>({
       type: Number,
       default: 0
     },
-    // REMOVED: totalHours field
+    // ADDED: toDo field for tracking to-do activities
+    toDo: {
+      type: Number,
+      default: 0
+    },
     crewSize: {
       type: Number,
       default: 0
@@ -240,20 +245,19 @@ dailyProgressSchema.index({ 'activities.category': 1 });
 dailyProgressSchema.index({ 'activities.startDate': 1 });
 dailyProgressSchema.index({ 'activities.endDate': 1 });
 
-// UPDATED: Pre-save middleware (removed totalHours calculation)
+// UPDATED: Pre-save middleware with 'to-do' status counting
 dailyProgressSchema.pre('save', function(next) {
   if (this.activities && this.activities.length > 0) {
     const activities = this.activities;
     
-    // Update summary statistics
+    // Update summary statistics including to-do
     this.summary.totalActivities = activities.length;
     this.summary.completed = activities.filter(a => a.status === 'completed').length;
     this.summary.inProgress = activities.filter(a => a.status === 'in_progress').length;
     this.summary.pending = activities.filter(a => a.status === 'pending').length;
     this.summary.delayed = activities.filter(a => a.status === 'delayed').length;
     this.summary.onHold = activities.filter(a => a.status === 'on_hold').length;
-    
-    // REMOVED: totalHours calculation
+    this.summary.toDo = activities.filter(a => a.status === 'to-do').length;
   }
   
   next();

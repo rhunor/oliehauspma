@@ -1,6 +1,7 @@
-// FILE: src/models/Project.ts - UPDATED WITH MULTIPLE MANAGERS SUPPORT
+// FILE: src/models/Project.ts - UPDATED: Added 'to-do' status to siteActivity
 import mongoose from 'mongoose';
 
+// UPDATED: Added 'to-do' status to siteActivitySchema
 const siteActivitySchema = new mongoose.Schema({
   title: {
     type: String,
@@ -15,10 +16,11 @@ const siteActivitySchema = new mongoose.Schema({
     required: true
   },
   actualDate: Date,
+  // UPDATED: Added 'to-do' to status enum
   status: {
     type: String,
-    enum: ['pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
-    default: 'pending'
+    enum: ['to-do', 'pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
+    default: 'to-do'
   },
   comments: String,
   images: [String],
