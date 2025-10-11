@@ -1,33 +1,94 @@
-// FILE: src/models/Project.ts - UPDATED: Added 'to-do' status to siteActivity
+// src/models/Project.ts - UPDATED: Enhanced activity schema with comments
 import mongoose from 'mongoose';
 
-// UPDATED: Added 'to-do' status to siteActivitySchema
-const siteActivitySchema = new mongoose.Schema({
+// Activity comment sub-schema
+const activityCommentSchema = new mongoose.Schema({
+  author: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  authorName: {
+    type: String,
+    required: true
+  },
+  authorRole: {
+    type: String,
+    required: true
+  },
+  content: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  attachments: [{
+    type: String // S3 URLs
+  }],
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: Date
+}, { _id: true, timestamps: true });
+
+// Enhanced activity schema with proper typing
+const activitySchema = new mongoose.Schema({
   title: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
-  contractor: {
+  description: {
     type: String,
+    default: ''
+  },
+  status: {
+    type: String,
+    enum: ['to-do', 'in_progress', 'completed', 'delayed', 'on_hold'],
+    default: 'to-do',
     required: true
   },
-  plannedDate: {
+  priority: {
+    type: String,
+    enum: ['low', 'medium', 'high', 'urgent'],
+    default: 'medium',
+    required: true
+  },
+  category: {
+    type: String,
+    enum: ['structural', 'electrical', 'plumbing', 'finishing', 'other'],
+    default: 'other'
+  },
+  assignedTo: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  startDate: {
     type: Date,
     required: true
   },
-  actualDate: Date,
-  // UPDATED: Added 'to-do' to status enum
-  status: {
-    type: String,
-    enum: ['to-do', 'pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
-    default: 'to-do'
+  endDate: {
+    type: Date,
+    required: true
   },
-  comments: String,
-  images: [String],
-  incidentReport: String,
+  progress: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 0
+  },
+  comments: [activityCommentSchema],
+  images: [{
+    type: String // S3 URLs
+  }],
+  contractor: String,
   supervisor: String,
-  dependencies: [String],
-  duration: Number,
+  estimatedDuration: String,
+  actualDuration: String,
+  resources: [String],
+  dependencies: [{
+    type: mongoose.Schema.Types.ObjectId
+  }],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -38,27 +99,14 @@ const siteActivitySchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-const dayScheduleSchema = new mongoose.Schema({
-  date: {
-    type: Date,
-    required: true
-  },
-  dayNumber: {
-    type: Number,
-    required: true
-  },
-  activities: [siteActivitySchema]
-});
-
-const weekScheduleSchema = new mongoose.Schema({
-  weekNumber: {
-    type: Number,
-    required: true
-  },
-  title: {
+// Phase schema (contains activities)
+const phaseSchema = new mongoose.Schema({
+  name: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
+  description: String,
   startDate: {
     type: Date,
     required: true
@@ -67,18 +115,24 @@ const weekScheduleSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
-  days: [dayScheduleSchema]
-});
-
-const phaseScheduleSchema = new mongoose.Schema({
-  name: {
+  status: {
     type: String,
-    required: true
+    enum: ['upcoming', 'active', 'completed', 'delayed'],
+    default: 'upcoming'
   },
-  description: String,
-  weeks: [weekScheduleSchema]
-});
+  progress: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 0
+  },
+  activities: [activitySchema],
+  dependencies: [{
+    type: mongoose.Schema.Types.ObjectId
+  }]
+}, { timestamps: true });
 
+// Main project schema
 const projectSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -94,13 +148,11 @@ const projectSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  // ✅ UPDATED: Changed from single manager to array of managers
   managers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   }],
-  // ✅ DEPRECATED: Keep for backward compatibility but will migrate data
   manager: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -130,7 +182,7 @@ const projectSchema = new mongoose.Schema({
     default: 0
   },
   siteSchedule: {
-    phases: [phaseScheduleSchema],
+    phases: [phaseSchema],
     totalActivities: {
       type: Number,
       default: 0
@@ -139,7 +191,19 @@ const projectSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
-    lastUpdated: Date
+    activeActivities: {
+      type: Number,
+      default: 0
+    },
+    delayedActivities: {
+      type: Number,
+      default: 0
+    },
+    lastUpdated: Date,
+    overallProgress: {
+      type: Number,
+      default: 0
+    }
   },
   tags: [String],
   notes: String,
@@ -173,17 +237,77 @@ projectSchema.index({ managers: 1 });
 projectSchema.index({ status: 1 });
 projectSchema.index({ priority: 1 });
 projectSchema.index({ startDate: 1, endDate: 1 });
+projectSchema.index({ 'siteSchedule.phases.activities._id': 1 });
 
-// ✅ NEW: Middleware to ensure managers array is populated
+// Middleware to ensure managers array is populated
 projectSchema.pre('save', function(next) {
-  // Migrate old 'manager' field to 'managers' array if needed
   if (this.manager && (!this.managers || this.managers.length === 0)) {
     this.managers = [this.manager];
   }
   
-  // Ensure at least one manager
   if (!this.managers || this.managers.length === 0) {
     return next(new Error('Project must have at least one manager'));
+  }
+  
+  next();
+});
+
+// Middleware to auto-update progress when activities change
+projectSchema.pre('save', function(next) {
+  if (this.siteSchedule && this.siteSchedule.phases) {
+    const phases = this.siteSchedule.phases;
+    
+    let totalActivities = 0;
+    let completedActivities = 0;
+    let activeActivities = 0;
+    let delayedActivities = 0;
+    
+    phases.forEach(phase => {
+      if (phase.activities) {
+        totalActivities += phase.activities.length;
+        
+        phase.activities.forEach(activity => {
+          if (activity.status === 'completed') completedActivities++;
+          if (activity.status === 'in_progress') activeActivities++;
+          if (activity.status === 'delayed') delayedActivities++;
+        });
+        
+        // Calculate phase progress
+        if (phase.activities.length > 0) {
+          const phaseCompleted = phase.activities.filter(a => a.status === 'completed').length;
+          phase.progress = Math.round((phaseCompleted / phase.activities.length) * 100);
+          
+          // Update phase status based on progress and dates
+          if (phase.progress === 100) {
+            phase.status = 'completed';
+          } else if (phase.progress > 0) {
+            phase.status = 'active';
+          }
+        }
+      }
+    });
+    
+    // Update site schedule statistics
+    this.siteSchedule.totalActivities = totalActivities;
+    this.siteSchedule.completedActivities = completedActivities;
+    this.siteSchedule.activeActivities = activeActivities;
+    this.siteSchedule.delayedActivities = delayedActivities;
+    this.siteSchedule.overallProgress = totalActivities > 0
+      ? Math.round((completedActivities / totalActivities) * 100)
+      : 0;
+    this.siteSchedule.lastUpdated = new Date();
+    
+    // Update overall project progress
+    this.progress = this.siteSchedule.overallProgress;
+    
+    // Auto-complete project when all activities are done
+    if (completedActivities > 0 && completedActivities === totalActivities) {
+      this.status = 'completed';
+    } else if (activeActivities > 0) {
+      if (this.status === 'planning') {
+        this.status = 'in_progress';
+      }
+    }
   }
   
   next();
