@@ -1,43 +1,29 @@
 // src/app/(dashboard)/manager/site-schedule/activity/[id]/edit/page.tsx
-// UPDATED: Added 'to-do' status, enhanced image management with upload capability
-
+// FIXED: Correct API endpoints + proper error handling
 "use client";
 
-import { useState, useEffect, useCallback, use, useRef } from 'react';
+import { use, useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { 
-  ArrowLeft, 
-  Save, 
-  Calendar, 
-  Clock, 
-  User,
-  AlertTriangle,
-  CheckCircle,
-  Loader2,
-  ImageIcon,
-  X,
-  Upload,
-  Plus
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ArrowLeft, Loader2, AlertTriangle, Save, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 
-// UPDATED: TypeScript interfaces with 'to-do' status
+// ==================== TYPES ====================
+
 interface ActivityFormData {
   title: string;
   description: string;
@@ -50,6 +36,7 @@ interface ActivityFormData {
   comments: string;
   category: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   images: string[];
+  progress?: number;
 }
 
 interface ActivityData extends ActivityFormData {
@@ -57,7 +44,6 @@ interface ActivityData extends ActivityFormData {
   projectId: string;
   projectTitle: string;
   date: string;
-  createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -72,7 +58,8 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-// Helper function to format datetime-local input value
+// ==================== HELPER FUNCTIONS ====================
+
 const formatDateTimeLocal = (date: Date | string): string => {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
   const year = dateObj.getFullYear();
@@ -82,6 +69,8 @@ const formatDateTimeLocal = (date: Date | string): string => {
   const minutes = String(dateObj.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
+
+// ==================== MAIN COMPONENT ====================
 
 export default function EditActivityPage({ params }: PageProps) {
   const resolvedParams = use(params);
@@ -95,7 +84,7 @@ export default function EditActivityPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // ADDED: New image upload state
+  // New image upload state
   const [newImages, setNewImages] = useState<File[]>([]);
   const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -107,18 +96,20 @@ export default function EditActivityPage({ params }: PageProps) {
     supervisor: '',
     startDate: formatDateTimeLocal(new Date()),
     endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)),
-    status: 'to-do', // UPDATED: Default to 'to-do'
+    status: 'to-do',
     priority: 'medium',
     comments: '',
     category: 'structural',
-    images: []
+    images: [],
+    progress: 0,
   });
 
   // Fetch activity data
   const fetchActivity = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/site-schedule/daily/activities/${activityId}`);
+      // FIXED: Correct API endpoint
+      const response = await fetch(`/api/site-schedule/activity/${activityId}`);
       
       if (response.ok) {
         const data: ActivityResponse = await response.json();
@@ -137,7 +128,8 @@ export default function EditActivityPage({ params }: PageProps) {
             priority: activityData.priority || 'medium',
             comments: activityData.comments || '',
             category: activityData.category || 'structural',
-            images: activityData.images || []
+            images: activityData.images || [],
+            progress: activityData.progress || 0,
           });
         } else {
           toast({
@@ -148,14 +140,15 @@ export default function EditActivityPage({ params }: PageProps) {
           router.push('/manager/site-schedule/daily');
         }
       } else {
-        throw new Error('Failed to fetch activity');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch activity');
       }
     } catch (error) {
       console.error('Error fetching activity:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to load activity data. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to load activity data. Please try again.",
       });
       router.push('/manager/site-schedule/daily');
     } finally {
@@ -169,7 +162,7 @@ export default function EditActivityPage({ params }: PageProps) {
     }
   }, [activityId, fetchActivity]);
 
-  // Update form data - Type-safe field updates
+  // Update form data
   const updateFormField = <K extends keyof ActivityFormData>(
     field: K,
     value: ActivityFormData[K]
@@ -180,7 +173,7 @@ export default function EditActivityPage({ params }: PageProps) {
     }));
   };
 
-  // ADDED: Handle new image selection
+  // Handle new image selection
   const handleNewImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -196,7 +189,7 @@ export default function EditActivityPage({ params }: PageProps) {
     });
   };
 
-  // ADDED: Remove new image preview
+  // Remove new image preview
   const removeNewImage = (index: number) => {
     setNewImages(prev => prev.filter((_, i) => i !== index));
     setNewImagePreviews(prev => prev.filter((_, i) => i !== index));
@@ -210,7 +203,7 @@ export default function EditActivityPage({ params }: PageProps) {
     }));
   };
 
-  // ADDED: Upload new images to S3
+  // Upload new images to S3
   const uploadNewImages = async (): Promise<string[]> => {
     if (newImages.length === 0) return [];
 
@@ -262,66 +255,37 @@ export default function EditActivityPage({ params }: PageProps) {
       return;
     }
 
-    if (!formData.startDate || !formData.endDate) {
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: "Start Date and End Date are required.",
-      });
-      return;
-    }
-
-    const startDateTime = new Date(formData.startDate);
-    const endDateTime = new Date(formData.endDate);
-
-    if (endDateTime <= startDateTime) {
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: "End Date must be after Start Date.",
-      });
-      return;
-    }
-
+    setSaving(true);
     try {
-      setSaving(true);
+      // Upload new images first
+      const uploadedUrls = await uploadNewImages();
 
-      // ADDED: Upload new images first
-      const newImageUrls = await uploadNewImages();
-      const allImages = [...formData.images, ...newImageUrls];
-
-      // Prepare update data
-      const updateData = {
-        projectId: activity.projectId,
-        date: activity.date,
-        activityId: activity._id,
-        updates: {
-          title: formData.title,
-          description: formData.description,
-          contractor: formData.contractor,
-          supervisor: formData.supervisor,
-          startDate: formData.startDate,
-          endDate: formData.endDate,
-          status: formData.status,
-          priority: formData.priority,
-          category: formData.category,
-          comments: formData.comments,
-          images: allImages // UPDATED: Include all images (existing + new)
-        }
-      };
-
-      const response = await fetch('/api/site-schedule/daily', {
+      // FIXED: Correct API endpoint and request format
+      const response = await fetch(`/api/site-schedule/activity/${activityId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          updates: {
+            title: formData.title,
+            description: formData.description,
+            contractor: formData.contractor,
+            supervisor: formData.supervisor,
+            startDate: formData.startDate,
+            endDate: formData.endDate,
+            status: formData.status,
+            priority: formData.priority,
+            category: formData.category,
+            comments: formData.comments,
+            progress: formData.progress,
+            images: [...formData.images, ...uploadedUrls]
+          }
+        }),
       });
 
       if (response.ok) {
         toast({
           title: "Success",
-          description: "Activity updated successfully!",
+          description: "Activity updated successfully",
         });
         
         // Clear new image state
@@ -400,23 +364,23 @@ export default function EditActivityPage({ params }: PageProps) {
           <div className="grid gap-6">
             {/* Basic Information */}
             <div className="grid md:grid-cols-2 gap-4">
-              <div className="md:col-span-2 space-y-2">
-                <Label htmlFor="title">Task Name *</Label>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="title">Title *</Label>
                 <Input
                   id="title"
                   value={formData.title}
                   onChange={(e) => updateFormField('title', e.target.value)}
-                  placeholder="e.g., Foundation concrete pouring"
+                  placeholder="Activity title"
                 />
               </div>
 
-              <div className="md:col-span-2 space-y-2">
+              <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="description">Description</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => updateFormField('description', e.target.value)}
-                  placeholder="Detailed description..."
+                  placeholder="Activity description"
                   rows={3}
                 />
               </div>
@@ -442,7 +406,7 @@ export default function EditActivityPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* Date and Time */}
+            {/* Schedule */}
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="startDate">Start Date & Time *</Label>
@@ -465,7 +429,7 @@ export default function EditActivityPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* Status, Priority, Category - UPDATED: Added 'to-do' option */}
+            {/* Status & Priority */}
             <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
@@ -477,7 +441,7 @@ export default function EditActivityPage({ params }: PageProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="to-do">To-Do</SelectItem>
+                    <SelectItem value="to-do">To Do</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -525,55 +489,66 @@ export default function EditActivityPage({ params }: PageProps) {
               </div>
             </div>
 
+            {/* Progress */}
+            {formData.status !== 'completed' && (
+              <div className="space-y-2">
+                <Label htmlFor="progress">Progress (%)</Label>
+                <Input
+                  id="progress"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={formData.progress}
+                  onChange={(e) => updateFormField('progress', parseInt(e.target.value) || 0)}
+                  placeholder="0-100"
+                />
+              </div>
+            )}
+
             {/* Comments */}
             <div className="space-y-2">
-              <Label htmlFor="comments">Internal Comments</Label>
+              <Label htmlFor="comments">Comments</Label>
               <Textarea
                 id="comments"
                 value={formData.comments}
                 onChange={(e) => updateFormField('comments', e.target.value)}
-                placeholder="Add any internal notes or comments..."
+                placeholder="Internal comments"
                 rows={3}
               />
             </div>
 
             {/* Existing Images */}
             {formData.images.length > 0 && (
-              <div className="md:col-span-2">
-                <Label>Current Images</Label>
-                <div className="grid grid-cols-4 gap-4 mt-2">
-                  {formData.images.map((imageUrl, index) => (
-                    <div key={index} className="relative group">
-                      <div className="relative w-full h-32">
-                        <Image
-                          src={imageUrl}
-                          alt={`Activity image ${index + 1}`}
-                          fill
-                          className="object-cover rounded border"
-                        />
-                      </div>
+              <div className="space-y-2">
+                <Label>Existing Images</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {formData.images.map((img, index) => (
+                    <div key={index} className="relative aspect-square rounded border overflow-hidden">
+                      <Image
+                        src={img}
+                        alt={`Image ${index + 1}`}
+                        fill
+                        className="object-cover"
+                      />
                       <Button
                         type="button"
                         variant="destructive"
                         size="icon"
-                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-1 right-1 h-6 w-6"
                         onClick={() => removeImage(index)}
                       >
-                        <X className="h-4 w-4" />
+                        <X className="h-3 w-3" />
                       </Button>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  Click the X button to remove an image
-                </p>
               </div>
             )}
 
-            {/* ADDED: Add New Images Section */}
+            {/* New Images Upload */}
             <div className="space-y-2">
-              <Label>Add New Images</Label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+              <Label>Upload New Images</Label>
+              <div className="border-2 border-dashed rounded-lg p-4">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -582,85 +557,65 @@ export default function EditActivityPage({ params }: PageProps) {
                   onChange={handleNewImageSelect}
                   className="hidden"
                 />
-                
-                {newImagePreviews.length === 0 ? (
-                  <div className="text-center">
-                    <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600 mb-2">
-                      Upload additional images
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <ImageIcon className="h-4 w-4 mr-2" />
-                      Select Images
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="grid grid-cols-4 gap-2 mb-3">
-                      {newImagePreviews.map((preview, index) => (
-                        <div key={index} className="relative">
-                          <img
-                            src={preview}
-                            alt={`New image ${index + 1}`}
-                            className="w-full h-24 object-cover rounded border"
-                          />
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            className="absolute top-1 right-1 h-6 w-6"
-                            onClick={() => removeNewImage(index)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add More
-                    </Button>
-                  </div>
-                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Select Images
+                </Button>
               </div>
+
+              {/* New Image Previews */}
+              {newImagePreviews.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {newImagePreviews.map((preview, index) => (
+                    <div key={index} className="relative aspect-square rounded border overflow-hidden">
+                      <Image
+                        src={preview}
+                        alt={`New image ${index + 1}`}
+                        fill
+                        className="object-cover"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-6 w-6"
+                        onClick={() => removeNewImage(index)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-3 mt-6 pt-6 border-t">
+          <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
             <Link href="/manager/site-schedule/daily">
               <Button variant="outline" disabled={saving || uploadingImages}>
                 Cancel
               </Button>
             </Link>
-            <Button 
-              onClick={handleSave} 
-              disabled={saving || uploadingImages || !formData.title.trim() || !formData.contractor.trim()}
-              className="flex items-center gap-2"
-            >
+            <Button onClick={handleSave} disabled={saving || uploadingImages}>
               {uploadingImages ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Uploading Images...
                 </>
               ) : saving ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Saving...
                 </>
               ) : (
                 <>
-                  <Save className="h-4 w-4" />
+                  <Save className="h-4 w-4 mr-2" />
                   Save Changes
                 </>
               )}

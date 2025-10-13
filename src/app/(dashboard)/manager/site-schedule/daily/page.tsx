@@ -1,4 +1,5 @@
-// src/app/(dashboard)/manager/site-schedule/daily/page.tsx - UPDATED: Added 'to-do' status + Image Lightbox
+// src/app/(dashboard)/manager/site-schedule/daily/page.tsx
+// CLEAN VERSION: Just image upload restoration, uses existing edit page route
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -7,21 +8,16 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { 
   Plus, 
-  CalendarCheck, 
+  Calendar, 
   Clock, 
-  User,
   Edit,
   Trash2,
-  CheckCircle,
-  AlertCircle,
   ArrowLeft,
-  Save,
-  X,
-  Upload,
-  Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
-  ZoomIn
+  X,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,12 +39,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { formatDate } from '@/lib/utils';
 
-// UPDATED: TypeScript interfaces with 'to-do' status
+// ==================== TYPES ====================
+
 interface ManagerProject {
   _id: string;
   title: string;
@@ -60,7 +55,6 @@ interface ManagerProject {
   };
 }
 
-// UPDATED: Added 'to-do' to status type
 interface DailyActivity {
   _id?: string;
   title: string;
@@ -74,6 +68,7 @@ interface DailyActivity {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   images?: string[];
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
+  progress?: number;
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -91,9 +86,8 @@ interface DailyProgress {
     pending: number;
     delayed: number;
     onHold?: number;
-    toDo?: number; // ADDED
+    toDo?: number;
     crewSize?: number;
-    weatherConditions?: string;
   };
   notes?: string;
   createdBy?: string;
@@ -101,7 +95,8 @@ interface DailyProgress {
   updatedAt?: string;
 }
 
-// Helper function to format datetime-local input
+// ==================== HELPER FUNCTIONS ====================
+
 const formatDateTimeLocal = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -111,48 +106,81 @@ const formatDateTimeLocal = (date: Date): string => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const formatDateTimeForDisplay = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return 'Invalid date';
+  }
+};
+
+// ==================== MAIN COMPONENT ====================
+
 export default function ManagerDailySchedulePage() {
   const { data: session } = useSession();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  const [projects, setProjects] = useState<ManagerProject[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string>('all');
-  const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 
-  // ADDED: Image lightbox state
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [projects, setProjects] = useState<ManagerProject[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dailyProgress, setDailyProgress] = useState<DailyProgress | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 
   // Image upload state
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
-  const [uploadingImages, setUploadingImages] = useState(false);
+
+  // Image lightbox state
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const now = new Date();
-  const [newActivity, setNewActivity] = useState<DailyActivity>({
+  const [newActivity, setNewActivity] = useState<Omit<DailyActivity, '_id'>>({
     title: '',
     description: '',
     contractor: '',
     supervisor: '',
     startDate: formatDateTimeLocal(now),
-    endDate: formatDateTimeLocal(new Date(now.getTime() + 3600000)), // +1 hour
-    status: 'to-do', // UPDATED: Default to 'to-do'
+    endDate: formatDateTimeLocal(new Date(now.getTime() + 3600000)),
+    status: 'to-do',
     priority: 'medium',
     category: 'structural',
-    comments: ''
+    comments: '',
+    images: [],
   });
 
-  // Fetch projects
-  const fetchProjects = useCallback(async () => {
+  // Fetch projects on mount
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  // Fetch daily progress when project or date changes
+  useEffect(() => {
+    if (selectedProject && selectedDate) {
+      fetchDailyProgress();
+    }
+  }, [selectedProject, selectedDate]);
+
+  const fetchProjects = async () => {
     try {
-      const response = await fetch('/api/projects/manager');
-      if (response.ok) {
-        const data = await response.json();
-        setProjects(data.projects || []);
+      const response = await fetch('/api/manager/projects');
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setProjects(data.data);
+        if (data.data.length > 0 && !selectedProject) {
+          setSelectedProject(data.data[0]._id);
+        }
       }
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -162,251 +190,187 @@ export default function ManagerDailySchedulePage() {
         description: 'Failed to load projects',
       });
     }
-  }, [toast]);
+  };
 
-  // Fetch daily progress
   const fetchDailyProgress = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/site-schedule/daily/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          projectId: selectedProject === 'all' ? undefined : selectedProject 
-        })
-      });
+    if (!selectedProject || !selectedDate) return;
 
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate}`
+      );
+      
       if (response.ok) {
         const data = await response.json();
-        setDailyProgress(data.data || []);
+        setDailyProgress(data.data || null);
+      } else {
+        setDailyProgress(null);
       }
     } catch (error) {
       console.error('Error fetching daily progress:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to load daily progress',
+        description: 'Failed to load daily activities',
       });
     } finally {
       setLoading(false);
     }
-  }, [selectedProject, toast]);
+  }, [selectedProject, selectedDate, toast]);
 
-  useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+  const handlePreviousDay = () => {
+    const currentDate = new Date(selectedDate);
+    currentDate.setDate(currentDate.getDate() - 1);
+    setSelectedDate(currentDate.toISOString().split('T')[0]);
+  };
 
-  useEffect(() => {
-    if (session) {
-      fetchDailyProgress();
-    }
-  }, [session, fetchDailyProgress]);
+  const handleNextDay = () => {
+    const currentDate = new Date(selectedDate);
+    currentDate.setDate(currentDate.getDate() + 1);
+    setSelectedDate(currentDate.toISOString().split('T')[0]);
+  };
 
-  // Image selection handler
+  const handleToday = () => {
+    setSelectedDate(new Date().toISOString().split('T')[0]);
+  };
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+    setSelectedImages(files);
 
-    setSelectedImages(prev => [...prev, ...files]);
-
-    // Create previews
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(prev => [...prev, reader.result as string]);
-      };
-      reader.readAsDataURL(file);
-    });
+    const previews = files.map(file => URL.createObjectURL(file));
+    setImagePreview(previews);
   };
 
-  // Remove image
-  const removeImage = (index: number) => {
-    setSelectedImages(prev => prev.filter((_, i) => i !== index));
-    setImagePreview(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Upload images to S3
-  const uploadImages = async (): Promise<string[]> => {
-    if (selectedImages.length === 0) return [];
-
-    setUploadingImages(true);
-    const uploadedUrls: string[] = [];
-
-    try {
-      for (const file of selectedImages) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('projectId', selectedProject);
-        formData.append('description', 'Daily activity image');
-        formData.append('isPublic', 'true');
-
-        const response = await fetch('/api/files', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success && result.data?.url) {
-            uploadedUrls.push(result.data.url);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error uploading images:', error);
+  const handleAddActivity = async () => {
+    if (!selectedProject || !selectedDate) {
       toast({
         variant: 'destructive',
-        title: 'Upload Error',
-        description: 'Some images failed to upload',
-      });
-    } finally {
-      setUploadingImages(false);
-    }
-
-    return uploadedUrls;
-  };
-
-  // Add activity
-  const handleAddActivity = async () => {
-    // Validation
-    if (!selectedProject || selectedProject === 'all' || selectedProject === 'none') {
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: "Please select a project",
+        title: 'Error',
+        description: 'Please select a project and date',
       });
       return;
     }
 
     if (!newActivity.title || !newActivity.contractor) {
       toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: "Please fill in all required fields",
-      });
-      return;
-    }
-
-    if (!newActivity.startDate || !newActivity.endDate) {
-      toast({
         variant: 'destructive',
-        title: 'Validation Error',
-        description: 'Start Date and End Date are required',
+        title: 'Error',
+        description: 'Title and contractor are required',
       });
       return;
     }
 
-    const startDateTime = new Date(newActivity.startDate);
-    const endDateTime = new Date(newActivity.endDate);
-
-    if (endDateTime <= startDateTime) {
-      toast({
-        variant: 'destructive',
-        title: 'Validation Error',
-        description: 'End Date must be after Start Date',
-      });
-      return;
-    }
-
+    setLoading(true);
     try {
-      // Upload images first
-      const imageUrls = await uploadImages();
-
-      const activityData = {
-        ...newActivity,
-        project: selectedProject,
-        createdBy: session?.user?.id,
-        images: imageUrls,
-      };
-
-      const response = await fetch('/api/site-schedule/daily/activities', {
+      const response = await fetch('/api/site-schedule/daily', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(activityData)
+        body: JSON.stringify({
+          projectId: selectedProject,
+          date: selectedDate,
+          activity: newActivity,
+        }),
       });
 
       if (response.ok) {
         toast({
-          title: "Success",
-          description: "Daily activity added successfully",
+          title: 'Success',
+          description: 'Activity added successfully',
         });
-        
-        // Reset form
-        const now = new Date();
+
+        setIsAddDialogOpen(false);
         setNewActivity({
           title: '',
           description: '',
           contractor: '',
           supervisor: '',
-          startDate: formatDateTimeLocal(now),
-          endDate: formatDateTimeLocal(new Date(now.getTime() + 3600000)),
-          status: 'to-do', // UPDATED: Reset to 'to-do'
+          startDate: formatDateTimeLocal(new Date()),
+          endDate: formatDateTimeLocal(new Date(Date.now() + 3600000)),
+          status: 'to-do',
           priority: 'medium',
           category: 'structural',
-          comments: ''
+          comments: '',
+          images: [],
         });
-        setSelectedProject('all');
         setSelectedImages([]);
         setImagePreview([]);
-        setIsAddDialogOpen(false);
         
         await fetchDailyProgress();
       } else {
-        throw new Error('Failed to add activity');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add activity');
       }
     } catch (error) {
       console.error('Error adding activity:', error);
       toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to add activity",
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to add activity',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteActivity = async (activityId: string) => {
+    if (!window.confirm('Are you sure you want to delete this activity?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/site-schedule/activity/${activityId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        toast({
+          title: 'Success',
+          description: 'Activity deleted successfully',
+        });
+        await fetchDailyProgress();
+      } else {
+        throw new Error('Failed to delete activity');
+      }
+    } catch (error) {
+      console.error('Error deleting activity:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to delete activity',
       });
     }
   };
 
-  // Calculate statistics - UPDATED: Include to-do
-  const calculateStats = () => {
-    const allActivities = dailyProgress.flatMap(dp => dp.activities);
-    return {
-      total: allActivities.length,
-      completed: allActivities.filter(a => a.status === 'completed').length,
-      inProgress: allActivities.filter(a => a.status === 'in_progress').length,
-      pending: allActivities.filter(a => a.status === 'pending').length,
-      delayed: allActivities.filter(a => a.status === 'delayed').length,
-      toDo: allActivities.filter(a => a.status === 'to-do').length, // ADDED
-    };
-  };
-
-  const stats = calculateStats();
-
-  // Get status badge color - UPDATED: Include to-do
   const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'in_progress':
-        return 'bg-blue-100 text-blue-800';
-      case 'pending':
-        return 'bg-gray-100 text-gray-800';
-      case 'delayed':
-        return 'bg-red-100 text-red-800';
-      case 'on_hold':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'to-do': // ADDED
-        return 'bg-purple-100 text-purple-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+    const classes: Record<string, string> = {
+      'completed': 'bg-green-100 text-green-800',
+      'in_progress': 'bg-blue-100 text-blue-800',
+      'pending': 'bg-gray-100 text-gray-800',
+      'delayed': 'bg-red-100 text-red-800',
+      'on_hold': 'bg-yellow-100 text-yellow-800',
+      'to-do': 'bg-purple-100 text-purple-800',
+    };
+    return classes[status] || 'bg-gray-100 text-gray-800';
   };
 
-  // ADDED: Open lightbox with images
+  const getPriorityBadgeClass = (priority: string) => {
+    const classes: Record<string, string> = {
+      'low': 'bg-gray-100 text-gray-700',
+      'medium': 'bg-blue-100 text-blue-700',
+      'high': 'bg-orange-100 text-orange-700',
+      'urgent': 'bg-red-100 text-red-700',
+    };
+    return classes[priority] || 'bg-gray-100 text-gray-700';
+  };
+
   const openLightbox = (images: string[], startIndex: number = 0) => {
     setLightboxImages(images);
     setCurrentImageIndex(startIndex);
     setLightboxOpen(true);
   };
 
-  // ADDED: Navigate lightbox
   const handlePrevImage = () => {
     setCurrentImageIndex(prev => 
       prev === 0 ? lightboxImages.length - 1 : prev - 1
@@ -419,252 +383,31 @@ export default function ManagerDailySchedulePage() {
     );
   };
 
-  // ADDED: Keyboard navigation for lightbox
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!lightboxOpen) return;
-      
-      if (e.key === 'Escape') {
-        setLightboxOpen(false);
-      } else if (e.key === 'ArrowLeft') {
-        handlePrevImage();
-      } else if (e.key === 'ArrowRight') {
-        handleNextImage();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [lightboxOpen, handlePrevImage, handleNextImage]);
-
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Link href="/manager/dashboard">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Daily Site Schedule</h1>
-            <p className="text-sm text-gray-600">Manage daily construction activities</p>
-          </div>
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Daily Site Schedule</h1>
+          <p className="text-gray-600 mt-1">Manage daily activities for your projects</p>
         </div>
-
-        <Button onClick={() => setIsAddDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Task
-        </Button>
+        <Link href="/manager/site-schedule">
+          <Button variant="outline">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Schedule
+          </Button>
+        </Link>
       </div>
 
-      {/* Project Filter */}
+      {/* Filters */}
       <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex gap-4 items-center">
-            <Label htmlFor="project-filter" className="whitespace-nowrap">Filter by Project:</Label>
-            <Select  value={selectedProject} onValueChange={setSelectedProject}>
-              <SelectTrigger className="w-full max-w-md">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects.map((project) => (
-                  <SelectItem key={project._id} value={project._id}>
-                    {project.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Statistics Cards - UPDATED: Added To-Do card */}
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 sm:gap-4 mb-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-600">Total</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-600">To-Do</p>
-              <p className="text-2xl font-bold text-purple-600">{stats.toDo}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-600">Completed</p>
-              <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-600">In Progress</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.inProgress}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-600">Pending</p>
-              <p className="text-2xl font-bold text-gray-600">{stats.pending}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-600">Delayed</p>
-              <p className="text-2xl font-bold text-red-600">{stats.delayed}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Activities List */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activities</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {dailyProgress.length === 0 ? (
-            <div className="text-center py-8">
-              <CalendarCheck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">No activities found</p>
-              <Button
-                onClick={() => setIsAddDialogOpen(true)}
-                className="mt-4"
-                variant="outline"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add First Activity
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {dailyProgress.flatMap(dp => dp.activities).map((activity) => (
-                <div
-                  key={activity._id}
-                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg">{activity.title}</h3>
-                      {activity.description && (
-                        <p className="text-sm text-gray-600 mt-1">{activity.description}</p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Badge className={getStatusBadgeClass(activity.status)}>
-                        {activity.status.replace('_', ' ')}
-                      </Badge>
-                      <Badge variant="outline">{activity.priority}</Badge>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
-                    <div>
-                      <p className="text-gray-600">Contractor</p>
-                      <p className="font-medium truncate">{activity.contractor}</p>
-                    </div>
-                    {activity.supervisor && (
-                      <div>
-                        <p className="text-gray-600">Supervisor</p>
-                        <p className="font-medium truncate">{activity.supervisor}</p>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-gray-600">Start Date</p>
-                      <p className="font-medium">
-                        {new Date(activity.startDate).toLocaleString()}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">End Date</p>
-                      <p className="font-medium">
-                        {new Date(activity.endDate).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* UPDATED: Clickable images that open lightbox */}
-                  {activity.images && activity.images.length > 0 && (
-                    <div className="mb-3">
-                      <p className="text-sm text-gray-600 mb-2">Images:</p>
-                      <div className="flex gap-2 flex-wrap">
-                        {activity.images.map((imageUrl, index) => (
-                          <div 
-                            key={index} 
-                            className="relative w-20 h-20 cursor-pointer hover:opacity-80 transition-opacity group"
-                            onClick={() => openLightbox(activity.images || [], index)}
-                          >
-                            <Image
-                              src={imageUrl}
-                              alt={`Activity image ${index + 1}`}
-                              fill
-                              className="object-cover rounded border"
-                            />
-                            {/* Zoom icon overlay */}
-                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center rounded">
-                              <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {activity.comments && (
-                    <div className="mt-3 p-3 bg-gray-50 rounded">
-                      <p className="text-sm text-gray-700">{activity.comments}</p>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2 mt-4">
-                    <Link href={`/manager/site-schedule/activity/${activity._id}/edit`}>
-                      <Button variant="outline" size="sm">
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Add Activity Dialog - UPDATED: Added 'to-do' to status options */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add Daily Task</DialogTitle>
-            <DialogDescription>
-              Create a new task for the daily site schedule
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-6 py-4">
-            {/* Project Selection */}
+        <CardContent className="p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="project">Project *</Label>
+              <Label>Project</Label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a project" />
+                  <SelectValue placeholder="Select project" />
                 </SelectTrigger>
                 <SelectContent>
                   {projects.map((project) => (
@@ -676,35 +419,255 @@ export default function ManagerDailySchedulePage() {
               </Select>
             </div>
 
-            {/* Basic Information */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="title">Task Name *</Label>
+            <div className="space-y-2">
+              <Label>Date</Label>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handlePreviousDay}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
                 <Input
-                  id="title"
-                  value={newActivity.title}
-                  onChange={(e) => setNewActivity({...newActivity, title: e.target.value})}
-                  placeholder="e.g., Foundation concrete pouring"
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="flex-1"
                 />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleNextDay}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
               </div>
+            </div>
 
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={newActivity.description}
-                  onChange={(e) => setNewActivity({...newActivity, description: e.target.value})}
-                  placeholder="Detailed description of the activity..."
-                  rows={3}
-                />
+            <div className="space-y-2">
+              <Label>&nbsp;</Label>
+              <div className="flex gap-2">
+                <Button onClick={handleToday} variant="outline" className="flex-1">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Today
+                </Button>
+                <Button onClick={() => setIsAddDialogOpen(true)} className="flex-1">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Task
+                </Button>
               </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
+      {/* Summary Stats */}
+      {dailyProgress && (
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">Total</p>
+              <p className="text-2xl font-bold">{dailyProgress.summary.totalActivities}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">To Do</p>
+              <p className="text-2xl font-bold text-purple-600">{dailyProgress.summary.toDo || 0}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-2xl font-bold text-gray-600">{dailyProgress.summary.pending}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">In Progress</p>
+              <p className="text-2xl font-bold text-blue-600">{dailyProgress.summary.inProgress}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">Completed</p>
+              <p className="text-2xl font-bold text-green-600">{dailyProgress.summary.completed}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">Delayed</p>
+              <p className="text-2xl font-bold text-red-600">{dailyProgress.summary.delayed}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Activities List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Activities for {new Date(selectedDate).toLocaleDateString('en-US', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            })}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="text-gray-600 mt-4">Loading activities...</p>
+            </div>
+          ) : !dailyProgress || dailyProgress.activities.length === 0 ? (
+            <div className="text-center py-12">
+              <Clock className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-600">No activities scheduled for this date</p>
+              <Button 
+                onClick={() => setIsAddDialogOpen(true)} 
+                className="mt-4"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add First Activity
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {dailyProgress.activities.map((activity) => (
+                <div
+                  key={activity._id}
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-lg font-semibold">{activity.title}</h3>
+                        <Badge className={getStatusBadgeClass(activity.status)}>
+                          {activity.status.replace('_', ' ')}
+                        </Badge>
+                        <Badge className={getPriorityBadgeClass(activity.priority)}>
+                          {activity.priority}
+                        </Badge>
+                      </div>
+
+                      {activity.description && (
+                        <p className="text-gray-600 text-sm mb-3">{activity.description}</p>
+                      )}
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                        <div>
+                          <span className="text-gray-500">Contractor:</span>
+                          <p className="font-medium">{activity.contractor}</p>
+                        </div>
+                        {activity.supervisor && (
+                          <div>
+                            <span className="text-gray-500">Supervisor:</span>
+                            <p className="font-medium">{activity.supervisor}</p>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-gray-500">Start:</span>
+                          <p className="font-medium">{formatDateTimeForDisplay(activity.startDate)}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">End:</span>
+                          <p className="font-medium">{formatDateTimeForDisplay(activity.endDate)}</p>
+                        </div>
+                      </div>
+
+                      {activity.images && activity.images.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-sm text-gray-500 mb-2">Images ({activity.images.length})</p>
+                          <div className="flex gap-2">
+                            {activity.images.slice(0, 4).map((img, idx) => (
+                              <div
+                                key={idx}
+                                className="relative w-16 h-16 rounded cursor-pointer hover:opacity-80"
+                                onClick={() => openLightbox(activity.images!, idx)}
+                              >
+                                <Image
+                                  src={img}
+                                  alt={`Activity image ${idx + 1}`}
+                                  fill
+                                  className="object-cover rounded"
+                                />
+                              </div>
+                            ))}
+                            {activity.images.length > 4 && (
+                              <div className="w-16 h-16 rounded bg-gray-100 flex items-center justify-center text-sm text-gray-600">
+                                +{activity.images.length - 4}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 ml-4">
+                      <Link href={`/manager/site-schedule/activity/${activity._id}/edit`}>
+                        <Button variant="outline" size="sm">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </Link>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteActivity(activity._id!)}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Activity Dialog */}
+      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Activity</DialogTitle>
+            <DialogDescription>
+              Create a new task for the daily schedule
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">Title *</Label>
+              <Input
+                id="title"
+                value={newActivity.title}
+                onChange={(e) => setNewActivity({ ...newActivity, title: e.target.value })}
+                placeholder="Activity title"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={newActivity.description}
+                onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
+                placeholder="Activity description"
+                rows={3}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="contractor">Contractor *</Label>
                 <Input
                   id="contractor"
                   value={newActivity.contractor}
-                  onChange={(e) => setNewActivity({...newActivity, contractor: e.target.value})}
+                  onChange={(e) => setNewActivity({ ...newActivity, contractor: e.target.value })}
                   placeholder="Contractor name"
                 />
               </div>
@@ -713,14 +676,13 @@ export default function ManagerDailySchedulePage() {
                 <Label htmlFor="supervisor">Supervisor</Label>
                 <Input
                   id="supervisor"
-                  value={newActivity.supervisor || ''}
-                  onChange={(e) => setNewActivity({...newActivity, supervisor: e.target.value})}
+                  value={newActivity.supervisor}
+                  onChange={(e) => setNewActivity({ ...newActivity, supervisor: e.target.value })}
                   placeholder="Supervisor name"
                 />
               </div>
             </div>
 
-            {/* Date and Time */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="startDate">Start Date & Time *</Label>
@@ -728,7 +690,7 @@ export default function ManagerDailySchedulePage() {
                   id="startDate"
                   type="datetime-local"
                   value={newActivity.startDate}
-                  onChange={(e) => setNewActivity({...newActivity, startDate: e.target.value})}
+                  onChange={(e) => setNewActivity({ ...newActivity, startDate: e.target.value })}
                 />
               </div>
 
@@ -738,18 +700,37 @@ export default function ManagerDailySchedulePage() {
                   id="endDate"
                   type="datetime-local"
                   value={newActivity.endDate}
-                  onChange={(e) => setNewActivity({...newActivity, endDate: e.target.value})}
+                  onChange={(e) => setNewActivity({ ...newActivity, endDate: e.target.value })}
                 />
               </div>
             </div>
 
-            {/* Status, Priority, Category - UPDATED: Added 'to-do' option */}
             <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={newActivity.status}
+                  onValueChange={(value) => setNewActivity({ ...newActivity, status: value as DailyActivity['status'] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="to-do">To Do</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="delayed">Delayed</SelectItem>
+                    <SelectItem value="on_hold">On Hold</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority</Label>
                 <Select
                   value={newActivity.priority}
-                  onValueChange={(value) => setNewActivity({...newActivity, priority: value as DailyActivity['priority']})}
+                  onValueChange={(value) => setNewActivity({ ...newActivity, priority: value as DailyActivity['priority'] })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -764,30 +745,10 @@ export default function ManagerDailySchedulePage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select
-                  value={newActivity.status}
-                  onValueChange={(value) => setNewActivity({...newActivity, status: value as DailyActivity['status']})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="to-do">To-Do</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="delayed">Delayed</SelectItem>
-                    <SelectItem value="on_hold">On Hold</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
                 <Select
                   value={newActivity.category}
-                  onValueChange={(value) => setNewActivity({...newActivity, category: value as DailyActivity['category']})}
+                  onValueChange={(value) => setNewActivity({ ...newActivity, category: value as DailyActivity['category'] })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -803,22 +764,21 @@ export default function ManagerDailySchedulePage() {
               </div>
             </div>
 
-            {/* Comments */}
             <div className="space-y-2">
-              <Label htmlFor="comments">Internal Comments</Label>
+              <Label htmlFor="comments">Comments</Label>
               <Textarea
                 id="comments"
-                value={newActivity.comments || ''}
-                onChange={(e) => setNewActivity({...newActivity, comments: e.target.value})}
-                placeholder="Add any internal notes or comments..."
+                value={newActivity.comments}
+                onChange={(e) => setNewActivity({ ...newActivity, comments: e.target.value })}
+                placeholder="Internal comments"
                 rows={3}
               />
             </div>
 
             {/* Image Upload Section */}
             <div className="space-y-2">
-              <Label>Task Images</Label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+              <Label>Upload Images</Label>
+              <div className="border-2 border-dashed rounded-lg p-4">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -827,143 +787,99 @@ export default function ManagerDailySchedulePage() {
                   onChange={handleImageSelect}
                   className="hidden"
                 />
-                
-                {imagePreview.length === 0 ? (
-                  <div className="text-center">
-                    <Upload className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600 mb-2">
-                      Click to upload activity images
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <ImageIcon className="h-4 w-4 mr-2" />
-                      Select Images
-                    </Button>
-                    <p className="text-xs text-gray-500 mt-2">
-                      PNG, JPG, GIF up to 10MB each
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="grid grid-cols-4 gap-2 mb-3">
-                      {imagePreview.map((preview, index) => (
-                        <div key={index} className="relative">
-                          <img
-                            src={preview}
-                            alt={`Preview ${index + 1}`}
-                            className="w-full h-24 object-cover rounded border"
-                          />
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            className="absolute top-1 right-1 h-6 w-6"
-                            onClick={() => removeImage(index)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add More Images
-                    </Button>
-                  </div>
-                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Select Images
+                </Button>
               </div>
+
+              {/* Image Previews */}
+              {imagePreview.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {imagePreview.map((preview, index) => (
+                    <div key={index} className="relative aspect-square rounded border overflow-hidden">
+                      <Image
+                        src={preview}
+                        alt={`Preview ${index + 1}`}
+                        fill
+                        className="object-cover"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-6 w-6"
+                        onClick={() => {
+                          const newImages = selectedImages.filter((_, i) => i !== index);
+                          const newPreviews = imagePreview.filter((_, i) => i !== index);
+                          setSelectedImages(newImages);
+                          setImagePreview(newPreviews);
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => setIsAddDialogOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleAddActivity}
-              disabled={uploadingImages}
-            >
-              {uploadingImages ? 'Uploading Images...' : 'Add Task'}
+            <Button onClick={handleAddActivity} disabled={loading}>
+              {loading ? 'Adding...' : 'Add Activity'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ADDED: Image Lightbox Modal */}
+      {/* Image Lightbox */}
       {lightboxOpen && (
-        <div 
-          className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center"
-          onClick={() => setLightboxOpen(false)}
-        >
-          <div className="relative w-full h-full flex items-center justify-center p-4">
-            {/* Close Button */}
-            <button
-              onClick={() => setLightboxOpen(false)}
-              className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10"
-            >
-              <X className="h-8 w-8" />
-            </button>
-
-            {/* Previous Button */}
-            {lightboxImages.length > 1 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handlePrevImage();
-                }}
-                className="absolute left-4 text-white hover:text-gray-300 transition-colors z-10"
-              >
-                <ChevronLeft className="h-12 w-12" />
-              </button>
-            )}
-
-            {/* Image */}
-            <div 
-              className="relative max-w-6xl max-h-[90vh] w-full h-full flex items-center justify-center"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Image
-                src={lightboxImages[currentImageIndex]}
-                alt={`Image ${currentImageIndex + 1}`}
-                fill
-                className="object-contain"
-                priority
-              />
-            </div>
-
-            {/* Next Button */}
-            {lightboxImages.length > 1 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleNextImage();
-                }}
-                className="absolute right-4 text-white hover:text-gray-300 transition-colors z-10"
-              >
-                <ChevronRight className="h-12 w-12" />
-              </button>
-            )}
-
-            {/* Image Counter */}
-            {lightboxImages.length > 1 && (
-              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded-full">
-                {currentImageIndex + 1} / {lightboxImages.length}
+        <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>
+                Image {currentImageIndex + 1} of {lightboxImages.length}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="relative">
+              <div className="relative aspect-video">
+                <Image
+                  src={lightboxImages[currentImageIndex]}
+                  alt={`Image ${currentImageIndex + 1}`}
+                  fill
+                  className="object-contain"
+                />
               </div>
-            )}
-          </div>
-        </div>
+              <div className="flex justify-center gap-4 mt-4">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handlePrevImage}
+                  disabled={lightboxImages.length <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleNextImage}
+                  disabled={lightboxImages.length <= 1}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

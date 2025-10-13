@@ -1,4 +1,4 @@
-// src/models/DailyProgress.ts - UPDATED: Added 'to-do' status, startDate, endDate, clientComments; Removed duration fields
+// src/models/DailyProgress.ts - UPDATED: Added linking fields to Project.siteSchedule
 import mongoose, { Schema, Model, Types } from 'mongoose';
 
 // Client comment interface for activity-specific client feedback
@@ -8,33 +8,37 @@ export interface IClientComment {
   userName: string;
   userRole: string;
   content: string;
-  attachments?: string[]; // S3 URLs for any attached images/files
+  attachments?: string[];
   createdAt: Date;
   updatedAt?: Date;
 }
 
+// UPDATED: Added linking fields
 export interface IDailyActivity {
   _id?: Types.ObjectId;
   title: string;
   description?: string;
   contractor: string;
   supervisor?: string;
-  // ADDED: Required start and end date-time fields
-  startDate: Date; // Required - when activity starts
-  endDate: Date;   // Required - when activity ends
-  // UPDATED: Added 'to-do' status
+  startDate: Date;
+  endDate: Date;
   status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
-  // REMOVED: estimatedDuration and actualDuration fields completely
-  plannedDate?: Date; // Legacy field - keeping for backward compatibility
-  actualDate?: Date;  // Legacy field - keeping for backward compatibility
-  comments?: string; // Internal manager/admin comments
-  // ADDED: Client comments array for client feedback
+  plannedDate?: Date;
+  actualDate?: Date;
+  comments?: string;
   clientComments?: IClientComment[];
-  images?: string[]; // S3 URLs for uploaded images
+  images?: string[];
   incidentReport?: string;
   progress?: number;
+  
+  // NEW: Link to Project.siteSchedule activities
+  linkedActivityId?: Types.ObjectId; // References Project.siteSchedule.phases[].activities[]._id
+  linkedPhaseId?: Types.ObjectId;    // References Project.siteSchedule.phases[]._id
+  linkedProjectId?: Types.ObjectId;  // References Project._id (redundant but useful for queries)
+  syncEnabled?: boolean;              // If true, updates sync to Project.siteSchedule
+  
   createdBy?: Types.ObjectId;
   updatedBy?: Types.ObjectId;
   createdAt?: Date;
@@ -48,7 +52,7 @@ export interface IDailySummary {
   pending: number;
   delayed: number;
   onHold?: number;
-  toDo?: number; // ADDED: Track to-do activities
+  toDo?: number;
   crewSize?: number;
 }
 
@@ -93,15 +97,15 @@ const clientCommentSchema = new Schema<IClientComment>({
     required: true,
     trim: true
   },
-  attachments: [String], // S3 URLs
+  attachments: [String],
   createdAt: {
     type: Date,
     default: Date.now
   },
   updatedAt: Date
-}, { timestamps: false }); // Disable automatic timestamps for sub-document
+}, { timestamps: false });
 
-// UPDATED: Daily activity schema with 'to-do' status added
+// UPDATED: Daily activity schema with linking fields
 const dailyActivitySchema = new Schema<IDailyActivity>({
   title: {
     type: String,
@@ -120,7 +124,6 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
     type: String,
     required: false
   },
-  // ADDED: Required start and end date-time
   startDate: {
     type: Date,
     required: true
@@ -129,7 +132,6 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
     type: Date,
     required: true
   },
-  // UPDATED: Added 'to-do' to status enum
   status: {
     type: String,
     enum: ['to-do', 'pending', 'in_progress', 'completed', 'delayed', 'on_hold'],
@@ -147,12 +149,11 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
     enum: ['structural', 'electrical', 'plumbing', 'finishing', 'other'],
     default: 'other'
   },
-  plannedDate: Date, // Legacy - keeping for backward compatibility
-  actualDate: Date,  // Legacy - keeping for backward compatibility
-  comments: String, // Internal comments
-  // ADDED: Client comments array
+  plannedDate: Date,
+  actualDate: Date,
+  comments: String,
   clientComments: [clientCommentSchema],
-  images: [String], // S3 URLs for images
+  images: [String],
   incidentReport: String,
   progress: {
     type: Number,
@@ -160,6 +161,28 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
     max: 100,
     default: 0
   },
+  
+  // NEW: Linking fields
+  linkedActivityId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Project', // References activity within Project.siteSchedule
+    required: false
+  },
+  linkedPhaseId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Project', // References phase within Project.siteSchedule
+    required: false
+  },
+  linkedProjectId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Project',
+    required: false
+  },
+  syncEnabled: {
+    type: Boolean,
+    default: false // Manual sync by default
+  },
+  
   createdBy: {
     type: Schema.Types.ObjectId,
     ref: 'User'
@@ -206,7 +229,6 @@ const dailyProgressSchema = new Schema<IDailyProgressDocument>({
       type: Number,
       default: 0
     },
-    // ADDED: toDo field for tracking to-do activities
     toDo: {
       type: Number,
       default: 0
@@ -245,12 +267,16 @@ dailyProgressSchema.index({ 'activities.category': 1 });
 dailyProgressSchema.index({ 'activities.startDate': 1 });
 dailyProgressSchema.index({ 'activities.endDate': 1 });
 
-// UPDATED: Pre-save middleware with 'to-do' status counting
+// NEW: Indexes for linked activities
+dailyProgressSchema.index({ 'activities.linkedActivityId': 1 });
+dailyProgressSchema.index({ 'activities.linkedPhaseId': 1 });
+dailyProgressSchema.index({ 'activities.linkedProjectId': 1 });
+
+// Pre-save middleware to update summary statistics
 dailyProgressSchema.pre('save', function(next) {
   if (this.activities && this.activities.length > 0) {
     const activities = this.activities;
     
-    // Update summary statistics including to-do
     this.summary.totalActivities = activities.length;
     this.summary.completed = activities.filter(a => a.status === 'completed').length;
     this.summary.inProgress = activities.filter(a => a.status === 'in_progress').length;
