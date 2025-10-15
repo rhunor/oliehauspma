@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import ActivityDetailModal from '@/components/ActivityDetailModal';
+import ActivityModal from '@/components/ActivityModal';
 import { useToast } from '@/hooks/use-toast';
 import {
   ChevronDown,
@@ -32,6 +32,27 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import type { Activity, Phase } from '@/types/activity';
+
+interface DailyActivity {
+  _id: string;
+  title: string;
+  description?: string;
+  contractor: string;
+  supervisor?: string;
+  startDate: string;
+  endDate: string;
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
+  comments?: string;
+  images?: string[];
+  progress?: number;
+  projectId?: string;
+  projectTitle?: string;
+  date?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 interface ProjectData {
   _id: string;
@@ -59,7 +80,9 @@ export default function ManagerProjectSchedulePage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Modal state
-  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<DailyActivity | null>(null);
+
+
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const fetchSchedule = useCallback(async () => {
@@ -113,10 +136,25 @@ export default function ManagerProjectSchedulePage() {
     setExpandedPhases(newExpanded);
   };
 
-  const handleActivityClick = (activityId: string) => {
-    setSelectedActivityId(activityId);
-    setIsModalOpen(true);
-  };
+const handleActivityClick = async (activityId: string) => {
+  try {
+    const response = await fetch(`/api/site-schedule/activity/${activityId}`, { cache: 'no-store' });
+    if (response.ok) {
+      const data = await response.json();
+      setSelectedActivity(data.data);
+      setIsModalOpen(true);
+    } else {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to load activity' });
+    }
+  } catch (error) {
+    console.error('Error fetching activity:', error);
+    toast({ variant: 'destructive', title: 'Error', description: 'Failed to load activity' });
+  }
+};
+
+const handleSuccess = useCallback(() => {
+  fetchSchedule(); // Refetch phases/project after update
+}, [fetchSchedule]);
 
   const handleActivityUpdated = (updatedActivity: Activity) => {
     // Update the activity in the local state
@@ -452,17 +490,16 @@ export default function ManagerProjectSchedulePage() {
       )}
 
       {/* Activity Detail Modal */}
-      {selectedActivityId && (
-        <ActivityDetailModal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setSelectedActivityId(null);
-          }}
-          projectId={params.id}
-          activityId={selectedActivityId}
-          onActivityUpdated={handleActivityUpdated}
-        />
+      { (
+        <ActivityModal
+  activity={selectedActivity}
+  isOpen={isModalOpen}
+  onClose={() => { setIsModalOpen(false); setSelectedActivity(null); }}
+  projectId={params.id}
+  date={selectedActivity?.date || new Date().toISOString().split('T')[0]} // Fallback to today
+  onSuccess={handleSuccess}
+  userRole="manager" // Or "manager"/"client" per file
+/>
       )}
     </div>
   );

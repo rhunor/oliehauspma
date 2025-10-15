@@ -1,6 +1,3 @@
-// src/app/(dashboard)/client/site-schedule/page.tsx
-// UPDATED: Added 'to-do' status support
-
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -24,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
+import ActivityModal from '@/components/ActivityModal';
 
 // UPDATED: TypeScript interfaces with 'to-do' status
 interface DailyActivity {
@@ -34,12 +32,15 @@ interface DailyActivity {
   supervisor?: string;
   startDate: string;
   endDate: string;
-  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold'; // UPDATED: Added 'to-do'
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   comments?: string;
   images?: string[];
   projectTitle: string;
   date: string;
+  projectId: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface ClientComment {
@@ -70,10 +71,14 @@ export default function ClientSiteSchedulePage() {
   const [submittingComment, setSubmittingComment] = useState<Record<string, boolean>>({});
   const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
 
+  // Modal state
+  const [selectedActivity, setSelectedActivity] = useState<DailyActivity | null>(null);
+  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+
   const fetchActivities = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/site-schedule/activities?manager=false');
+      const response = await fetch('/api/site-schedule/activities?manager=false', { cache: 'no-store' });
       
       if (response.ok) {
         const data = await response.json();
@@ -252,6 +257,15 @@ export default function ClientSiteSchedulePage() {
     }
   };
 
+  const handleActivityClick = (activity: DailyActivity) => {
+    setSelectedActivity(activity);
+    setIsActivityModalOpen(true);
+  };
+
+  const handleSuccess = useCallback(() => {
+    fetchActivities(); // Refetch after comment
+  }, [fetchActivities]);
+
   useEffect(() => {
     if (session) {
       fetchActivities();
@@ -266,7 +280,7 @@ export default function ClientSiteSchedulePage() {
       case 'pending': return 'bg-gray-100 text-gray-800';
       case 'delayed': return 'bg-red-100 text-red-800';
       case 'on_hold': return 'bg-yellow-100 text-yellow-800';
-      case 'to-do': return 'bg-purple-100 text-purple-800'; // ADDED
+      case 'to-do': return 'bg-purple-100 text-purple-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -327,224 +341,117 @@ export default function ClientSiteSchedulePage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {activities.map((activity) => {
-            const isExpanded = expandedActivity === activity._id;
-            const isLoadingComments = loadingComments[activity._id];
-            const isSubmitting = submittingComment[activity._id];
+          {activities.map((activity) => (
+            <Card key={activity._id} className="overflow-hidden cursor-pointer" onClick={() => handleActivityClick(activity)}>
+              <CardHeader className="bg-gray-50">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg">{activity.title}</CardTitle>
+                    <p className="text-sm text-gray-600 mt-1">{activity.projectTitle}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className={getStatusBadgeClass(activity.status)}>
+                      {activity.status.replace('_', ' ').replace('-', ' ')}
+                    </Badge>
+                  </div>
+                </div>
+              </CardHeader>
 
-            return (
-              <Card key={activity._id} className="overflow-hidden">
-                <CardHeader className="bg-gray-50">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-lg">{activity.title}</CardTitle>
-                      <p className="text-sm text-gray-600 mt-1">{activity.projectTitle}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className={getStatusBadgeClass(activity.status)}>
-                        {activity.status.replace('_', ' ').replace('-', ' ')}
-                      </Badge>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleActivity(activity._id)}
-                      >
-                        {isExpanded ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
-                      </Button>
+              <CardContent className="p-6">
+                {/* Activity Details */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="flex items-start gap-2">
+                    <User className="h-4 w-4 text-gray-400 mt-1" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Contractor</p>
+                      <p className="text-sm text-gray-900">{activity.contractor}</p>
                     </div>
                   </div>
-                </CardHeader>
 
-                <CardContent className="p-6">
-                  {/* Activity Details */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  {activity.supervisor && (
                     <div className="flex items-start gap-2">
                       <User className="h-4 w-4 text-gray-400 mt-1" />
                       <div>
-                        <p className="text-sm font-medium text-gray-600">Contractor</p>
-                        <p className="text-sm text-gray-900">{activity.contractor}</p>
+                        <p className="text-sm font-medium text-gray-600">Supervisor</p>
+                        <p className="text-sm text-gray-900">{activity.supervisor}</p>
                       </div>
                     </div>
+                  )}
 
-                    {activity.supervisor && (
-                      <div className="flex items-start gap-2">
-                        <User className="h-4 w-4 text-gray-400 mt-1" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Supervisor</p>
-                          <p className="text-sm text-gray-900">{activity.supervisor}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-start gap-2">
-                      <Clock className="h-4 w-4 text-gray-400 mt-1" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Start Date</p>
-                        <p className="text-sm text-gray-900">{formatDate(activity.startDate)}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <Clock className="h-4 w-4 text-gray-400 mt-1" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">End Date</p>
-                        <p className="text-sm text-gray-900">{formatDate(activity.endDate)}</p>
-                      </div>
+                  <div className="flex items-start gap-2">
+                    <Clock className="h-4 w-4 text-gray-400 mt-1" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Start Date</p>
+                      <p className="text-sm text-gray-900">{formatDate(activity.startDate)}</p>
                     </div>
                   </div>
 
-                  {activity.description && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-600 mb-1">Description</p>
-                      <p className="text-sm text-gray-700">{activity.description}</p>
+                  <div className="flex items-start gap-2">
+                    <Clock className="h-4 w-4 text-gray-400 mt-1" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">End Date</p>
+                      <p className="text-sm text-gray-900">{formatDate(activity.endDate)}</p>
                     </div>
-                  )}
+                  </div>
+                </div>
 
-                  {/* Activity Images */}
-                  {activity.images && activity.images.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-600 mb-2">Activity Images</p>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        {activity.images.map((imageUrl, index) => (
-                          <div key={index} className="relative w-full h-32">
-                            <Image
-                              src={imageUrl}
-                              alt={`Activity image ${index + 1}`}
-                              fill
-                              className="object-cover rounded border"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                {activity.description && (
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-gray-600 mb-1">Description</p>
+                    <p className="text-sm text-gray-700">{activity.description}</p>
+                  </div>
+                )}
 
-                  {activity.comments && (
-                    <div className="mb-4 p-3 bg-gray-50 rounded">
-                      <p className="text-sm font-medium text-gray-600 mb-1">Internal Notes</p>
-                      <p className="text-sm text-gray-700">{activity.comments}</p>
-                    </div>
-                  )}
-
-                  {/* Comments Section */}
-                  {isExpanded && (
-                    <div className="mt-6 pt-6 border-t">
-                      <div className="flex items-center gap-2 mb-4">
-                        <MessageSquare className="h-5 w-5 text-gray-600" />
-                        <h3 className="text-lg font-semibold">
-                          Comments ({activity.totalComments})
-                        </h3>
-                      </div>
-
-                      {/* Comments List */}
-                      {isLoadingComments ? (
-                        <div className="flex justify-center py-8">
-                          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-                        </div>
-                      ) : (
-                        <div className="space-y-4 mb-6">
-                          {activity.clientComments.length === 0 ? (
-                            <p className="text-sm text-gray-500 text-center py-4">
-                              No comments yet. Be the first to comment!
-                            </p>
-                          ) : (
-                            activity.clientComments.map((comment) => (
-                              <div key={comment._id} className="flex gap-3">
-                                <Avatar className="h-8 w-8 flex-shrink-0">
-                                  <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
-                                    {getInitials(comment.userName)}
-                                  </AvatarFallback>
-                                </Avatar>
-
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div>
-                                      <p className="text-sm font-medium text-gray-900">
-                                        {comment.userName}
-                                      </p>
-                                      <p className="text-xs text-gray-500">
-                                        {formatDate(comment.createdAt)}
-                                      </p>
-                                    </div>
-
-                                    {comment.userId === session?.user?.id && (
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleDeleteComment(activity._id, comment._id)}
-                                        className="h-6 w-6 p-0"
-                                      >
-                                        <X className="h-4 w-4 text-gray-400 hover:text-red-600" />
-                                      </Button>
-                                    )}
-                                  </div>
-
-                                  <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap break-words">
-                                    {comment.content}
-                                  </p>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
-
-                      {/* Add Comment Form */}
-                      <div className="flex gap-3">
-                        <Avatar className="h-8 w-8 flex-shrink-0">
-                          <AvatarFallback className="bg-gray-100 text-gray-600 text-xs">
-                            {session?.user?.name ? getInitials(session.user.name) : 'U'}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        <div className="flex-1">
-                          <Textarea
-                            placeholder="Add a comment..."
-                            value={commentText[activity._id] || ''}
-                            onChange={(e) => setCommentText(prev => ({
-                              ...prev,
-                              [activity._id]: e.target.value
-                            }))}
-                            rows={3}
-                            className="resize-none"
-                            maxLength={1000}
+                {/* Activity Images */}
+                {activity.images && activity.images.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-gray-600 mb-2">Activity Images</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {activity.images.map((imageUrl, index) => (
+                        <div key={index} className="relative w-full h-32">
+                          <Image
+                            src={imageUrl}
+                            alt={`Activity image ${index + 1}`}
+                            fill
+                            className="object-cover rounded border"
                           />
-                          <div className="flex items-center justify-between mt-2">
-                            <p className="text-xs text-gray-500">
-                              {(commentText[activity._id] || '').length}/1000
-                            </p>
-                            <Button
-                              onClick={() => handleSubmitComment(activity._id)}
-                              disabled={!commentText[activity._id]?.trim() || isSubmitting}
-                              size="sm"
-                            >
-                              {isSubmitting ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Posting...
-                                </>
-                              ) : (
-                                <>
-                                  <Send className="h-4 w-4 mr-2" />
-                                  Post Comment
-                                </>
-                              )}
-                            </Button>
-                          </div>
                         </div>
-                      </div>
+                      ))}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+                  </div>
+                )}
+
+                {activity.comments && (
+                  <div className="mb-4 p-3 bg-gray-50 rounded">
+                    <p className="text-sm font-medium text-gray-600 mb-1">Internal Notes</p>
+                    <p className="text-sm text-gray-700">{activity.comments}</p>
+                  </div>
+                )}
+
+                {/* Comments Section (moved to modal; placeholder) */}
+                <div className="mt-6 pt-6 border-t">
+                  <div className="flex items-center gap-2 mb-4">
+                    <MessageSquare className="h-5 w-5 text-gray-600" />
+                    <h3 className="text-lg font-semibold">Comments ({activity.totalComments})</h3>
+                  </div>
+                  <p className="text-sm text-gray-500">Click to view and add comments</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
+
+      {/* Modal */}
+      <ActivityModal
+        activity={selectedActivity}
+        isOpen={isActivityModalOpen}
+        onClose={() => setIsActivityModalOpen(false)}
+        projectId={selectedActivity?.projectId || ''}
+        date={selectedActivity?.date || ''}
+        onSuccess={handleSuccess}
+        userRole="client"
+      />
     </div>
   );
 }

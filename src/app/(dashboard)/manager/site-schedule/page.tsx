@@ -1,4 +1,3 @@
-// src/app/(dashboard)/manager/site-schedule/page.tsx - FIXED: Fully responsive layout
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -23,18 +22,31 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatDate } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import ActivityModal from '@/components/ActivityModal';
 
 interface SiteActivity {
   _id: string;
   title: string;
+  description?: string;
   contractor: string;
-  plannedDate: string;
-  actualDate?: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
-  comments?: string;
   supervisor?: string;
+  startDate: string;
+  endDate: string;
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  comments?: string;
+  images?: string[];
+  category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
   projectId: string;
   projectTitle: string;
+  date: string;
+  actualDate?: string;
+  plannedDate?: string;
+  assignedTo?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface ManagerProject {
@@ -52,6 +64,8 @@ const getStatusColor = (status: string): string => {
     case 'in_progress': return 'bg-blue-100 text-blue-800';
     case 'pending': return 'bg-yellow-100 text-yellow-800';
     case 'delayed': return 'bg-red-100 text-red-800';
+    case 'on_hold': return 'bg-yellow-100 text-yellow-800';
+    case 'to-do': return 'bg-purple-100 text-purple-800';
     default: return 'bg-gray-100 text-gray-800';
   }
 };
@@ -62,6 +76,7 @@ const getStatusIcon = (status: string) => {
     case 'in_progress': return <Clock className="h-4 w-4 text-blue-500" />;
     case 'pending': return <Clock className="h-4 w-4 text-gray-400" />;
     case 'delayed': return <AlertTriangle className="h-4 w-4 text-red-500" />;
+    case 'to-do': return <Calendar className="h-4 w-4 text-purple-500" />;
     default: return <Clock className="h-4 w-4 text-gray-400" />;
   }
 };
@@ -76,6 +91,10 @@ export default function ManagerSiteSchedulePage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Modal state
+  const [selectedActivity, setSelectedActivity] = useState<SiteActivity | null>(null);
+  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
@@ -88,7 +107,7 @@ export default function ManagerSiteSchedulePage() {
       }
 
       // Fetch site schedule activities for manager's projects
-      const activitiesResponse = await fetch('/api/site-schedule/activities?manager=true');
+      const activitiesResponse = await fetch('/api/site-schedule/activities?manager=true', { cache: 'no-store' });
       if (activitiesResponse.ok) {
         const activitiesData = await activitiesResponse.json();
         setActivities(activitiesData.data || []);
@@ -128,8 +147,17 @@ export default function ManagerSiteSchedulePage() {
     completed: filteredActivities.filter(a => a.status === 'completed').length,
     inProgress: filteredActivities.filter(a => a.status === 'in_progress').length,
     delayed: filteredActivities.filter(a => a.status === 'delayed').length,
-    pending: filteredActivities.filter(a => a.status === 'pending').length,
+    pending: filteredActivities.filter(a => a.status === 'pending' || a.status === 'to-do').length,
   };
+
+  const handleActivityClick = (activity: SiteActivity) => {
+    setSelectedActivity(activity);
+    setIsActivityModalOpen(true);
+  };
+
+  const handleSuccess = useCallback(() => {
+    fetchData(); // Refetch after update
+  }, [fetchData]);
 
   if (loading) {
     return (
@@ -264,6 +292,7 @@ export default function ManagerSiteSchedulePage() {
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="delayed">Delayed</SelectItem>
+                  <SelectItem value="to-do">To-Do</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -296,7 +325,7 @@ export default function ManagerSiteSchedulePage() {
           ) : (
             <div className="divide-y divide-gray-100">
               {filteredActivities.map((activity) => (
-                <div key={activity._id} className="p-4 hover:bg-gray-50 transition-colors">
+                <div key={activity._id} className="p-4 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => handleActivityClick(activity)}>
                   <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                     {/* FIXED: Responsive activity content */}
                     <div className="flex-1 min-w-0">
@@ -324,7 +353,7 @@ export default function ManagerSiteSchedulePage() {
                         </div>
                         <div>
                           <span className="font-medium">Planned Date:</span>
-                          <p>{formatDate(new Date(activity.plannedDate))}</p>
+                          <p>{formatDate(new Date(activity.plannedDate || activity.date))}</p>
                         </div>
                         <div className="truncate">
                           <span className="font-medium">Supervisor:</span>
@@ -350,12 +379,10 @@ export default function ManagerSiteSchedulePage() {
 
                     {/* FIXED: Responsive action buttons */}
                     <div className="flex items-center gap-2 lg:flex-col lg:gap-1 flex-shrink-0">
-                      <Link href={`/manager/projects/${activity.projectId}/schedule`} className="flex-1 sm:flex-none">
-                        <Button variant="outline" size="sm" className="w-full sm:w-auto">
-                          <Eye className="h-4 w-4 sm:mr-2" />
-                          <span className="hidden sm:inline">View</span>
-                        </Button>
-                      </Link>
+                      <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={(e) => { e.stopPropagation(); handleActivityClick(activity); }}>
+                        <Eye className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">View</span>
+                      </Button>
                       <Link href={`/manager/site-schedule/activity/${activity._id}/edit`} className="flex-1 sm:flex-none">
                         <Button variant="outline" size="sm" className="w-full sm:w-auto">
                           <Edit className="h-4 w-4 sm:mr-2" />
@@ -389,6 +416,17 @@ export default function ManagerSiteSchedulePage() {
           </Link>
         </div>
       </div>
+
+      {/* Modal */}
+      <ActivityModal
+        activity={selectedActivity}
+        isOpen={isActivityModalOpen}
+        onClose={() => setIsActivityModalOpen(false)}
+        projectId={selectedActivity?.projectId || ''}
+        date={selectedActivity?.date || ''}
+        onSuccess={handleSuccess}
+        userRole="manager"
+      />
     </div>
   );
 }

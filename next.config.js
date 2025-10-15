@@ -64,6 +64,12 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+       {
+        protocol: 'https',
+        hostname: process.env.AWS_S3_BUCKET_NAME?.split('.')[0] || 'your-bucket.s3.amazonaws.com', // e.g., 'mybucket.s3.us-east-1.amazonaws.com'
+        port: '',
+        pathname: '/**',
+      },
     ],
     formats: ['image/webp', 'image/avif'],
     minimumCacheTTL: 3600, // 1 hour
