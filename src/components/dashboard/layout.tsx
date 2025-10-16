@@ -3,13 +3,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSocket } from '@/contexts/SocketContext';
 import { NotificationBell } from '@/components/notifications/NotificationSystem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,9 @@ import {
   MoreHorizontal
 } from 'lucide-react';
 
+// NEXT.JS FONT: must be called at module scope
+const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], weight: ['400', '500', '600', '700'] });
+
 interface NavItem {
   name: string;
   href: string;
@@ -55,6 +59,7 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
   const socket = useSocket();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [messageStats, setMessageStats] = useState<MessageStats>({ unreadCount: 0 });
@@ -63,6 +68,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const userRole = session?.user?.role || '';
   const userName = session?.user?.name || '';
   const userEmail = session?.user?.email || '';
+
+  const roleLabel = userRole === 'super_admin' ? 'Admin' : userRole === 'project_manager' ? 'Manager' : 'Client';
 
   // Get role-specific settings route
   const getSettingsRoute = useCallback(() => {
@@ -174,11 +181,24 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navItems = getNavItems();
 
-  const handleSignOut = async () => {
-    if (socket?.disconnect) {
-      socket.disconnect();
+  const handleSignOut = async (): Promise<void> => {
+    try {
+      if (socket?.disconnect) {
+        socket.disconnect();
+      }
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const target = origin ? `${origin}/login` : '/login';
+      await signOut({ callbackUrl: target, redirect: true });
+      // Fallback navigation in case NextAuth doesn't redirect immediately (local dev)
+      setTimeout(() => {
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          router.replace('/login');
+        }
+      }, 300);
+    } catch {
+      // Force navigation as a last resort
+      router.replace('/login');
     }
-    await signOut({ callbackUrl: '/login' });
   };
 
   const handleSocketToggle = () => {
@@ -204,7 +224,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const { primaryItems, overflowItems, hasOverflow } = getBottomNavItems();
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className={`${jakarta.className} min-h-screen bg-gray-50 flex flex-col`}>
       {/* Mobile sidebar overlay - Only visible on larger screens now */}
       {isSidebarOpen && (
         <div 
@@ -225,7 +245,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 </div>
               </div>
               <div className="ml-3">
-                <p className="text-sm font-medium text-gray-900">Project Manager</p>
+                <p className="text-sm font-medium text-gray-900">{roleLabel}</p>
               </div>
             </div>
           </div>
@@ -296,61 +316,63 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Top navigation - Updated for mobile-first */}
         <header className="sticky top-0 z-40 bg-white shadow-sm border-b lg:block">
-          <div className="flex h-16 items-center justify-between px-4 lg:px-6">
+          <div className="mx-auto w-full max-w-7xl">
+            <div className="flex h-16 items-center justify-between px-4 lg:px-8">
             {/* Mobile: Logo and app name, Desktop: Search */}
-            <div className="flex items-center lg:flex-1">
-              <div className="lg:hidden flex items-center">
-                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
-                  <span className="text-white font-bold text-lg">P</span>
-                </div>
-                <span className="font-semibold text-gray-900">Project Manager</span>
-              </div>
-              {/* Desktop search can go here */}
-            </div>
-
-            {/* Right section - Notifications and User menu */}
-            <div className="flex items-center space-x-4">
-              <NotificationBell />
-
-              {/* User menu */}
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-blue-600 text-white">
-                        {userName.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
-                  <div className="flex flex-col space-y-1 p-2">
-                    <p className="text-sm font-medium leading-none">{userName}</p>
-                    <p className="text-xs leading-none text-muted-foreground">
-                      {userEmail}
-                    </p>
+              <div className="flex items-center lg:flex-1">
+                <div className="lg:hidden flex items-center">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                    <span className="text-white font-bold text-lg">P</span>
                   </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href={getSettingsRoute()}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      <span>Settings</span>
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSignOut}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    <span>Log out</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  <span className="font-semibold text-gray-900">{roleLabel}</span>
+                </div>
+                {/* Desktop search can go here */}
+              </div>
+
+              {/* Right section - Notifications and User menu */}
+              <div className="flex items-center space-x-4">
+                <NotificationBell />
+
+                {/* User menu */}
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback className="bg-blue-600 text-white">
+                          {userName.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56" align="end" forceMount>
+                    <div className="flex flex-col space-y-1 p-2">
+                      <p className="text-sm font-medium leading-none">{userName}</p>
+                      <p className="text-xs leading-none text-muted-foreground">
+                        {userEmail}
+                      </p>
+                    </div>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href={getSettingsRoute()}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        <span>Settings</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      <span>Log out</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </div>
         </header>
 
         {/* Main content */}
         <main className="flex-1 overflow-auto pb-20 lg:pb-6">
-          <div className="px-4 py-6 lg:px-6">
+          <div className="mx-auto w-full max-w-7xl px-4 lg:px-8 py-6">
             {children}
           </div>
         </main>

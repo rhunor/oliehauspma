@@ -624,39 +624,43 @@ async function ManagerDashboard() {
               subtitle="Documents & Media"
             />
 
-            {/* Team Management Card */}
-            <MobileDashboardCard
-              title="Team Overview"
-              description="Manage clients and project assignments"
-              href="/manager/team"
-              icon={Users}
-              color="red"
-              stats={{ 
-                value: stats.clientCount, 
-                label: "Active Clients" 
-              }}
-              subtitle="Team Management"
-            />
+            {/* Team Management Card removed: route /manager/team does not exist */}
           </div>
         </div>
 
-        {/* Enhanced Header for desktop */}
-       <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
-  <div className="flex items-center justify-between">
-    <div>
-      <h2 className="text-3xl font-bold mb-2 text-gray-900">
-        Welcome back, {session.user.name}!
-      </h2>
-      <p className="text-gray-600">
-        Manage your projects and keep clients updated with real-time progress
-      </p>
-    </div>
-    <div className="text-right">
-      <p className="text-2xl font-bold text-gray-900">{stats.totalProjects}</p>
-      <p className="text-gray-600 text-sm">Total Projects</p>
-    </div>
-  </div>
-</div>
+        {/* Enhanced Header for desktop - modern SaaS neutral card */}
+        <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight mb-2 text-gray-900">
+                Welcome back, {session.user.name}!
+              </h2>
+              <p className="text-gray-600">
+                Manage your projects and keep clients updated
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-gray-900">{stats.totalProjects}</p>
+              <p className="text-gray-600 text-sm">Total Projects</p>
+            </div>
+          </div>
+        </div>
+
+        {/* KPI Row - desktop only */}
+        <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Active Projects</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.activeProjects}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Scheduled Tasks</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{workSchedule.totalTasks}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Recent Files</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{recentFiles.length}</p>
+          </div>
+        </div>
 
         {/* Updated Dashboard Cards with new features (desktop only) */}
         <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

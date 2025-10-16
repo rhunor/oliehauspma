@@ -654,39 +654,43 @@ async function AdminDashboard() {
               subtitle="Document Management"
             />
 
-            {/* Database Management Card */}
-            <MobileDashboardCard
-              title="Database Health"
-              description="Monitor database performance and integrity"
-              href="/admin/database"
-              icon={Database}
-              color="red"
-              stats={{ 
-                value: "98%", 
-                label: "DB Performance" 
-              }}
-              subtitle="System Health"
-            />
+            {/* Database Management Card removed: route /admin/database does not exist */}
           </div>
         </div>
 
-        {/* Enhanced Header for desktop */}
-      <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
-  <div className="flex items-center justify-between">
-    <div>
-      <h2 className="text-3xl font-bold mb-2 text-gray-900">
-        Welcome back, {session.user.name}!
-      </h2>
-      <p className="text-gray-600">
-        Oversee all system operations and maintain platform performance
-      </p>
-    </div>
-    <div className="text-right">
-      <p className="text-2xl font-bold text-gray-900"> {stats.totalUsers} </p>
-      <p className="text-gray-600 text-sm">Total Users</p>
-    </div>
-  </div>
-</div>
+        {/* Enhanced Header for desktop - modern SaaS neutral card */}
+        <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight mb-2 text-gray-900">
+                Welcome back, {session.user.name}!
+              </h2>
+              <p className="text-gray-600">
+                Oversee all system operations and maintain platform performance
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
+              <p className="text-gray-600 text-sm">Total Users</p>
+            </div>
+          </div>
+        </div>
+
+        {/* KPI Row - desktop only */}
+        <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Active Projects</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.activeProjects}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">System Health</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.systemHealth.status}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Response Time</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.systemHealth.responseTime}ms</p>
+          </div>
+        </div>
 
         {/* Updated Dashboard Cards with new features (desktop only) */}
         <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -195,6 +195,13 @@ export default function ActivityModal({
                   (session?.user?.role as 'super_admin' | 'project_manager' | 'client' | undefined) === 'project_manager' ||
                   userRole === 'admin' || userRole === 'manager';
 
+  // Admin-only delete capability
+  const canDelete = (session?.user?.role as 'super_admin' | 'project_manager' | 'client' | undefined) === 'super_admin' || userRole === 'admin';
+
+  // Delete confirmation modal state
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const currentImages = (activity?.images || []).filter((url) => !imagesToDelete.includes(url));
 
   // Initialize form
@@ -422,6 +429,30 @@ export default function ActivityModal({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightboxOpen, handlePrevImage, handleNextImage]);
+
+  // Delete activity handler (admin only)
+  const handleDeleteActivity = useCallback(async (): Promise<void> => {
+    if (!activity || !canDelete) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/site-schedule/activity/${activity._id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to delete activity' }));
+        throw new Error(errorData.error || 'Failed to delete activity');
+      }
+      toast({ title: 'Deleted', description: 'Activity deleted successfully' });
+      setConfirmDeleteOpen(false);
+      onClose();
+      onSuccess();
+    } catch (error) {
+      console.error('Error deleting activity:', error);
+      toast({ variant: 'destructive', title: 'Error', description: error instanceof Error ? error.message : 'Failed to delete activity' });
+    } finally {
+      setDeleting(false);
+    }
+  }, [activity, canDelete, toast, onClose, onSuccess]);
 
   if (!activity) return null;
 
@@ -731,6 +762,26 @@ export default function ActivityModal({
                 <X className="h-4 w-4 mr-2" />
                 Close
               </Button>
+              {canDelete && !editMode && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => setConfirmDeleteOpen(true)}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Activity
+                    </>
+                  )}
+                </Button>
+              )}
               {canEdit && !editMode && (
                 <Button type="button" variant="outline" onClick={() => setEditMode(true)}>
                   <Edit className="h-4 w-4 mr-2" />
@@ -754,6 +805,27 @@ export default function ActivityModal({
               )}
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">Delete activity?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the activity and remove its data.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setConfirmDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleDeleteActivity} disabled={deleting}>
+              {deleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

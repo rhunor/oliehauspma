@@ -1121,21 +1121,37 @@ export default async function ClientDashboardPage() {
           </div>
         </div>
 
-        {/* Enhanced Header for desktop */}
-        <div className="hidden lg:block bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-6 text-white">
+        {/* Enhanced Header for desktop - modern SaaS neutral card */}
+        <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-3xl font-bold mb-2">
+              <h2 className="text-3xl font-bold tracking-tight mb-2 text-gray-900">
                 Welcome back, {session.user.name}!
               </h2>
-              <p className="text-blue-100">
-                Monitor your project progress and stay updated with real-time information
+              <p className="text-gray-600">
+                Monitor your project progress and stay updated in one place
               </p>
             </div>
             <div className="text-right">
-              <p className="text-2xl font-bold">{stats.activeProjects}</p>
-              <p className="text-blue-100 text-sm">Active Projects</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.activeProjects}</p>
+              <p className="text-gray-600 text-sm">Active Projects</p>
             </div>
+          </div>
+        </div>
+
+        {/* KPI Row - desktop only */}
+        <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Scheduled Tasks</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{workSchedule.totalTasks}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Recent Files</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{recentFiles.length}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+            <p className="text-xs text-gray-500">Completed Tasks</p>
+            <p className="mt-1 text-xl font-semibold text-gray-900">{completedTasks.length}</p>
           </div>
         </div>
 
