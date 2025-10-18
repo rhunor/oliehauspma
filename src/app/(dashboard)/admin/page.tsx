@@ -31,6 +31,9 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { formatDate, formatTimeAgo } from '@/lib/utils';
 import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
+import MetricCard from '@/components/ui/MetricCard';
+import type { ApiResponse, RoleDistributionItem, StatusItem as AdminStatusItem, SystemMetric as AdminSystemMetric, RecentActivityItem } from '@/types/dashboard';
+import os from 'os';
 
 // Helper function to format time from date string (proper TypeScript)
 function formatTime(dateString: string): string {
@@ -522,6 +525,35 @@ function AdminDashboardLoading() {
   );
 }
 
+// Desktop-only average progress gauge
+async function AdminAverageProgress() {
+  const { db } = await connectToDatabase();
+  type Doc = { progress?: number };
+  const projects = await db.collection<Doc>('projects').find({}, { projection: { progress: 1 } }).toArray();
+  const percent = projects.length > 0
+    ? Math.round(projects.reduce((sum, p) => sum + (p.progress || 0), 0) / projects.length)
+    : 0;
+
+  return (
+    <div className="flex items-center justify-center py-6">
+      <div className="relative h-40 w-40">
+        <div
+          className="absolute inset-0 rounded-full"
+          style={{
+            background: `conic-gradient(rgb(16 185 129) ${percent * 3.6}deg, rgb(226 232 240) 0deg)`,
+          }}
+        />
+        <div className="absolute inset-3 rounded-full bg-white flex items-center justify-center shadow-inner">
+          <div className="text-center">
+            <p className="text-3xl font-semibold text-emerald-700">{percent}%</p>
+            <p className="text-xs text-slate-500">Project Ended</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Main Dashboard Component
 async function AdminDashboard() {
   const session = await getServerSession(authOptions);
@@ -658,354 +690,138 @@ async function AdminDashboard() {
           </div>
         </div>
 
-        {/* Enhanced Header for desktop - modern SaaS neutral card */}
-        <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight mb-2 text-gray-900">
-                Welcome back, {session.user.name}!
-              </h2>
-              <p className="text-gray-600">
-                Oversee all system operations and maintain platform performance
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
-              <p className="text-gray-600 text-sm">Total Users</p>
-            </div>
-          </div>
-        </div>
+        {/* Desktop-only new dashboard layout matching reference */}
+        {(() => {
+          const pendingCount = (stats.projectsByStatus['planning'] || 0) + (stats.projectsByStatus['on_hold'] || 0);
+          const metrics = [
+            { label: 'Total Projects', value: stats.totalProjects, href: '/admin/projects' },
+            { label: 'Total Users', value: stats.totalUsers, href: '/admin/users' },
+            { label: 'Running Projects', value: stats.activeProjects, href: '/admin/projects?status=in_progress' },
+            { label: 'Pending Projects', value: pendingCount, href: '/admin/projects?status=planning' },
+          ];
+          const roleDist: { label: string; count: number; color: string }[] = [
+            { label: 'Admins', count: stats.usersByRole.super_admin, color: 'bg-emerald-600' },
+            { label: 'Managers', count: stats.usersByRole.project_manager, color: 'bg-sky-600' },
+            { label: 'Clients', count: stats.usersByRole.client, color: 'bg-purple-600' },
+          ];
+          const statusItems = Object.entries(stats.projectsByStatus).map(([status, count]) => ({ status, count }));
 
-        {/* KPI Row - desktop only */}
-        <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Active Projects</p>
-            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.activeProjects}</p>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
-            <p className="text-xs text-gray-500">System Health</p>
-            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.systemHealth.status}</p>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Response Time</p>
-            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.systemHealth.responseTime}ms</p>
-          </div>
-        </div>
+          const totalUsers = Math.max(1, stats.totalUsers);
+          const memPercent = (() => { try { const mu = process.memoryUsage(); return Math.min(100, Math.round((mu.rss / os.totalmem()) * 100)); } catch { return 0; } })();
+          const cpuPercent = (() => { try { const load = os.loadavg()[0]; return Math.max(0, Math.min(100, Math.round((load / (os.cpus().length || 1)) * 100))); } catch { return 0; } })();
+          const sys = [
+            { label: 'CPU', value: cpuPercent },
+            { label: 'Memory', value: memPercent },
+            { label: 'Uptime', value: 100 },
+          ];
 
-        {/* Updated Dashboard Cards with new features (desktop only) */}
-        <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <DashboardCard
-            title="User Management"
-            description="Manage users, roles, and permissions across the platform"
-            href="/admin/users"
-            icon={Users}
-            color="blue"
-            stats={{ value: stats.totalUsers, label: "Total Users" }}
-          />
-          
-          <DashboardCard
-            title="System Analytics"
-            description="Monitor system performance, usage metrics, and reports"
-            href="/admin/analytics"
-            icon={BarChart3}
-            color="green"
-            stats={{ value: stats.totalProjects, label: "Total Projects" }}
-          />
-          
-          <DashboardCard
-            title="Project Overview"
-            description="View and manage all projects across the platform"
-            href="/admin/projects"
-            icon={FolderOpen}
-            color="purple"
-            stats={{ value: stats.activeProjects, label: "Active Projects" }}
-          />
-        </div>
-
-        {/* Key Metrics Cards - Mobile responsive grid */}
-        <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {/* Total Users */}
-          <Card className="hover:shadow-md transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Users</p>
-                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.totalUsers}</p>
-                  <p className="text-xs text-blue-600 mt-1">
-                    {stats.totalClients} clients, {stats.totalManagers} managers
-                  </p>
-                </div>
-                <Users className="h-8 w-8 text-blue-600" />
+          return (
+            <div className="hidden lg:flex lg:flex-col gap-6">
+              {/* Top metrics row */}
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                {metrics.map(m => (
+                  <MetricCard key={m.label} metric={{ label: m.label, value: m.value, href: m.href }} />
+                ))}
               </div>
-            </CardContent>
-          </Card>
 
-          {/* Active Projects */}
-          <Card className="hover:shadow-md transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Active Projects</p>
-                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.activeProjects}</p>
-                  <p className="text-xs text-green-600 mt-1">
-                    {stats.completedProjects} completed
-                  </p>
-                </div>
-                <FolderOpen className="h-8 w-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* System Health */}
-          <Card className="hover:shadow-md transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div className="w-full">
-                  <p className="text-sm font-medium text-gray-600">System Health</p>
-                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.systemHealth.uptime}</p>
-                  <div className="mt-2">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <span className="text-xs text-green-600">Healthy</span>
-                    </div>
-                  </div>
-                </div>
-                <Shield className="h-8 w-8 text-purple-600 ml-4" />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Response Time */}
-          <Card className="hover:shadow-md transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Avg Response</p>
-                  <p className="text-2xl sm:text-3xl font-bold text-gray-900">{stats.systemHealth.responseTime}ms</p>
-                  <p className="text-xs text-green-600 mt-1">
-                    Performance good
-                  </p>
-                </div>
-                <TrendingUp className="h-8 w-8 text-orange-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Dashboard Grid - DESKTOP ONLY */}
-        <div className="hidden lg:grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - System Overview */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* User Distribution */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <Users className="h-5 w-5 text-blue-600" />
-                  User Distribution
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Project Managers</span>
-                    <span className="font-semibold text-green-600">{stats.usersByRole.project_manager}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Clients</span>
-                    <span className="font-semibold text-purple-600">{stats.usersByRole.client}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Project Status Distribution */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-green-600" />
-                  Project Status
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {Object.entries(stats.projectsByStatus).map(([status, count]) => (
-                    <div key={status} className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <Badge className={getStatusColor(status)}>
-                          {status.replace('_', ' ')}
-                        </Badge>
-                      </div>
-                      <span className="font-semibold text-gray-900">{count}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Actions */}
-            <Card className="bg-white border border-gray-100 shadow-sm">
-  <CardHeader>
-    <CardTitle className="text-lg font-semibold flex items-center gap-2 text-gray-900">
-      <Settings className="h-5 w-5 text-gray-600" />
-      Quick Actions
-    </CardTitle>
-  </CardHeader>
-  <CardContent className="space-y-3">
-    <Link href="/admin/users/new">
-      <Button className="w-full justify-start bg-blue-600 hover:bg-blue-700 text-white">
-        <PlusCircle className="h-4 w-4 mr-2" />
-        Create New User
-      </Button>
-    </Link>
-    
-    <Link href="/admin/analytics">
-      <Button variant="outline" className="w-full justify-start border-gray-200 hover:bg-gray-50">
-        <BarChart3 className="h-4 w-4 mr-2" />
-        View Analytics
-      </Button>
-    </Link>
-
-    <Link href="/admin/settings">
-      <Button variant="outline" className="w-full justify-start border-gray-200 hover:bg-gray-50">
-        <Settings className="h-4 w-4 mr-2" />
-        System Settings
-      </Button>
-    </Link>
-  </CardContent>
-</Card>
-          </div>
-
-          {/* Right Column - Recent Activity */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Recent Activities */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-green-600" />
-                  Recent Activities
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {stats.recentActivities.length > 0 ? (
-                  <div className="space-y-4">
-                    {stats.recentActivities.slice(0, 6).map((activity) => (
-                      <div key={activity._id} className="flex items-start gap-3">
-                        <div className="flex-shrink-0 mt-1">
-                          {getActivityIcon(activity.type)}
+              {/* Middle row: System metrics, Project Status, User Distribution */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* System Metrics with striped bars */}
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Project Analytics</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-3 gap-4">
+                      {sys.map((s) => (
+                        <div key={s.label}>
+                          <p className="text-sm text-slate-500">{s.label}</p>
+                          <div className="mt-3 h-24 w-full rounded-md bg-[repeating-linear-gradient(45deg,rgba(16,185,129,0.15),rgba(16,185,129,0.15)_8px,rgba(16,185,129,0.05)_8px,rgba(16,185,129,0.05)_16px)] flex items-end">
+                            <div className="w-full bg-emerald-600 rounded-md" style={{ height: `${s.value}%` }} />
+                          </div>
+                          <p className="mt-2 text-sm font-medium text-emerald-700">{s.value}%</p>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {activity.title}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {activity.description}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            {formatTimeAgo(activity.timestamp)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-4">
-                    <Clock className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">No recent activities</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
 
-            {/* Recent Users */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <Users className="h-5 w-5 text-purple-600" />
-                  Recent Users
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {recentUsers.length > 0 ? (
-                  <div className="space-y-3">
-                    {recentUsers.slice(0, 5).map((user) => (
-                      <div key={user._id} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50">
-                        <div className="flex-shrink-0">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <span className="text-xs font-medium text-blue-600">
-                              {user.name.charAt(0).toUpperCase()}
-                            </span>
+                {/* Project Status List (Reminders replacement) */}
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Project Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                      {statusItems.map((it) => (
+                        <div key={it.status as string} className="flex items-center justify-between">
+                          <span className="capitalize text-slate-700">{(it.status as string).replace('_', ' ')}</span>
+                          <Badge variant="secondary">{it.count as number}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* User Distribution */}
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">User Distribution</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {roleDist.map((r) => (
+                        <div key={r.label}>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">{r.label}</span>
+                            <span className="font-medium">{r.count}</span>
+                          </div>
+                          <div className="mt-2 h-2 rounded-full bg-slate-100">
+                            <div className={`${r.color} h-2 rounded-full`} style={{ width: `${Math.round((r.count / totalUsers) * 100)}%` }} />
                           </div>
                         </div>
-                        <div className="flex-grow min-w-0">
-                          <Link href={`/admin/users/${user._id}`}>
-                            <p className="text-sm font-medium text-gray-900 truncate hover:text-blue-600">
-                              {user.name}
-                            </p>
-                          </Link>
-                          <div className="flex items-center space-x-2">
-                            <p className="text-xs text-gray-500 truncate">
-                              {user.email}
-                            </p>
-                            <Badge variant="secondary" className="text-xs">
-                              {user.role.replace('_', ' ')}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Joined {formatTimeAgo(new Date(user.createdAt))}
-                          </p>
-                        </div>
-                        <div className="flex-shrink-0">
-                          <div className={`w-2 h-2 rounded-full ${
-                            user.isActive ? 'bg-green-500' : 'bg-gray-300'
-                          }`}></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <Users className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600">No recent users</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* System Metrics */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-orange-600" />
-                  System Metrics
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {systemMetrics.map((metric) => (
-                    <div key={metric._id} className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">{metric.name}</p>
-                        <p className="text-xs text-gray-500">
-                          Last updated: {formatTimeAgo(new Date(metric.timestamp))}
-                        </p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-lg font-bold text-gray-900">
-                          {metric.value}{metric.unit}
-                        </span>
-                        <div className={`w-2 h-2 rounded-full ${
-                          metric.status === 'good' ? 'bg-green-500' :
-                          metric.status === 'warning' ? 'bg-yellow-500' :
-                          'bg-red-500'
-                        }`}></div>
-                      </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Bottom row: Recent Activities and Progress */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="lg:col-span-2 shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Recent Activities</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4 max-h-64 overflow-y-auto">
+                      {stats.recentActivities.map((activity, index) => (
+                        <div key={index} className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            {getActivityIcon(activity.type)}
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{activity.title}</p>
+                              <p className="text-xs text-slate-500">{activity.description}</p>
+                            </div>
+                          </div>
+                          <span className="text-xs text-slate-500">{formatTimeAgo(activity.timestamp)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Project Progress</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <AdminAverageProgress />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Floating AI Chatbot */}

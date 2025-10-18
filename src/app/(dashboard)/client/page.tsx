@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { formatDate, formatTimeAgo } from '@/lib/utils';
 import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
+import MetricCard from '@/components/ui/MetricCard';
 
 // Helper function to format time from date string (proper TypeScript)
 function formatTime(dateString: string): string {
@@ -1019,9 +1020,13 @@ export default async function ClientDashboardPage() {
             </p>
           </div>
           
-          {/* Work Schedule Widget in top-right corner (desktop only) */}
-          <div className="hidden lg:block flex-shrink-0">
-            <WorkScheduleWidget workSchedule={workSchedule} />
+          {/* Desktop action button only (Schedule widget removed by request) */}
+          <div className="hidden lg:flex items-center gap-3 flex-shrink-0">
+            <Link href="/client/site-schedule">
+              <Button className="min-h-[44px]">
+                Today&apos;s Tasks
+              </Button>
+            </Link>
           </div>
         </div>
 
@@ -1155,56 +1160,97 @@ export default async function ClientDashboardPage() {
           </div>
         </div>
 
-        {/* Updated Dashboard Cards with new features (desktop only) */}
-        <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <DashboardCard
-            title="Daily Activities"
-            description="View daily progress reports, incident reports, and risk assessments"
-            href="/client/daily-reports"
-            icon={Activity}
-            color="green"
-            stats={{ value: stats.activeProjects, label: "Active Reports" }}
-          />
-          
-          <DashboardCard
-            title="Site Schedule"
-            description="Monitor project timeline, milestones, and upcoming activities"
-            href="/client/site-schedule"
-            icon={Calendar}
-            color="blue"
-            stats={{ value: workSchedule.totalTasks, label: "Scheduled Tasks" }}
-          />
-          
-          <DashboardCard
-            title="Project Milestones"
-            description="Track construction, installation, and styling phases"
-            href="/client/projects"
-            icon={Target}
-            color="purple"
-            stats={{ value: activeProject?.milestoneProgress.currentPhase || 0, label: "Current Phase" }}
-          />
-        </div>
+        {/* Desktop-only layout matching reference */}
+        {(() => {
+          const pendingProjects = Math.max(0, stats.totalProjects - stats.activeProjects - stats.completedProjects);
+          const metrics = [
+            { label: 'Total Projects', value: stats.totalProjects, href: '/client/projects' },
+            { label: 'Daily Activities', value: workSchedule.completedToday, href: '/client/daily-reports' },
+            { label: 'Running Projects', value: stats.activeProjects, href: '/client/projects?status=in_progress' },
+            { label: 'Pending Projects', value: pendingProjects, href: '/client/projects?status=planning' },
+          ];
+          return (
+            <div className="hidden lg:flex lg:flex-col gap-6">
+              {/* Top metrics */}
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                {metrics.map(m => (
+                  <MetricCard key={m.label} metric={m} />
+                ))}
+              </div>
 
-        {/* Dashboard Grid - FULL ORIGINAL FUNCTIONALITY (desktop only) */}
-        <div className="hidden lg:grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Project Status and Comments */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Project Status with Milestone Tracking */}
-            <ProjectStatusCard activeProject={activeProject} />
-            
-            {/* AI Assistant */}
-            <AIAssistantCard />
-          </div>
+              {/* Middle row */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Recent Updates</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <RecentUpdatesCard updates={recentUpdates} />
+                  </CardContent>
+                </Card>
 
-          {/* Right Column - Activity Feed and Recent Files */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Recent Updates */}
-            <RecentUpdatesCard updates={recentUpdates} />
-            
-            {/* Recent Files */}
-            <RecentFilesCard files={recentFiles} />
-          </div>
-        </div>
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Project Milestones</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ProjectStatusCard activeProject={activeProject} />
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Site Schedule</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <WorkScheduleWidget workSchedule={workSchedule} />
+                    <div className="mt-3 text-right">
+                      <Link href="/client/site-schedule" className="text-sm text-emerald-700 hover:underline">View Full Schedule</Link>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Bottom row */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="lg:col-span-2 shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Recent Files</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <RecentFilesCard files={recentFiles} />
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Current Project Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-center py-6">
+                      <div className="relative h-40 w-40">
+                        {(() => {
+                          const percent = activeProject?.progress ?? 0;
+                          return (
+                            <>
+                              <div className="absolute inset-0 rounded-full" style={{ background: `conic-gradient(rgb(16 185 129) ${percent * 3.6}deg, rgb(226 232 240) 0deg)` }} />
+                              <div className="absolute inset-3 rounded-full bg-white flex items-center justify-center shadow-inner">
+                                <div className="text-center">
+                                  <p className="text-3xl font-semibold text-emerald-700">{percent}%</p>
+                                  <p className="text-xs text-slate-500">In Progress</p>
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          );
+        })()}
         
       </div>
 {/* Floating AI Chatbot - FIXED: Responsive positioning for mobile bottom nav */}

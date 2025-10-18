@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { formatDate, formatTimeAgo } from '@/lib/utils';
 import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
+import MetricCard from '@/components/ui/MetricCard';
 
 // Helper function to format time from date string (proper TypeScript)
 function formatTime(dateString: string): string {
@@ -662,198 +663,124 @@ async function ManagerDashboard() {
           </div>
         </div>
 
-        {/* Updated Dashboard Cards with new features (desktop only) */}
-        <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <DashboardCard
-            title="Project Management"
-            description="View, create, and manage all your assigned projects"
-            href="/manager/projects"
-            icon={FolderOpen}
-            color="blue"
-            stats={{ value: stats.totalProjects, label: "Total Projects" }}
-          />
-          
-          <DashboardCard
-            title="Site Schedule"
-            description="Monitor project timeline, milestones, and daily activities"
-            href="/manager/site-schedule"
-            icon={Calendar}
-            color="green"
-            stats={{ value: workSchedule.totalTasks, label: "Scheduled Tasks" }}
-          />
-          
-          <DashboardCard
-            title="Team Analytics"
-            description="Track project performance and team productivity metrics"
-            href="/manager/analytics"
-            icon={BarChart3}
-            color="purple"
-            stats={{ value: stats.averageProgress, label: "Avg Progress %" }}
-          />
-        </div>
+        {/* Desktop-only layout matching reference */}
+        {(() => {
+          const pending = Math.max(0, stats.totalProjects - stats.activeProjects - stats.completedProjects);
+          const metrics = [
+            { label: 'Total Projects', value: stats.totalProjects, href: '/manager/projects' },
+            { label: 'Ended Projects', value: stats.completedProjects, href: '/manager/projects?status=completed' },
+            { label: 'Running Projects', value: stats.activeProjects, href: '/manager/projects?status=in_progress' },
+            { label: 'Pending Projects', value: pending, href: '/manager/projects?status=planning' },
+          ];
+          return (
+            <div className="hidden lg:flex lg:flex-col gap-6">
+              {/* Top metrics */}
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                {metrics.map(m => (<MetricCard key={m.label} metric={m} />))}
+              </div>
 
-        {/* Dashboard Grid - DESKTOP ONLY */}
-        <div className="hidden lg:grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Key Metrics */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Key Metrics Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-green-600" />
-                  Key Metrics
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4 text-center">
-                  <div>
-                    <div className="text-2xl font-bold text-blue-600">{stats.activeProjects}</div>
-                    <div className="text-sm text-gray-500">Active Projects</div>
-                  </div>
-                  
-                  <div>
-                    <div className="text-2xl font-bold text-green-600">{stats.completedProjects}</div>
-                    <div className="text-sm text-gray-500">Completed</div>
-                  </div>
-                  
-                  <div>
-                    <div className="text-2xl font-bold text-orange-600">{stats.clientCount}</div>
-                    <div className="text-sm text-gray-500">Active Clients</div>
-                  </div>
-                  
-                  <div>
-                    <div className="text-2xl font-bold text-purple-600">{stats.averageProgress}%</div>
-                    <div className="text-sm text-gray-500">Avg Progress</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Actions */}
-            <Card className="bg-gradient-to-br from-purple-50 to-indigo-50 border-purple-200">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <Target className="h-5 w-5 text-purple-600" />
-                  Quick Actions
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Link href="/manager/projects/new">
-                  <Button className="w-full justify-start bg-purple-600 hover:bg-purple-700 text-white">
-                    <PlusCircle className="h-4 w-4 mr-2" />
-                    Create New Project
-                  </Button>
-                </Link>
-                
-                <Link href="/manager/site-schedule">
-                  <Button variant="outline" className="w-full justify-start">
-                    <Calendar className="h-4 w-4 mr-2" />
-                    View Schedule
-                  </Button>
-                </Link>
-
-                <Link href="/manager/messages">
-                  <Button variant="outline" className="w-full justify-start">
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    Check Messages
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right Column - Recent Activity */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Recent Projects */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <FolderOpen className="h-5 w-5 text-blue-600" />
-                  Recent Projects
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {recentProjects.length > 0 ? (
-                  <div className="space-y-3">
-                    {recentProjects.slice(0, 5).map((project) => (
-                      <div key={project._id} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50">
-                        <div className="flex-shrink-0">
-                          <div className={`w-3 h-3 rounded-full ${
-                            project.status === 'completed' ? 'bg-green-500' :
-                            project.status === 'in_progress' ? 'bg-blue-500' :
-                            'bg-yellow-500'
-                          }`}></div>
-                        </div>
-                        <div className="flex-grow min-w-0">
-                          <Link href={`/manager/projects/${project._id}`}>
-                            <p className="text-sm font-medium text-gray-900 truncate hover:text-blue-600">
-                              {project.title}
-                            </p>
-                          </Link>
-                          <p className="text-xs text-gray-500 truncate">
-                            Client: {project.clientName}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {formatTimeAgo(new Date(project.updatedAt))}
-                          </p>
-                        </div>
-                        <div className="flex-shrink-0">
-                          <Badge variant="secondary" className="text-xs">
-                            {project.progress}%
-                          </Badge>
-                        </div>
+              {/* Middle row: Recent Projects, Key Metrics, Site Schedule */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Recent Projects */}
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Recent Projects</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {recentProjects.length > 0 ? (
+                      <div className="space-y-3 max-h-56 overflow-y-auto">
+                        {recentProjects.slice(0, 6).map((project) => (
+                          <div key={project._id} className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <Link href={`/manager/projects/${project._id}`} className="text-sm font-medium text-slate-900 hover:underline truncate block">{project.title}</Link>
+                              <p className="text-xs text-slate-500 truncate">Client: {project.clientName}</p>
+                            </div>
+                            <Badge variant="secondary" className="ml-3">{project.progress}%</Badge>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <FolderOpen className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600">No projects yet</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    ) : (
+                      <p className="text-sm text-slate-500">No projects yet</p>
+                    )}
+                  </CardContent>
+                </Card>
 
-            {/* Recent Files */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-purple-600" />
-                  Recent Files
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {recentFiles.length > 0 ? (
-                  <div className="space-y-3">
-                    {recentFiles.slice(0, 5).map((file) => (
-                      <div key={file._id} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50">
-                        <div className="flex-shrink-0">
-                          <FileText className="h-5 w-5 text-blue-500" />
-                        </div>
-                        <div className="flex-grow min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {file.originalName}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {file.projectTitle} • {file.uploadedBy.name}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {formatTimeAgo(new Date(file.createdAt))}
-                          </p>
-                        </div>
+                {/* Key Metrics */}
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Key Metrics</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4 text-center">
+                      <div>
+                        <div className="text-2xl font-bold text-emerald-700">{stats.averageProgress}%</div>
+                        <div className="text-xs text-slate-500">Avg Progress</div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <FileText className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600">No recent files</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+                      <div>
+                        <div className="text-2xl font-bold text-sky-700">{stats.clientCount}</div>
+                        <div className="text-xs text-slate-500">Active Clients</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Site Schedule */}
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Site Schedule</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-sm text-slate-600 mb-3">Scheduled Tasks: {workSchedule.totalTasks}</div>
+                    <Link href="/manager/site-schedule" className="text-sm text-emerald-700 hover:underline">View Full Schedule</Link>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Bottom row: Recent Files and Quick Actions */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="lg:col-span-2 shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Recent Files</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {recentFiles.length > 0 ? (
+                      <div className="space-y-3 max-h-56 overflow-y-auto">
+                        {recentFiles.slice(0, 6).map((file) => (
+                          <div key={file._id} className="flex items-center justify-between">
+                            <span className="text-sm text-slate-700 truncate">{file.originalName}</span>
+                            <span className="text-xs text-slate-500 ml-3">{file.projectTitle}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">No recent files</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Quick Actions</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Link href="/manager/projects/new">
+                      <Button className="w-full justify-start">
+                        <PlusCircle className="h-4 w-4 mr-2" />
+                        Create Project
+                      </Button>
+                    </Link>
+                    <Link href="/manager/messages">
+                      <Button variant="outline" className="w-full justify-start">
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        Review Messages
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Welcome Message for New Managers */}
         {stats.totalProjects === 0 && (

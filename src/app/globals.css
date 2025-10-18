@@ -949,7 +949,7 @@
   position: fixed !important;
   bottom: 2rem !important;
   right: 2rem !important;
-  z-index: 2147483647 !important;
+  z-index: 1000 !important;
   pointer-events: auto !important;
   isolation: isolate !important;
 }
@@ -957,7 +957,10 @@
 /* Mobile adjustment - move above bottom navigation */
 @media (max-width: 1023px) {
   .floating-ai-button-container {
-    bottom: 6rem !important; /* 96px - moves it above the 4rem bottom nav */
+    bottom: 7.5rem !important; /* keep above bottom nav by default */
+  }
+  .mobile-more-open .floating-ai-button-container {
+    bottom: 11.5rem !important; /* lift when More menu is open */
   }
 }
 

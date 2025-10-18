@@ -7,6 +7,8 @@ import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL;
+
 export const metadata: Metadata = {
   title: {
     default: "OliveHaus PPMA - Project Management",
@@ -28,11 +30,11 @@ export const metadata: Metadata = {
     },
   ],
   creator: "Ighoshemu John Rhunor",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  metadataBase: siteUrl ? new URL(siteUrl) : undefined,
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: process.env.NEXT_PUBLIC_APP_URL,
+    url: siteUrl || undefined,
     title: "OliveHaus PPMA - Project Management",
     description: "Private Project Management Web Application for OliveHaus Interior",
     siteName: "OliveHaus PPMA",

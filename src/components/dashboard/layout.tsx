@@ -36,6 +36,7 @@ import {
   Power,
   MoreHorizontal
 } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 // NEXT.JS FONT: must be called at module scope
 const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], weight: ['400', '500', '600', '700'] });
@@ -223,6 +224,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const { primaryItems, overflowItems, hasOverflow } = getBottomNavItems();
 
+  // Raise AI button on mobile when More menu is open
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    if (showMoreMenu) {
+      root.classList.add('mobile-more-open');
+    } else {
+      root.classList.remove('mobile-more-open');
+    }
+  }, [showMoreMenu]);
+
   return (
     <div className={`${jakarta.className} min-h-screen bg-gray-50 flex flex-col`}>
       {/* Mobile sidebar overlay - Only visible on larger screens now */}
@@ -234,7 +246,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       )}
 
       {/* Desktop Sidebar - Hidden on mobile, shown on desktop */}
-      <div className={`hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-50 lg:w-64 lg:bg-white lg:shadow-lg lg:flex lg:flex-col`}>
+      <div className={`hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-50 lg:w-64 lg:bg-white lg:shadow-md lg:flex lg:flex-col`}>
         <div className="flex flex-col w-full">
           {/* Sidebar header */}
           <div className="flex items-center justify-between h-16 px-6 bg-white border-b">
@@ -281,10 +293,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               );
             })}
           </nav>
-
-          {/* Socket connection status */}
-          <div className="px-4 py-4 border-t">
-            <div className={`flex items-center justify-between px-3 py-2 text-xs rounded-lg ${
+          {/* Bottom actions: settings/logout + connection badge */}
+          <div className="px-4 py-4 border-t space-y-2">
+            <Link href={getSettingsRoute()} className="flex items-center px-2 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-50">
+              <Settings className="mr-3 h-4 w-4 text-gray-500" />
+              <span>Settings</span>
+            </Link>
+            <button onClick={handleSignOut} className="w-full flex items-center px-2 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-50">
+              <LogOut className="mr-3 h-4 w-4 text-gray-500" />
+              <span>Logout</span>
+            </button>
+            <div className={`mt-2 flex items-center justify-between px-3 py-2 text-xs rounded-lg ${
               socket?.isConnected 
                 ? 'bg-green-100 text-green-800 border border-green-200' 
                 : 'bg-gray-100 text-gray-600 border border-gray-200'
@@ -299,7 +318,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   {socket?.isConnected ? 'Real-time' : 'Offline'}
                 </span>
               </div>
-              
               <button
                 onClick={handleSocketToggle}
                 className="p-1 rounded hover:bg-white/50 transition-colors"
@@ -326,45 +344,34 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   </div>
                   <span className="font-semibold text-gray-900">{roleLabel}</span>
                 </div>
-                {/* Desktop search can go here */}
+                {/* Desktop search */}
+                <div className="hidden lg:flex items-center w-full max-w-md ml-4">
+                  <div className="relative w-full">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="search"
+                      placeholder="Search task"
+                      className="w-full rounded-full border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Right section - Notifications and User menu */}
               <div className="flex items-center space-x-4">
                 <NotificationBell />
-
-                {/* User menu */}
-                <DropdownMenu modal={false}>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="bg-blue-600 text-white">
-                          {userName.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-56" align="end" forceMount>
-                    <div className="flex flex-col space-y-1 p-2">
-                      <p className="text-sm font-medium leading-none">{userName}</p>
-                      <p className="text-xs leading-none text-muted-foreground">
-                        {userEmail}
-                      </p>
-                    </div>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href={getSettingsRoute()}>
-                        <Settings className="mr-2 h-4 w-4" />
-                        <span>Settings</span>
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleSignOut}>
-                      <LogOut className="mr-2 h-4 w-4" />
-                      <span>Log out</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* User identity (desktop) */}
+                <div className="hidden lg:flex items-center space-x-3 rounded-full border border-slate-200 bg-white px-3 py-1 shadow-sm">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-emerald-600 text-white">
+                      {userName.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="leading-tight">
+                    <p className="text-sm font-medium text-slate-900">{userName || 'User'}</p>
+                    <p className="text-xs text-slate-500">{userEmail || 'user@example.com'}</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -438,6 +445,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                         <Settings className="mr-2 h-4 w-4" />
                         <span>Settings</span>
                       </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setShowMoreMenu(false); handleSignOut(); }}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      <span>Log out</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

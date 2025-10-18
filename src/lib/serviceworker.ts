@@ -117,6 +117,11 @@ export const isSubscribedToPush = async (
 export const initServiceWorker = async (): Promise<void> => {
   if (typeof window !== 'undefined' && isSupported()) {
     try {
+      // In development, only register if explicitly enabled
+      if (process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_ENABLE_SW !== 'true') {
+        console.warn('Service worker disabled in development. Set NEXT_PUBLIC_ENABLE_SW=true to enable.');
+        return;
+      }
       await registerServiceWorker();
     } catch (error) {
       console.error('Failed to initialize service worker:', error);
