@@ -130,6 +130,7 @@ export async function connectToMongoose(): Promise<typeof mongoose> {
     }
 
     const conn = await mongoose.connect(MONGODB_URI!, {
+      dbName: MONGODB_DB, // Ensure Mongoose uses the same DB name as MongoClient
       // Mongoose-specific optimizations
       bufferCommands: false, // Disable mongoose buffering
       maxPoolSize: 5,
@@ -147,7 +148,10 @@ export async function connectToMongoose(): Promise<typeof mongoose> {
 
     isConnected = conn.connection.readyState === 1;
     
-    console.log('✅ Connected to MongoDB via Mongoose successfully');
+    console.log('✅ Connected to MongoDB via Mongoose successfully', {
+      dbName: conn.connection.name,
+      host: conn.connection.host,
+    });
     return mongoose;
     
   } catch (mongooseError: unknown) {
