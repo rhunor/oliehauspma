@@ -147,13 +147,17 @@ export async function GET(request: NextRequest) {
         hasNext: skip + limit < total,
         hasPrev: skip > 0
       }
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+      }
     });
 
   } catch (error) {
     console.error("Error fetching activities:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 }

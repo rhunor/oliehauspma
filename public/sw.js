@@ -1,5 +1,5 @@
 // public/sw.js - Fixed Service Worker Syntax Error
-const CACHE_NAME = 'olivehaus-pm-v1';
+const CACHE_NAME = 'olivehaus-pm-v2';
 const urlsToCache = [
   '/',
   '/login',
@@ -21,34 +21,58 @@ self.addEventListener('install', function(event) {
 
 // Fetch event - serve from cache when offline
 self.addEventListener('fetch', function(event) {
-  event.respondWith(
-    caches.match(event.request)
-      .then(function(response) {
-        // Cache hit - return response
-        if (response) {
-          return response;
-        }
+  const request = event.request;
+  const url = new URL(request.url);
 
-        return fetch(event.request).then(
-          function(response) {
-            // Check if we received a valid response
-            if(!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
+  // 1) Never cache non-GET requests
+  if (request.method !== 'GET') {
+    return; // Let the browser handle it (network only)
+  }
 
-            // Clone the response
-            var responseToCache = response.clone();
+  // 2) Never cache API requests; always go to network
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
-            caches.open(CACHE_NAME)
-              .then(function(cache) {
-                cache.put(event.request, responseToCache);
-              });
+  // 3) Cache strategy for static assets only
+  const isStaticAsset = (
+    url.pathname.startsWith('/_next/') ||
+    url.pathname.startsWith('/static/') ||
+    /\.(?:png|jpg|jpeg|gif|webp|svg|css|js|woff2?|ico)$/i.test(url.pathname)
+  );
 
-            return response;
-          }
-        );
+  if (isStaticAsset) {
+    // Cache-first for immutable/static assets
+    event.respondWith(
+      caches.match(request).then(function(response) {
+        if (response) return response;
+        return fetch(request).then(function(networkResponse) {
+          if (!networkResponse || networkResponse.status !== 200) return networkResponse;
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then(function(cache) {
+            cache.put(request, responseToCache);
+          });
+          return networkResponse;
+        });
       })
     );
+    return;
+  }
+
+  // 4) For HTML/doc requests, use network-first with cache fallback
+  event.respondWith(
+    fetch(request).then(function(networkResponse) {
+      // Cache a copy for offline support
+      const responseToCache = networkResponse.clone();
+      caches.open(CACHE_NAME).then(function(cache) {
+        cache.put(request, responseToCache);
+      });
+      return networkResponse;
+    }).catch(function() {
+      return caches.match(request);
+    })
+  );
 });
 
 // Activate event - clean up old caches

@@ -66,13 +66,17 @@ export async function GET(request: NextRequest) {
           toDo: 0 // ADDED: Include to-do count
         }
       }
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+      }
     });
 
   } catch (error) {
     console.error("Error fetching daily progress:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 }
@@ -89,8 +93,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Only project managers and super admins can add activities
-    if (session.user.role !== 'project_manager' && session.user.role !== 'super_admin') {
+    // Only project managers and super admins can add activities (allow legacy 'admin')
+    if (!['project_manager', 'super_admin', 'admin'].includes(session.user.role)) {
       return NextResponse.json(
         { error: "Only project managers and admins can add activities" },
         { status: 403 }
@@ -241,8 +245,8 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Only project managers and super admins can update activities
-    if (session.user.role !== 'project_manager' && session.user.role !== 'super_admin') {
+    // Only project managers and super admins can update activities (allow legacy 'admin')
+    if (!['project_manager', 'super_admin', 'admin'].includes(session.user.role)) {
       return NextResponse.json(
         { error: "Only project managers and admins can update activities" },
         { status: 403 }

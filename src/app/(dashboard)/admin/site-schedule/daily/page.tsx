@@ -174,7 +174,8 @@ export default function AdminDailySchedulePage() {
     try {
       setLoading(true);
       const response = await fetch(
-        `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate}`
+        `/api/site-schedule/daily?projectId=${selectedProject}&date=${selectedDate}`,
+        { cache: 'no-store' }
       );
 
       if (response.ok) {
@@ -317,7 +318,8 @@ export default function AdminDailySchedulePage() {
         setImagePreview([]);
           toast({ title: 'Success', description: 'Activity added successfully' });
     } else {
-      throw new Error('Failed to add activity');
+      const err = await response.json().catch(() => null);
+      throw new Error(err?.error || 'Failed to add activity');
     }
   } catch (error)  {
       console.error('Error adding activity:', error);

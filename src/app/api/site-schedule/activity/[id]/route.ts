@@ -282,7 +282,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   return handleApiError(async () => {
-    const { error: authError, session } = await validateAuth(['project_manager', 'super_admin']);
+    const { error: authError, session } = await validateAuth(['project_manager', 'super_admin', 'admin']);
     if (authError || !session) return authError!;
 
     await connectToMongoose();
@@ -399,7 +399,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   return handleApiError(async () => {
-    const { error: authError, session } = await validateAuth(['project_manager', 'super_admin']);
+    const { error: authError, session } = await validateAuth(['project_manager', 'super_admin', 'admin']);
     if (authError || !session) return authError!;
 
     await connectToMongoose();

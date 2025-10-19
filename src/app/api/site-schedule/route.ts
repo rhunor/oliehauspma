@@ -66,13 +66,17 @@ export async function GET(request: NextRequest) {
         totalActivities: 0,
         completedActivities: 0
       }
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+      }
     });
 
   } catch (error) {
     console.error("Error fetching site schedule:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 }
