@@ -1,6 +1,6 @@
 // src/app/api/tasks/[id]/comments/route.ts - ENHANCED COMMENTS API (FIXED)
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 

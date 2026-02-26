@@ -2,7 +2,7 @@
 // NEW API: Fetch all daily progress entries for a project
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToMongoose } from '@/lib/db';
 import DailyProgress from '@/models/DailyProgress';
 import { Types } from 'mongoose';

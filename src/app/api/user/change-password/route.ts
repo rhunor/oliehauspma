@@ -1,6 +1,6 @@
 // src/app/api/user/change-password/route.ts - CHANGE PASSWORD API WITH PROPER TYPES
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { hashPassword, verifyPassword } from '@/lib/auth';

@@ -1,6 +1,6 @@
 // src/app/(dashboard)/client/page.tsx - PROPERLY CORRECTED: Follows original project structure
 import { Suspense } from 'react';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import { redirect } from 'next/navigation';

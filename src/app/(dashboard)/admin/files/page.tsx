@@ -1,5 +1,5 @@
 // src/app/(dashboard)/admin/files/page.tsx - FIXED SERVER COMPONENT
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import FilesClient from '@/components/files/FilesClient';

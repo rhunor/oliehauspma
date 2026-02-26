@@ -1,6 +1,6 @@
 // src/app/api/notifications/[id]/route.ts - Mark notification as read/unread
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 

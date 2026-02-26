@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadFileToS3, validateFileType, validateFileSize, generateFileKey } from '@/lib/s3';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { validateFile, sanitizeFilename } from '@/lib/file-validation';
 import { rateLimit, rateLimitPresets } from '@/lib/rate-limit';
 import { logInfo, logError, logAudit } from '@/lib/logger';

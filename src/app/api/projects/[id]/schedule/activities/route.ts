@@ -1,6 +1,6 @@
 // src/app/api/projects/[id]/schedule/activities/route.ts - NEW ACTIVITIES API
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 

@@ -2,7 +2,7 @@
 // Create this as a separate file: src/app/api/analytics/client/dashboard/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 

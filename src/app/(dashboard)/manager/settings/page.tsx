@@ -1,5 +1,5 @@
 // src/app/(dashboard)/manager/settings/page.tsx - MANAGER SETTINGS PAGE
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import SettingsClient from '@/components/settings/SettingsClient'
 
 export default async function ManagerSettingsPage() {

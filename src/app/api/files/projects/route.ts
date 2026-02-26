@@ -1,6 +1,6 @@
 // src/app/api/files/projects/route.ts - FIXED: NO ANY TYPES, PROPER PROJECT RETRIEVAL
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { getUserUploadableProjects } from '@/lib/file-permissions';
 
 // FIXED: Proper interface for API response

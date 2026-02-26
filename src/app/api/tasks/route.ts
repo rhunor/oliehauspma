@@ -1,6 +1,6 @@
 // src/app/api/tasks/route.ts - Final Fixed Version with Proper MongoDB Types
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { createTaskSchema } from '@/lib/validation';
 import { ObjectId, Filter } from 'mongodb';

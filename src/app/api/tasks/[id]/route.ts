@@ -1,6 +1,6 @@
 // src/app/api/tasks/[id]/route.ts - Individual Task Operations
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { updateTaskSchema } from '@/lib/validation';
 import { ObjectId, Filter } from 'mongodb';

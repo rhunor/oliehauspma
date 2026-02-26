@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import type { ApiResponse, SystemMetric } from '@/types/dashboard';
 import os from 'os';
 

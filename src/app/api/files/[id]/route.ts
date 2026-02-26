@@ -1,6 +1,6 @@
 // src/app/api/files/[id]/route.ts - FIXED File Management with backward compatibility
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { deleteFileFromS3 } from '@/lib/s3';

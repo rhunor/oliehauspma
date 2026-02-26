@@ -1,6 +1,6 @@
 // src/app/api/analytics/manager/export/route.ts - FIXED ANALYTICS EXPORT WITH PDF GENERATION
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 

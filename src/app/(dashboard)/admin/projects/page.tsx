@@ -1,6 +1,6 @@
 // src/app/(dashboard)/admin/projects/page.tsx
 import { Suspense } from 'react';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import ProjectsList from '@/components/projects/ProjectsList';

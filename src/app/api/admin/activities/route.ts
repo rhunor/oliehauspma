@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import type { ObjectId } from 'mongodb';
 import type { ApiResponse, RecentActivityItem } from '@/types/dashboard';

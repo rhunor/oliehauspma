@@ -1,5 +1,5 @@
 // src/app/(dashboard)/manager/messages/page.tsx - FIXED WITH CLIENT COMMUNICATION
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import MessagesClient from '@/components/messaging/MessagesClient';
 
 export default async function ManagerMessagesPage() {

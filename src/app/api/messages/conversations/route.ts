@@ -1,6 +1,6 @@
 // src/app/api/messages/conversations/route.ts - ENHANCED WITH BETTER ERROR HANDLING
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { getAvailableContacts } from '@/lib/messaging-permissions';

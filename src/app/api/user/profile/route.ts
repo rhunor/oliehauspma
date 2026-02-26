@@ -1,6 +1,6 @@
 // src/app/api/user/profile/route.ts - USER PROFILE API WITH PROPER TYPES
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { updateProfileSchema } from '@/lib/validation';

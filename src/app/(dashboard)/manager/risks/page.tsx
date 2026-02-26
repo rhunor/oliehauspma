@@ -1,5 +1,5 @@
 // src/app/(dashboard)/manager/risks/page.tsx
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';

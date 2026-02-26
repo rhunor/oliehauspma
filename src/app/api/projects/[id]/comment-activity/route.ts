@@ -1,6 +1,6 @@
 // src/app/api/projects/[id]/comment-activity/route.ts - Get recent comment activity for project
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 

@@ -1,6 +1,6 @@
 // src/app/api/calendar/[id]/route.ts - Individual Calendar Event Operations
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Db, Filter } from 'mongodb';
 import { z } from 'zod';

@@ -1,6 +1,6 @@
 // src/app/(dashboard)/manager/projects/page.tsx - FIXED WITH PROPER SERIALIZATION
 import { Suspense } from 'react';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import ProjectsList from '@/components/projects/ProjectsList';

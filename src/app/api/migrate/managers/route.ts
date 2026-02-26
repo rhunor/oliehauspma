@@ -2,7 +2,7 @@
 // Migration API route - Access via: http://localhost:3000/api/migrate/managers
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 

@@ -1,6 +1,6 @@
 // src/app/api/files/route.ts - Updated with Cloud Storage and Security
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { uploadFileToS3, generateFileKey, validateFileType, validateFileSize } from '@/lib/s3';

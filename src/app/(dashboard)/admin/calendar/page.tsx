@@ -1,5 +1,5 @@
 // src/app/(dashboard)/admin/calendar/page.tsx - NEW CALENDAR PAGE
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import CalendarClient from '@/components/calendar/CalendarClient';

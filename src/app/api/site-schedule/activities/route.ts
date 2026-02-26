@@ -2,7 +2,7 @@
 // UPDATED: Added 'to-do' status support
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth, authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { connectToMongoose } from "@/lib/db";
 import DailyProgress, { IDailyActivity } from "@/models/DailyProgress";
 import Project from "@/models/Project";

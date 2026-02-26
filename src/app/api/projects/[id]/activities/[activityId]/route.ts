@@ -3,7 +3,7 @@
 // FIXED: Proper Next.js 15 inline params typing
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { connectToMongoose } from '@/lib/db';
 import Project from '@/models/Project';
 import { Types } from 'mongoose';
