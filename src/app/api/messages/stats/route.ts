@@ -1,7 +1,6 @@
 // src/app/api/messages/stats/route.ts - Improved Message Statistics API
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter, UpdateFilter } from 'mongodb';
 
@@ -58,7 +57,7 @@ interface ConversationStatsResult {
 // GET /api/messages/stats - Get comprehensive message statistics
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,
@@ -256,7 +255,7 @@ export async function GET(request: NextRequest) {
 // POST /api/messages/stats/mark-read - Mark messages as read
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,
@@ -350,7 +349,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/messages/stats/refresh - Force refresh message stats
 export async function PUT() {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,

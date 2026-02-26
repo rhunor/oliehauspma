@@ -1,7 +1,6 @@
 // src/app/api/chatbot/route.ts - FIXED: MULTIPLE FREE AI MODELS WITH FALLBACK SYSTEM
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -92,7 +91,7 @@ export async function GET(): Promise<NextResponse<{ message: string; availableMo
 // Main POST handler for chatbot requests
 export async function POST(request: NextRequest): Promise<NextResponse<ChatbotApiResponse>> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     // Authentication check
     if (!session?.user?.id) {

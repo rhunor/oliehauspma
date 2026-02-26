@@ -1,6 +1,5 @@
 // src/app/(dashboard)/client/files/page.tsx - FIXED WITH PROPER UPLOAD FUNCTIONALITY
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import FilesClient from '@/components/files/FilesClient';
@@ -203,7 +202,7 @@ async function getFilesData(userId: string, _userRole: string): Promise<FilesDat
 }
 
 export default async function ClientFilesPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'client') {
     return (

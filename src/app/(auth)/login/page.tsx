@@ -224,13 +224,12 @@ export default function LoginPage() {
                 <span className="ml-2 text-sm text-gray-700">Remember me</span>
               </label>
 
-              <button
-                type="button"
-                className="text-sm text-gray-700 hover:text-gray-900 font-medium"
-                disabled={isLoading}
+              <Link
+                href="/forgot-password"
+                className="text-sm text-soft-sage hover:text-sage-green font-medium transition-colors"
               >
                 Forgot password?
-              </button>
+              </Link>
             </div>
 
             {/* Error Message */}

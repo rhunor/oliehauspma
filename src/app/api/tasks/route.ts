@@ -1,7 +1,6 @@
 // src/app/api/tasks/route.ts - Final Fixed Version with Proper MongoDB Types
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { createTaskSchema } from '@/lib/validation';
 import { ObjectId, Filter } from 'mongodb';
@@ -140,7 +139,7 @@ interface TaskFilterQuery {
 // GET /api/tasks - Retrieve tasks with filtering and pagination
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 
@@ -316,7 +315,7 @@ export async function GET(request: NextRequest) {
 // POST /api/tasks - Create new task
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 

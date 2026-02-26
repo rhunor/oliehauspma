@@ -1,14 +1,13 @@
 // src/app/api/notifications/mark-all-read/route.ts - Mark All Notifications as Read
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
 // PUT /api/notifications/mark-all-read - Mark all notifications as read
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 

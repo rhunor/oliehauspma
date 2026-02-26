@@ -46,7 +46,7 @@ interface Project {
   title: string;
   description: string;
   client: ProjectClient;
-  manager: ProjectManager;
+  manager: ProjectManager | null;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   startDate: string;

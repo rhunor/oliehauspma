@@ -3,6 +3,7 @@
 
 import { SessionProvider } from "next-auth/react";
 import { SocketProvider } from "@/contexts/SocketContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 interface ClientProvidersProps {
   children: React.ReactNode;
@@ -10,10 +11,12 @@ interface ClientProvidersProps {
 
 export function ClientProviders({ children }: ClientProvidersProps) {
   return (
-    <SessionProvider>
-      <SocketProvider>
-        {children}
-      </SocketProvider>
-    </SessionProvider>
+    <ErrorBoundary>
+      <SessionProvider>
+        <SocketProvider>
+          {children}
+        </SocketProvider>
+      </SessionProvider>
+    </ErrorBoundary>
   );
 }

@@ -1,14 +1,13 @@
 // src/app/api/notifications/subscribe/route.ts - Push Notification Subscription
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
 // POST /api/notifications/subscribe - Subscribe to push notifications
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 
@@ -58,7 +57,7 @@ export async function POST(request: NextRequest) {
 // DELETE /api/notifications/subscribe - Unsubscribe from push notifications
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 

@@ -1,7 +1,6 @@
 // src/app/api/projects/[id]/schedule/activities/route.ts - NEW ACTIVITIES API
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 
@@ -109,7 +108,7 @@ export async function POST(
   { params }: ActivitiesPageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,
@@ -274,7 +273,7 @@ export async function PUT(
   { params }: ActivitiesPageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,
@@ -382,7 +381,7 @@ export async function DELETE(
   { params }: ActivitiesPageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,

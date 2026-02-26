@@ -311,7 +311,7 @@ export default function AdminDailyProgressPage() {
   const filteredProjects = projects.filter(project => {
     const matchesSearch = project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          project.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         project.manager.name.toLowerCase().includes(searchTerm.toLowerCase());
+                         (project.manager?.name?.toLowerCase()?.includes(searchTerm.toLowerCase()) ?? false);
     
     const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
 
@@ -637,7 +637,7 @@ export default function AdminDailyProgressPage() {
                         </p>
                         <p className="flex items-center gap-2">
                           <Users className="h-4 w-4" />
-                          Manager: {project.manager.name}
+                          Manager: {project.manager?.name || 'Not assigned'}
                         </p>
                         <p>Budget: {formatCurrency(project.budget)}</p>
                         <p>Progress: {project.progress}%</p>

@@ -2,8 +2,7 @@
 // Migration API route - Access via: http://localhost:3000/api/migrate/managers
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -17,7 +16,7 @@ interface OldProjectDocument {
 export async function POST(request: NextRequest) {
   try {
     // Security: Only super_admin can run migrations
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -123,7 +122,7 @@ export async function POST(request: NextRequest) {
 // GET endpoint to check migration status
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id || session.user.role !== 'super_admin') {
       return NextResponse.json(

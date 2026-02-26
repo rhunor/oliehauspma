@@ -90,11 +90,22 @@ export default function AIchatbot({
       if (response.ok) {
         const data: { success: boolean; data: { data: ProjectContext[] } } = await response.json();
         setProjectContext(data.data.data || []);
+      } else {
+        toast({
+          title: 'Project context unavailable',
+          description: 'Could not load your project details. The assistant will still work but without project-specific context.',
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       console.error('Error fetching project context:', error);
+      toast({
+        title: 'Connection issue',
+        description: 'Could not load project context for the assistant.',
+        variant: 'destructive',
+      });
     }
-  }, [session?.user?.id, session?.user?.role]);
+  }, [session?.user?.id, session?.user?.role, toast]);
 
   // Scroll to bottom when messages change
   const scrollToBottom = useCallback((): void => {
@@ -151,7 +162,7 @@ export default function AIchatbot({
             title: project.title,
             status: project.status,
             progress: project.progress,
-            manager: project.manager.name,
+            manager: project.manager?.name || 'Not assigned',
             timeline: project.startDate && project.endDate 
               ? `${project.startDate} to ${project.endDate}` 
               : 'Not specified'

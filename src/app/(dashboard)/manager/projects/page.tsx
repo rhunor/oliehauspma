@@ -1,7 +1,6 @@
 // src/app/(dashboard)/manager/projects/page.tsx - FIXED WITH PROPER SERIALIZATION
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import ProjectsList from '@/components/projects/ProjectsList';
@@ -37,11 +36,11 @@ interface ProjectDocumentFromDB {
     name: string;
     email: string;
   };
-  manager: {
+  manager?: {
     _id: ObjectId;
     name: string;
     email: string;
-  };
+  } | null;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   startDate?: Date;
@@ -67,7 +66,7 @@ interface Project {
     _id: string;
     name: string;
     email: string;
-  };
+  } | null;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   startDate: string;
@@ -116,7 +115,8 @@ async function getManagerProjects(managerId: string): Promise<Project[]> {
         }
       },
       { $unset: ['clientData', 'managerData'] },
-      { $sort: { createdAt: -1 } }
+      { $sort: { createdAt: -1 } },
+      { $limit: 100 }
     ])
     .toArray() as ProjectDocumentFromDB[];
 
@@ -130,11 +130,11 @@ async function getManagerProjects(managerId: string): Promise<Project[]> {
       name: project.client.name,
       email: project.client.email
     },
-    manager: {
+    manager: project.manager ? {
       _id: project.manager._id.toString(),
       name: project.manager.name,
       email: project.manager.email
-    },
+    } : null,
     status: project.status,
     priority: project.priority,
     progress: project.progress,
@@ -148,7 +148,7 @@ async function getManagerProjects(managerId: string): Promise<Project[]> {
 }
 
 export default async function ManagerProjectsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'project_manager') {
     return <div>Access denied</div>;

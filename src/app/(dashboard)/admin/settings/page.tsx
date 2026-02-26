@@ -1,10 +1,9 @@
 // src/app/(dashboard)/admin/settings/page.tsx - ADMIN SETTINGS PAGE
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import SettingsClient from '@/components/settings/SettingsClient';
 
 export default async function AdminSettingsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'super_admin') {
     return (

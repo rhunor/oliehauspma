@@ -1,7 +1,6 @@
 // src/app/api/files/route.ts - Updated with Cloud Storage and Security
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { uploadFileToS3, generateFileKey, validateFileType, validateFileSize } from '@/lib/s3';
@@ -71,7 +70,7 @@ async function validateFilePermission(
 // GET /api/files - Retrieve files with role-based access control
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false,
@@ -200,7 +199,7 @@ export async function GET(request: NextRequest) {
 // POST /api/files - Upload files to cloud storage
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ 
         success: false,

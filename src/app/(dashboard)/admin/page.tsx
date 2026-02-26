@@ -1,7 +1,6 @@
 // src/app/(dashboard)/admin/page.tsx - UPDATED: Mobile-first design with app-style cards
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import { redirect } from 'next/navigation';
@@ -556,7 +555,7 @@ async function AdminAverageProgress() {
 
 // Main Dashboard Component
 async function AdminDashboard() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session?.user?.id || session.user.role !== 'super_admin') {
     return (

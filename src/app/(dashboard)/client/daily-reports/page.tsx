@@ -136,7 +136,16 @@ export default function ClientDailyReportsPage() {
         const response = await fetch('/api/projects');
         if (response.ok) {
           const data = await response.json();
-          setProjects(data.data || []);
+          // API returns { success, data: { projects: [...], pagination } }
+          // or older shape { success, data: [...] }. Normalize both.
+          const payload = data?.data;
+          if (Array.isArray(payload)) {
+            setProjects(payload);
+          } else if (payload && Array.isArray(payload.projects)) {
+            setProjects(payload.projects);
+          } else {
+            setProjects([]);
+          }
         }
       } catch (error) {
         console.error('Error fetching projects:', error);
@@ -164,7 +173,18 @@ export default function ClientDailyReportsPage() {
         const response = await fetch(`/api/daily-reports?${params}`);
         if (response.ok) {
           const data = await response.json();
-          setReports(data.data || []);
+          // Normalize response shapes:
+          // - { success, data: [reports] }
+          // - { success, data: { reports: [...] } }
+          // - legacy: { success, data: [...] }
+          const payload = data?.data;
+          if (Array.isArray(payload)) {
+            setReports(payload);
+          } else if (payload && Array.isArray(payload.reports)) {
+            setReports(payload.reports);
+          } else {
+            setReports([]);
+          }
         } else {
           toast({
             variant: 'destructive',
@@ -188,8 +208,19 @@ export default function ClientDailyReportsPage() {
   }, [selectedProject, dateFilter, toast]);
 
   // Filter and categorize activities
-  const allActivities = reports.flatMap(report => 
-    report.activities.map(activity => ({
+  // Defensive: ensure we always operate on an array of reports
+  const safeReports: DailyReport[] = (() => {
+    if (Array.isArray(reports)) return reports;
+    const payload = reports as unknown;
+    if (payload && typeof payload === 'object' && 'reports' in (payload as Record<string, unknown>)) {
+      const maybe = (payload as Record<string, unknown>).reports;
+      if (Array.isArray(maybe)) return maybe as DailyReport[];
+    }
+    return [];
+  })();
+
+  const allActivities = safeReports.flatMap(report => 
+    (Array.isArray(report.activities) ? report.activities : []).map(activity => ({
       ...activity,
       projectTitle: report.projectTitle,
       projectId: report.projectId,

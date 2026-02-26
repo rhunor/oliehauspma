@@ -1,7 +1,6 @@
 // src/app/api/notifications/route.ts - Notifications API
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -36,7 +35,7 @@ interface NotificationDocument {
 // GET /api/notifications - Retrieve user notifications
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false,
@@ -138,7 +137,7 @@ export async function GET(request: NextRequest) {
 // POST /api/notifications - Create notification
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false,

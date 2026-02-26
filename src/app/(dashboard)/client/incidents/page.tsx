@@ -1,6 +1,5 @@
 // src/app/(dashboard)/client/incidents/page.tsx
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
@@ -183,7 +182,7 @@ async function getClientIncidents(clientId: string): Promise<Incident[]> {
 }
 
 export default async function ClientIncidentsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session?.user?.id || session.user.role !== 'client') {
     redirect('/login');

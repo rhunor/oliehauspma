@@ -1,7 +1,6 @@
 // FILE: src/app/api/projects/[id]/route.ts - UPDATED FOR MULTIPLE MANAGERS
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -66,7 +65,7 @@ export async function GET(
   context: RouteContext
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -156,7 +155,7 @@ export async function PUT(
   context: RouteContext
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -296,7 +295,7 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(

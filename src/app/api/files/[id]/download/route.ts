@@ -1,7 +1,6 @@
 // src/app/api/files/[id]/download/route.ts - FIXED FOR PUBLIC S3 ACCESS
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -32,7 +31,7 @@ export async function GET(
 ) {
   try {
     // 1. Authenticate user
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'Unauthorized - Please log in' },

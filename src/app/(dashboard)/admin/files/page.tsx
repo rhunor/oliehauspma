@@ -1,6 +1,5 @@
 // src/app/(dashboard)/admin/files/page.tsx - FIXED SERVER COMPONENT
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import FilesClient from '@/components/files/FilesClient';
@@ -209,7 +208,7 @@ async function getFilesData(userId: string, userRole: string): Promise<FilesData
 }
 
 export default async function FilesPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user) {
     return <div>Unauthorized</div>;

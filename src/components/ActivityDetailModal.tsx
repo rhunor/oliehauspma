@@ -154,18 +154,18 @@ export default function ActivityDetailModal({
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <DialogTitle className="text-xl font-semibold pr-8">
-                  {activity.title}
-                </DialogTitle>
-                {activity.description && (
-                  <p className="text-sm text-gray-600 mt-2">{activity.description}</p>
-                )}
+            <div className="pr-8">
+              <DialogTitle className="text-xl font-semibold">
+                {activity.title}
+              </DialogTitle>
+              {activity.description && (
+                <p className="text-sm text-gray-600 mt-2">{activity.description}</p>
+              )}
+              <div className="mt-3">
+                <Badge className={getStatusBadgeClass(activity.status)}>
+                  {activity.status.replace('_', ' ').replace('-', ' ')}
+                </Badge>
               </div>
-              <Badge className={getStatusBadgeClass(activity.status)}>
-                {activity.status.replace('_', ' ').replace('-', ' ')}
-              </Badge>
             </div>
           </DialogHeader>
 

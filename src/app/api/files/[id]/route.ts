@@ -1,7 +1,6 @@
 // src/app/api/files/[id]/route.ts - FIXED File Management with backward compatibility
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { deleteFileFromS3 } from '@/lib/s3';
@@ -14,7 +13,7 @@ interface RouteContext {
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false,

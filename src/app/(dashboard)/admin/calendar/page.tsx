@@ -1,6 +1,5 @@
 // src/app/(dashboard)/admin/calendar/page.tsx - NEW CALENDAR PAGE
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import CalendarClient from '@/components/calendar/CalendarClient';
@@ -196,7 +195,7 @@ async function getCalendarData(userId: string, userRole: string): Promise<Calend
 }
 
 export default async function CalendarPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user) {
     return <div>Unauthorized</div>;

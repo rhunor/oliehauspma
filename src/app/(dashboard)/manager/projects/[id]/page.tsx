@@ -1,7 +1,6 @@
 // src/app/(dashboard)/manager/projects/[id]/page.tsx - FIXED WITH MULTIPLE MANAGERS
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { notFound } from 'next/navigation';
@@ -282,7 +281,7 @@ function ProjectDetailLoading() {
 }
 
 export default async function ManagerProjectDetailPage({ params }: ProjectDetailPageProps) {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'project_manager') {
     return (

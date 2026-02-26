@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import type { ApiResponse, SystemMetric } from '@/types/dashboard';
 import os from 'os';
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   if (!session?.user || session.user.role !== 'super_admin') {
     return NextResponse.json<ApiResponse<SystemMetric[]>>({ data: [], error: 'Unauthorized' }, { status: 401 });
   }

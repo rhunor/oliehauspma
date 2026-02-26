@@ -1,10 +1,9 @@
 // src/app/(dashboard)/client/settings/page.tsx - CLIENT SETTINGS PAGE
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import SettingsClient from '@/components/settings/SettingsClient';
 
 export default async function ClientSettingsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'client') {
     return (

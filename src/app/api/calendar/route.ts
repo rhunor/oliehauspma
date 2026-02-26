@@ -1,7 +1,6 @@
 // src/app/api/calendar/route.ts - Calendar Events API
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Db, Collection, Filter } from 'mongodb';
 import { z } from 'zod';
@@ -101,7 +100,7 @@ interface AggregatedEvent extends CalendarEventDocument {
 // GET /api/calendar - Get calendar events
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 
@@ -310,7 +309,7 @@ export async function GET(request: NextRequest) {
 // POST /api/calendar - Create new event
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 

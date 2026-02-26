@@ -1,7 +1,6 @@
 // src/app/api/projects/[id]/comment-activity/route.ts - Get recent comment activity for project
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 
@@ -39,7 +38,7 @@ export async function GET(
   { params }: ProjectCommentActivityParams
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 

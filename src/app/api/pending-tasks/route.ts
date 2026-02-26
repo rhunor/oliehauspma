@@ -1,7 +1,6 @@
 // src/app/api/pending-tasks/route.ts - COMPLETE ENHANCED PENDING TASKS API
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -70,7 +69,7 @@ interface CreateTaskRequest {
 // GET pending tasks with advanced filtering and statistics
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -433,7 +432,7 @@ export async function GET(request: NextRequest) {
 // POST create new task - for project managers and admins
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -601,7 +600,7 @@ export async function POST(request: NextRequest) {
 // PUT update existing task
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -713,7 +712,7 @@ export async function PUT(request: NextRequest) {
 // DELETE task
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id) {
       return NextResponse.json(

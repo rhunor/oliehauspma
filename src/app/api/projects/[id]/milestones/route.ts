@@ -1,7 +1,6 @@
 // src/app/api/projects/[id]/milestones/route.ts - MILESTONE API ENDPOINT (FIXED)
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -34,7 +33,7 @@ export async function GET(
   { params }: MilestoneRouteParams
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 
@@ -108,7 +107,7 @@ export async function POST(
   { params }: MilestoneRouteParams
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id || (session.user.role !== 'super_admin' && session.user.role !== 'project_manager')) {
       return NextResponse.json({ 
         success: false, 

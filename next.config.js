@@ -1,18 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ['mongoose'],
-  },
-  
-  // ✅ FIXED: Image optimization configuration with proper remotePatterns
+  // Moved out of `experimental` — this is the correct key in Next.js 15
+  serverExternalPackages: ['mongoose'],
+
+  // Image optimization configuration
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'localhost',
-        port: '',
-        pathname: '/**',
-      },
       {
         protocol: 'https',
         hostname: 'olivehaus.com',
@@ -37,21 +30,21 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
-      // ✅ ADDED: Regional S3 hostname (eu-north-1)
+      // Regional S3 hostname (eu-north-1)
       {
         protocol: 'https',
         hostname: 'olivehaus-ppma-files.s3.eu-north-1.amazonaws.com',
         port: '',
         pathname: '/**',
       },
-      // ✅ ADDED: Wildcard for any S3 regional endpoint
+      // Wildcard for any S3 regional endpoint
       {
         protocol: 'https',
         hostname: '**.s3.amazonaws.com',
         port: '',
         pathname: '/**',
       },
-      // ✅ ADDED: Alternative S3 format (region.amazonaws.com)
+      // Alternative S3 format (bucket.s3.region.amazonaws.com)
       {
         protocol: 'https',
         hostname: '**.s3.*.amazonaws.com',
@@ -61,12 +54,6 @@ const nextConfig = {
       {
         protocol: 'https',
         hostname: 'cdn.jsdelivr.net',
-        port: '',
-        pathname: '/**',
-      },
-       {
-        protocol: 'https',
-        hostname: process.env.AWS_S3_BUCKET_NAME?.split('.')[0] || 'your-bucket.s3.amazonaws.com', // e.g., 'mybucket.s3.us-east-1.amazonaws.com'
         port: '',
         pathname: '/**',
       },
@@ -82,51 +69,82 @@ const nextConfig = {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   },
 
-  // Security headers
+  // ✅ ENHANCED: Comprehensive security headers
   async headers() {
     return [
       {
-        source: '/(.*)',
+        source: '/:path*',
         headers: [
+          // Prevent MIME type sniffing
           {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
           },
+          // Prevent clickjacking
           {
             key: 'X-Frame-Options',
             value: 'DENY',
           },
+          // XSS Protection (legacy browsers)
           {
             key: 'X-XSS-Protection',
             value: '1; mode=block',
           },
+          // Referrer policy
           {
             key: 'Referrer-Policy',
-            value: 'origin-when-cross-origin',
+            value: 'strict-origin-when-cross-origin',
           },
+          // Permissions policy (disable unused browser features)
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=()',
+            value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+          },
+          // ✅ NEW: Strict Transport Security (HSTS) - Force HTTPS
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000; includeSubDomains; preload',
+          },
+          // ✅ NEW: Content Security Policy (CSP)
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline'", // Next.js requires unsafe-inline/eval
+              "style-src 'self' 'unsafe-inline'", // Tailwind requires unsafe-inline
+              "img-src 'self' data: https: blob:", // Allow images from S3, CDN, etc.
+              "font-src 'self' data:",
+              "connect-src 'self' https://*.s3.amazonaws.com https://*.s3.*.amazonaws.com wss: ws:", // API + S3 + WebSocket
+              "media-src 'self' https: blob:",
+              "object-src 'none'", // Block plugins
+              "base-uri 'self'",
+              "form-action 'self'",
+              "frame-ancestors 'none'", // Redundant with X-Frame-Options but more robust
+              "upgrade-insecure-requests", // Upgrade HTTP to HTTPS
+            ].join('; '),
+          },
+        ],
+      },
+      // Specific headers for API routes
+      {
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, max-age=0',
           },
         ],
       },
     ];
   },
 
-  // Redirects
+  // Redirects — root "/" goes to /login; middleware handles all other auth redirects
   async redirects() {
     return [
       {
         source: '/',
         destination: '/login',
         permanent: false,
-        has: [
-          {
-            type: 'header',
-            key: 'authorization',
-            value: undefined,
-          },
-        ],
       },
     ];
   },
@@ -184,9 +202,6 @@ const nextConfig = {
 
   // React strict mode
   reactStrictMode: true,
-
-  // SWC minify
-  swcMinify: true,
 
   // TypeScript configuration
   typescript: {

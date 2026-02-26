@@ -1,7 +1,6 @@
 // src/app/(dashboard)/admin/projects/page.tsx
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import ProjectsList from '@/components/projects/ProjectsList';
@@ -179,7 +178,7 @@ async function getProjectsData(userId: string, userRole: string): Promise<Projec
 }
 
 export default async function ProjectsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user) {
     return <div>Unauthorized</div>;

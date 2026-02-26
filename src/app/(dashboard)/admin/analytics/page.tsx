@@ -1,6 +1,5 @@
 // src/app/(dashboard)/admin/analytics/page.tsx
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -268,7 +267,7 @@ async function getAnalyticsData(userId: string, userRole: string): Promise<Analy
 }
 
 export default async function AnalyticsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user) {
     return <div>Unauthorized</div>;

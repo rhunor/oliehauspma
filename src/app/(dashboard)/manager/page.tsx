@@ -1,7 +1,6 @@
 // src/app/(dashboard)/manager/page.tsx - UPDATED: Mobile-first design with app-style cards
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import { redirect } from 'next/navigation';
@@ -499,7 +498,7 @@ function ManagerDashboardLoading() {
 
 // Main Dashboard Component
 async function ManagerDashboard() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session?.user?.id || session.user.role !== 'project_manager') {
     return (

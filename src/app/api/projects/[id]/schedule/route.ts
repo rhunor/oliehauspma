@@ -1,7 +1,6 @@
 // src/app/api/projects/[id]/schedule/route.ts - NEW SCHEDULE API
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 
@@ -176,7 +175,7 @@ export async function GET(
   { params }: SchedulePageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,
@@ -366,7 +365,7 @@ export async function POST(
   { params }: SchedulePageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,

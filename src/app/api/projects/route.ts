@@ -1,7 +1,6 @@
 // FILE: src/app/api/projects/route.ts - UPDATED FOR MULTIPLE MANAGERS
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 
@@ -55,7 +54,7 @@ interface CreateProjectData {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -172,7 +171,7 @@ export async function GET(request: NextRequest) {
 // POST /api/projects - Create new project - ✅ UPDATED FOR MULTIPLE MANAGERS
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(

@@ -3,8 +3,7 @@
 // FIXED: Proper Next.js 15 params typing with Promise
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToMongoose } from '@/lib/db';
 import Project from '@/models/Project';
 import User from '@/models/User';
@@ -36,7 +35,14 @@ interface RouteParams {
 
 interface CommentApiResponse {
   success: true;
-  data: ActivityComment;
+  // POST may return either the created ActivityComment OR the full activity comments payload
+  data: ActivityComment | {
+    projectId: string;
+    activityId: string;
+    activityTitle: string;
+    comments: ActivityComment[];
+    totalComments: number;
+  };
   message?: string;
 }
 
@@ -54,7 +60,7 @@ export async function POST(
   context: RouteParams
 ): Promise<NextResponse<CommentApiResult>> {
   try {
-    const session = await getServerSession(authOptions) as AuthSession | null;
+    const session = await auth() as AuthSession | null;
 
     if (!session) {
       return NextResponse.json<ActivityApiError>(
@@ -216,7 +222,7 @@ export async function GET(
   context: RouteParams
 ): Promise<NextResponse<CommentsListResult>> {
   try {
-    const session = await getServerSession(authOptions) as AuthSession | null;
+    const session = await auth() as AuthSession | null;
 
     if (!session) {
       return NextResponse.json<ActivityApiError>(

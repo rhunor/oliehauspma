@@ -1,6 +1,5 @@
 // src/app/(dashboard)/client/risks/page.tsx
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
@@ -143,7 +142,7 @@ async function getClientRisks(clientId: string): Promise<Risk[]> {
 }
 
 export default async function ClientRisksPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session?.user?.id || session.user.role !== 'client') {
     redirect('/login');

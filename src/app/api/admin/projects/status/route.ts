@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import type { ObjectId } from 'mongodb';
 import type { ApiResponse, StatusItem } from '@/types/dashboard';
@@ -11,7 +10,7 @@ interface ProjectDocument {
 }
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   if (!session?.user || session.user.role !== 'super_admin') {
     return NextResponse.json<ApiResponse<StatusItem[]>>({ data: [], error: 'Unauthorized' }, { status: 401 });
   }

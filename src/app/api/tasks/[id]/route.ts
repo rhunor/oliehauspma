@@ -1,7 +1,6 @@
 // src/app/api/tasks/[id]/route.ts - Individual Task Operations
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { updateTaskSchema } from '@/lib/validation';
 import { ObjectId, Filter } from 'mongodb';
@@ -91,7 +90,7 @@ export async function GET(
   { params }: TaskDetailPageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 
@@ -281,7 +280,7 @@ export async function PUT(
   { params }: TaskDetailPageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 
@@ -436,7 +435,7 @@ export async function DELETE(
   { params }: TaskDetailPageProps
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 

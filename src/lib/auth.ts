@@ -1,5 +1,5 @@
 // src/lib/auth.ts - FIXED: Correct placement of httpOptions
-import { NextAuthOptions, Session } from 'next-auth';
+import { NextAuthOptions, Session, getServerSession } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { connectToDatabase, withRetry } from './db';
@@ -155,6 +155,12 @@ export const authOptions: NextAuthOptions = {
   // FIXED: Added debug mode for development
   debug: process.env.NODE_ENV === 'development',
 };
+
+// auth() is a cleaner API compatible with NextAuth v5 migration
+// All API routes should use this instead of getServerSession(authOptions)
+export async function auth() {
+  return await getServerSession(authOptions);
+}
 
 // Rest of the file remains the same...
 export async function hashPassword(password: string): Promise<string> {

@@ -1,7 +1,6 @@
 // src/app/api/user/preferences/route.ts - FIXED USER PREFERENCES API WITH PROPER TYPES
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
@@ -82,7 +81,7 @@ const defaultPreferences: Omit<UserPreferencesInsertDocument, 'userId' | 'create
 // GET /api/user/preferences - Get user preferences
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -144,7 +143,7 @@ export async function GET() {
 // PUT /api/user/preferences - Update user preferences
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

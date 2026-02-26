@@ -1,7 +1,6 @@
 // src/app/api/site-schedule/daily/route.ts - UPDATED: Added 'to-do' status support
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth, authOptions } from "@/lib/auth";
 import { connectToMongoose } from "@/lib/db";
 import DailyProgress, { 
   IDailyProgressDocument, 
@@ -23,7 +22,7 @@ interface IPopulatedDailyProgress extends Omit<IDailyProgress, 'activities'> {
 // GET daily progress for a specific date
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session) {
       return NextResponse.json(
@@ -84,7 +83,7 @@ export async function GET(request: NextRequest) {
 // POST new daily activity - UPDATED: Support 'to-do' status
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session) {
       return NextResponse.json(
@@ -236,7 +235,7 @@ export async function POST(request: NextRequest) {
 // PUT update existing activity - UPDATED: Support 'to-do' status
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session) {
       return NextResponse.json(

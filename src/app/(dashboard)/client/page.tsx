@@ -1,7 +1,6 @@
 // src/app/(dashboard)/client/page.tsx - PROPERLY CORRECTED: Follows original project structure
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import { redirect } from 'next/navigation';
@@ -986,7 +985,7 @@ async function getClientDashboardData(clientId: string): Promise<DashboardData> 
 
 // Main dashboard component
 export default async function ClientDashboardPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session || session.user.role !== 'client') {
     redirect('/login');

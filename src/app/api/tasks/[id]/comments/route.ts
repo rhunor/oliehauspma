@@ -1,7 +1,6 @@
 // src/app/api/tasks/[id]/comments/route.ts - ENHANCED COMMENTS API (FIXED)
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 
@@ -56,7 +55,7 @@ export async function GET(
   { params }: CommentRouteParams
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 
@@ -180,7 +179,7 @@ export async function POST(
   { params }: CommentRouteParams
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false, 

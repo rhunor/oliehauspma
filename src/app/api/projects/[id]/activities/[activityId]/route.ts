@@ -3,8 +3,7 @@
 // FIXED: Proper Next.js 15 inline params typing
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToMongoose } from '@/lib/db';
 import Project from '@/models/Project';
 import { Types } from 'mongoose';
@@ -31,7 +30,7 @@ interface AuthSession {
 async function validateAuth(
   allowedRoles: string[]
 ): Promise<{ error: NextResponse<ActivityApiError> | null; session: AuthSession | null }> {
-  const session = await getServerSession(authOptions) as AuthSession | null;
+  const session = await auth() as AuthSession | null;
   
   if (!session) {
     return {

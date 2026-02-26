@@ -1,10 +1,9 @@
 // src/app/(dashboard)/manager/messages/page.tsx - FIXED WITH CLIENT COMMUNICATION
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import MessagesClient from '@/components/messaging/MessagesClient';
 
 export default async function ManagerMessagesPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'project_manager') {
     return (

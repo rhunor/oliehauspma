@@ -2,8 +2,7 @@
 // NEW API: Fetch all daily progress entries for a project
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToMongoose } from '@/lib/db';
 import DailyProgress from '@/models/DailyProgress';
 import { Types } from 'mongoose';
@@ -27,7 +26,7 @@ export async function GET(
   { params }: PageProps
 ) {
   try {
-    const session = await getServerSession(authOptions) as AuthSession | null;
+    const session = await auth() as AuthSession | null;
     
     if (!session) {
       return NextResponse.json(

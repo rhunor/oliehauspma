@@ -1,7 +1,6 @@
 // src/app/api/analytics/manager/export/route.ts - FIXED ANALYTICS EXPORT WITH PDF GENERATION
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 
@@ -412,7 +411,7 @@ function generateHtmlReport(data: AnalyticsData, managerName: string, timeRange:
 // GET /api/analytics/manager/export - Export analytics report
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id || session.user.role !== 'project_manager') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

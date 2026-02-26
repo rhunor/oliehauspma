@@ -1,6 +1,5 @@
 // src/app/(dashboard)/manager/incidents/page.tsx
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
@@ -183,7 +182,7 @@ async function getManagerIncidents(managerId: string): Promise<Incident[]> {
 }
 
 export default async function ManagerIncidentsPage() {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session?.user?.id || session.user.role !== 'project_manager') {
     redirect('/login');

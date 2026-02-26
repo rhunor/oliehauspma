@@ -1,7 +1,6 @@
 // src/app/api/files/projects/route.ts - FIXED: NO ANY TYPES, PROPER PROJECT RETRIEVAL
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { getUserUploadableProjects } from '@/lib/file-permissions';
 
 // FIXED: Proper interface for API response
@@ -24,7 +23,7 @@ type UserRole = 'super_admin' | 'project_manager' | 'client';
 // GET /api/files/projects - Get projects user can upload files to
 export async function GET(request: NextRequest): Promise<NextResponse<ProjectsApiResponse | ErrorResponse>> {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       return NextResponse.json({ 

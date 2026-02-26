@@ -1,7 +1,6 @@
 // src/app/api/messages/route.ts - FIXED WITH FULL TYPE SAFETY & ESLINT COMPLIANCE
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, WithId, Document, Db } from 'mongodb';
 
@@ -111,7 +110,7 @@ interface PopulatedMessage extends Omit<MessageDocument, 'senderId' | 'recipient
 // GET /api/messages - Retrieve messages for a project or direct conversation
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false,
@@ -350,7 +349,7 @@ export async function GET(request: NextRequest) {
 // POST /api/messages - Send a new message
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({
         success: false,

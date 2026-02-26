@@ -5,30 +5,32 @@ import React, { createContext, useContext, useEffect, useState, useCallback, Rea
 import { useSession } from 'next-auth/react';
 import { io, Socket } from 'socket.io-client';
 
-// Import socket utilities
+// Derive the socket URL:
+// - In production: NEXT_PUBLIC_SOCKET_URL must be set (e.g. wss://your-domain.com)
+// - In development: falls back to localhost:3001 over http
 const getSocketUrl = (): string => {
-  // Check if we have a configured socket URL
   if (process.env.NEXT_PUBLIC_SOCKET_URL) {
     return process.env.NEXT_PUBLIC_SOCKET_URL;
   }
 
-  // If running in browser, dynamically determine socket URL
   if (typeof window !== 'undefined') {
-    const currentHost = window.location.hostname;
-    // Use the same host as the current page but on port 3001
-    return `http://${currentHost}:3001`;
+    const { protocol, hostname } = window.location;
+    // Use secure WebSocket in production (https → wss), plain in dev (http → ws)
+    const wsProtocol = protocol === 'https:' ? 'https' : 'http';
+    return `${wsProtocol}://${hostname}:3001`;
   }
 
-  // Fallback for server-side
   return 'http://localhost:3001';
 };
 
 const shouldEnableSocket = (): boolean => {
-  // Only enable socket if we have a configured URL or in development
-  return !!(
-    process.env.NEXT_PUBLIC_SOCKET_URL || 
-    process.env.NODE_ENV === 'development'
-  );
+  // In production, require an explicit socket URL — prevents silently failing
+  // connections to localhost:3001 when no socket server is running.
+  if (process.env.NODE_ENV === 'production') {
+    return !!process.env.NEXT_PUBLIC_SOCKET_URL;
+  }
+  // In development, always enable
+  return true;
 };
 
 // FIXED: Extended Message interface to include isRead property for compatibility

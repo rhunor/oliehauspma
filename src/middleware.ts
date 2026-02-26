@@ -25,7 +25,7 @@ export default withAuth(
     const token = request.nextauth.token;
 
     // EXISTING: Public routes that don't require authentication
-    const publicRoutes = ["/login", "/api/auth", "/unauthorized"];
+    const publicRoutes = ["/login", "/forgot-password", "/reset-password", "/api/auth", "/unauthorized"];
     const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 
     // EXISTING: Handle session expiration and reconnection
@@ -153,7 +153,7 @@ export default withAuth(
         }
         
         // EXISTING: Allow access to public routes
-        const publicRoutes = ["/login", "/api/auth", "/unauthorized"];
+        const publicRoutes = ["/login", "/forgot-password", "/reset-password", "/api/auth", "/unauthorized"];
         if (publicRoutes.some(route => pathname.startsWith(route))) {
           return true;
         }

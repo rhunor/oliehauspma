@@ -1,6 +1,5 @@
 // FILE: src/app/(dashboard)/admin/projects/[id]/page.tsx - FIXED FOR MULTIPLE MANAGERS
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { notFound } from 'next/navigation';
@@ -86,7 +85,7 @@ async function getProjectById(projectId: string) {
 }
 
 export default async function AdminProjectDetailPage({ params }: ProjectDetailPageProps) {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'super_admin') {
     return (

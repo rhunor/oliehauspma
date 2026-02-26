@@ -1,7 +1,6 @@
 // src/app/api/users/route.ts - ENHANCED: Allow managers to access users for project creation
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 
@@ -36,7 +35,7 @@ interface UserResponse {
 // GET /api/users - Retrieve users with role-based access control
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -178,7 +177,7 @@ export async function GET(request: NextRequest) {
 // POST /api/users - Create new user (Super admin only)
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(

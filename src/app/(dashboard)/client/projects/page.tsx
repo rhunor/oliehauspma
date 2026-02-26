@@ -1,7 +1,6 @@
 // src/app/(dashboard)/client/projects/page.tsx - ENHANCED CLIENT PROJECTS PAGE
 import { Suspense } from 'react';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
 import ProjectsList from '@/components/projects/ProjectsList';
@@ -48,11 +47,11 @@ interface ProjectWithUsers {
     name: string;
     email: string;
   };
-  manager: {
+  manager?: {
     _id: ObjectId;
     name: string;
     email: string;
-  };
+  } | null;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   startDate?: Date;
@@ -77,7 +76,7 @@ interface ProjectListItem {
     _id: string;
     name: string;
     email: string;
-  };
+  } | null;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   startDate: string;
@@ -152,7 +151,8 @@ async function getClientProjects(clientId: string, searchQuery?: string): Promis
           }
         },
         { $unset: ['clientData', 'managerData'] },
-        { $sort: { updatedAt: -1 } }
+        { $sort: { updatedAt: -1 } },
+        { $limit: 100 }
       ])
       .toArray();
 
@@ -166,11 +166,11 @@ async function getClientProjects(clientId: string, searchQuery?: string): Promis
         name: project.client.name,
         email: project.client.email
       },
-      manager: {
+      manager: project.manager ? {
         _id: project.manager._id.toString(),
         name: project.manager.name,
         email: project.manager.email
-      },
+      } : null,
       status: project.status,
       priority: project.priority,
       startDate: project.startDate?.toISOString() || '',
@@ -338,7 +338,7 @@ function ProjectInsightsCard({ stats }: { stats: ProjectStats }) {
 }
 
 export default async function ClientProjectsPage({ searchParams }: ClientProjectsPageProps) {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   
   if (!session?.user?.id || session.user.role !== 'client') {
     return (

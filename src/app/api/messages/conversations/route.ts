@@ -1,7 +1,6 @@
 // src/app/api/messages/conversations/route.ts - ENHANCED WITH BETTER ERROR HANDLING
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth, authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 import { getAvailableContacts } from '@/lib/messaging-permissions';
@@ -59,7 +58,7 @@ interface ClientConversation {
 // GET /api/messages/conversations - Get all conversations for current user
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false,
@@ -230,7 +229,7 @@ export async function GET() {
 // POST /api/messages/conversations - Start new conversation (validate permission)
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ 
         success: false,
