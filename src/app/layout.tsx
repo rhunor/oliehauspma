@@ -1,5 +1,5 @@
 // src/app/layout.tsx - FIXED: Proper provider structure for Next.js 14
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ClientProviders } from "@/components/providers/ClientProviders";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,6 +8,11 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL;
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
 
 export const metadata: Metadata = {
   title: {
