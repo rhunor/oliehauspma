@@ -145,7 +145,7 @@ export default function FileUpload({
         prev.map(f => f.id === uploadFile.id ? { ...f, status: 'uploading' as const } : f)
       );
 
-      const response = await fetch('/api/files/upload', {
+      const response = await fetch('/api/files', {
         method: 'POST',
         body: formData,
       });
