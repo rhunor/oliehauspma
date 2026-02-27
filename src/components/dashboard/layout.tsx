@@ -1,4 +1,4 @@
-// src/components/dashboard/layout.tsx - UPDATED: Move existing nav items to bottom navigation on mobile
+// src/components/dashboard/layout.tsx
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -8,7 +8,6 @@ import Link from 'next/link';
 import { useSocket } from '@/contexts/SocketContext';
 import { NotificationBell } from '@/components/notifications/NotificationSystem';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import {
@@ -29,22 +28,20 @@ import {
   BarChart,
   Settings,
   LogOut,
-  Menu,
-  X,
   Wifi,
   WifiOff,
   Power,
-  MoreHorizontal
+  MoreHorizontal,
+  Plus,
 } from 'lucide-react';
 import { Search } from 'lucide-react';
 
-// NEXT.JS FONT: must be called at module scope
-const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], weight: ['400', '500', '600', '700'] });
+const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], weight: ['400', '500', '600', '700', '800'] });
 
 interface NavItem {
   name: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   roles: string[];
   badge?: number;
 }
@@ -72,108 +69,60 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const roleLabel = userRole === 'super_admin' ? 'Admin' : userRole === 'project_manager' ? 'Manager' : 'Client';
 
-  // Get role-specific settings route
   const getSettingsRoute = useCallback(() => {
     switch (userRole) {
-      case 'super_admin':
-        return '/admin/settings';
-      case 'project_manager':
-        return '/manager/settings';
-      case 'client':
-        return '/client/settings';
-      default:
-        return '/login';
+      case 'super_admin': return '/admin/settings';
+      case 'project_manager': return '/manager/settings';
+      case 'client': return '/client/settings';
+      default: return '/login';
     }
   }, [userRole]);
 
-  // Load message statistics
+  const getNewProjectRoute = useCallback(() => {
+    switch (userRole) {
+      case 'super_admin': return '/admin/projects';
+      case 'project_manager': return '/manager/projects/new';
+      default: return '#';
+    }
+  }, [userRole]);
+
   const loadMessageStats = useCallback(async () => {
     try {
       const response = await fetch('/api/messages/stats');
       const data = await response.json();
-      if (data.success) {
-        setMessageStats(data.data);
-      }
+      if (data.success) setMessageStats(data.data);
     } catch (error) {
       console.error('Error loading message stats:', error);
     }
   }, []);
 
-  // Listen for new messages to update badge
   useEffect(() => {
     if (!socket?.socket) return;
-
     const unsubscribe = socket.onNewMessage(() => {
       setMessageStats(prev => ({ unreadCount: prev.unreadCount + 1 }));
     });
-
     return unsubscribe;
   }, [socket]);
 
-  useEffect(() => {
-    loadMessageStats();
-  }, [loadMessageStats]);
+  useEffect(() => { loadMessageStats(); }, [loadMessageStats]);
 
-  // EXISTING Navigation items based on user role (PRESERVED)
   const getNavItems = (): NavItem[] => {
-    const baseRoute = userRole === "super_admin" ? "/admin" : 
-                     userRole === "project_manager" ? "/manager" : "/client";
-    
+    const baseRoute = userRole === 'super_admin' ? '/admin'
+      : userRole === 'project_manager' ? '/manager' : '/client';
+
     const commonRoutes: NavItem[] = [
-      {
-        name: "Dashboard",
-        href: baseRoute,
-        icon: Home,
-        roles: ["super_admin", "project_manager", "client"],
-      },
-      {
-        name: "Projects",
-        href: `${baseRoute}/projects`,
-        icon: FolderOpen,
-        roles: ["super_admin", "project_manager", "client"],
-      },
-      {
-        name: "Site Schedule",
-        href: `${baseRoute}/site-schedule`,
-        icon: ClipboardList,
-        roles: ["super_admin", "project_manager", "client"],
-      },
-      {
-        name: "Messages",
-        href: `${baseRoute}/messages`,
-        icon: MessageSquare,
-        roles: ["super_admin", "project_manager", "client"],
-        badge: messageStats.unreadCount || 0,
-      },
-      {
-        name: "Files",
-        href: `${baseRoute}/files`,
-        icon: FileText,
-        roles: ["super_admin", "project_manager", "client"],
-      },
-      {
-        name: "Calendar",
-        href: `${baseRoute}/calendar`,
-        icon: Calendar,
-        roles: ["super_admin", "project_manager", "client"],
-      },
+      { name: 'Dashboard', href: baseRoute, icon: Home, roles: ['super_admin', 'project_manager', 'client'] },
+      { name: 'Projects', href: `${baseRoute}/projects`, icon: FolderOpen, roles: ['super_admin', 'project_manager', 'client'] },
+      { name: 'Site Schedule', href: `${baseRoute}/site-schedule`, icon: ClipboardList, roles: ['super_admin', 'project_manager', 'client'] },
+      { name: 'Messages', href: `${baseRoute}/messages`, icon: MessageSquare, roles: ['super_admin', 'project_manager', 'client'], badge: messageStats.unreadCount || 0 },
+      { name: 'Files', href: `${baseRoute}/files`, icon: FileText, roles: ['super_admin', 'project_manager', 'client'] },
+      { name: 'Calendar', href: `${baseRoute}/calendar`, icon: Calendar, roles: ['super_admin', 'project_manager', 'client'] },
     ];
 
-    // Add role-specific routes
-    if (userRole === "super_admin") {
+    if (userRole === 'super_admin') {
       commonRoutes.push(
-        {
-          name: "Users",
-          href: "/admin/users",
-          icon: Users,
-          roles: ["super_admin"],
-        },
-        {
-          name: "Analytics",
-          href: "/admin/analytics",
-          icon: BarChart,
-          roles: ["super_admin"],
-        }
+        { name: 'Users', href: '/admin/users', icon: Users, roles: ['super_admin'] },
+        { name: 'Analytics', href: '/admin/analytics', icon: BarChart, roles: ['super_admin'] }
       );
     }
 
@@ -184,145 +133,169 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const handleSignOut = async (): Promise<void> => {
     try {
-      if (socket?.disconnect) {
-        socket.disconnect();
-      }
+      if (socket?.disconnect) socket.disconnect();
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       const target = origin ? `${origin}/login` : '/login';
       await signOut({ callbackUrl: target, redirect: true });
-      // Fallback navigation in case NextAuth doesn't redirect immediately (local dev)
       setTimeout(() => {
         if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
           router.replace('/login');
         }
       }, 300);
     } catch {
-      // Force navigation as a last resort
       router.replace('/login');
     }
   };
 
   const handleSocketToggle = () => {
-    if (socket?.isConnected) {
-      socket.disconnect();
-    } else {
-      socket?.connect();
-    }
+    if (socket?.isConnected) socket.disconnect();
+    else socket?.connect();
   };
 
-  // Get bottom navigation items (first 4 + More for overflow)
   const getBottomNavItems = () => {
-    const primaryItems = navItems.slice(0, 4); // First 4 items
-    const overflowItems = navItems.slice(4); // Remaining items
-    
-    return {
-      primaryItems,
-      overflowItems,
-      hasOverflow: overflowItems.length > 0
-    };
+    const primaryItems = navItems.slice(0, 4);
+    const overflowItems = navItems.slice(4);
+    return { primaryItems, overflowItems, hasOverflow: overflowItems.length > 0 };
   };
 
   const { primaryItems, overflowItems, hasOverflow } = getBottomNavItems();
 
-  // Raise AI button on mobile when More menu is open
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const root = document.documentElement;
-    if (showMoreMenu) {
-      root.classList.add('mobile-more-open');
-    } else {
-      root.classList.remove('mobile-more-open');
-    }
+    if (showMoreMenu) root.classList.add('mobile-more-open');
+    else root.classList.remove('mobile-more-open');
   }, [showMoreMenu]);
 
+  const workspaceItems = navItems.filter(item => !['Users', 'Analytics'].includes(item.name));
+  const adminItems = navItems.filter(item => ['Users', 'Analytics'].includes(item.name));
+
+  const renderNavItem = (item: NavItem) => {
+    const isActive = pathname === item.href || (item.href.includes('/', 1) && pathname.startsWith(item.href + '/'));
+    return (
+      <Link
+        key={item.name}
+        href={item.href}
+        className="group flex items-center px-3 py-2 text-[13px] font-medium rounded-xl transition-all duration-150"
+        style={isActive ? {
+          background: '#111111',
+          color: '#ffffff',
+        } : {
+          color: '#9CA3AF',
+        }}
+        onMouseEnter={e => {
+          const el = e.currentTarget as HTMLElement;
+          const active = pathname === item.href || (item.href.includes('/', 1) && pathname.startsWith(item.href + '/'));
+          if (!active) {
+            el.style.background = '#F5F5F5';
+            el.style.color = '#374151';
+          }
+        }}
+        onMouseLeave={e => {
+          const el = e.currentTarget as HTMLElement;
+          const active = pathname === item.href || (item.href.includes('/', 1) && pathname.startsWith(item.href + '/'));
+          if (!active) {
+            el.style.background = '';
+            el.style.color = '#9CA3AF';
+          }
+        }}
+      >
+        <item.icon
+          className="mr-3 h-[15px] w-[15px] flex-shrink-0"
+          style={isActive ? { color: '#ffffff' } : { color: '#9CA3AF' }}
+        />
+        <span className="truncate">{item.name}</span>
+        {item.badge && item.badge > 0 && (
+          <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+            style={isActive
+              ? { background: 'rgba(255,255,255,0.2)', color: '#fff' }
+              : { background: '#F3F4F6', color: '#6B7280' }
+            }>
+            {item.badge > 99 ? '99+' : item.badge}
+          </span>
+        )}
+      </Link>
+    );
+  };
+
   return (
-    <div className={`${jakarta.className} min-h-screen bg-neutral-100 flex flex-col`}>
-      {/* Mobile sidebar overlay - Only visible on larger screens now */}
+    <div className={`${jakarta.className} min-h-screen flex flex-col`} style={{ background: '#F7F7F7' }}>
+      {/* Mobile overlay */}
       {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+        <div
+          className="fixed inset-0 z-40 bg-black/30 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
-      {/* Desktop Sidebar - Hidden on mobile, shown on desktop */}
-      <div className={`hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-50 lg:w-64 lg:bg-white lg:shadow-md lg:flex lg:flex-col`}>
-        <div className="flex flex-col w-full">
-          {/* Sidebar header */}
-          <div className="flex items-center justify-between h-16 px-6 bg-white border-b">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center shadow-sm">
-                  <span className="text-white font-bold text-sm tracking-wide">OH</span>
-                </div>
+      {/* ── Desktop Sidebar — WHITE, Equa-style ── */}
+      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-50 lg:w-60 lg:flex lg:flex-col"
+        style={{ background: '#FFFFFF', borderRight: '1px solid #F0F0F0' }}>
+        <div className="flex flex-col w-full h-full">
+
+          {/* Logo */}
+          <div className="flex items-center h-[60px] px-5" style={{ borderBottom: '1px solid #F5F5F5' }}>
+            {/* Small brand icon */}
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #6B7C3B 0%, #4a5629 100%)' }}>
+                <span className="text-white font-black text-[10px] tracking-tight">OH</span>
               </div>
-              <div className="ml-3">
-                <p className="text-sm font-semibold text-gray-900">OliveHaus</p>
+              <div className="leading-none">
+                <p className="text-[13px] font-bold tracking-wide text-gray-900">OliveHaus</p>
+                <p className="text-[9px] tracking-[0.2em] uppercase text-gray-400 mt-px">Interiors</p>
               </div>
             </div>
           </div>
 
-          {/* Desktop Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href || 
-                             (item.href !== '/' && pathname.startsWith(item.href));
-              
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${
-                    isActive
-                      ? 'bg-primary-50 border-r-2 border-primary-500 text-primary-700'
-                      : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                >
-                  <item.icon
-                    className={`mr-3 h-5 w-5 flex-shrink-0 ${
-                      isActive ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-500'
-                    }`}
-                  />
-                  <span className="truncate">{item.name}</span>
-                  {item.badge && item.badge > 0 && (
-                    <Badge variant="secondary" className="ml-auto">
-                      {item.badge > 99 ? '99+' : item.badge}
-                    </Badge>
-                  )}
-                </Link>
-              );
-            })}
+          {/* Nav */}
+          <nav className="flex-1 px-3 py-4 overflow-y-auto">
+            <div className="space-y-px">
+              {/* MAIN section */}
+              <p className="px-3 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+                Main
+              </p>
+              {workspaceItems.map(renderNavItem)}
+
+              {/* TOOLS / ADMIN section */}
+              {adminItems.length > 0 && (
+                <div className="pt-4">
+                  <p className="px-3 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+                    Admin
+                  </p>
+                  {adminItems.map(renderNavItem)}
+                </div>
+              )}
+            </div>
           </nav>
-          {/* Bottom actions: settings/logout + connection badge */}
-          <div className="px-4 py-4 border-t space-y-2">
-            <Link href={getSettingsRoute()} className="flex items-center px-2 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-50">
-              <Settings className="mr-3 h-4 w-4 text-gray-500" />
+
+          {/* Bottom */}
+          <div className="px-3 py-4 space-y-px" style={{ borderTop: '1px solid #F5F5F5' }}>
+            <Link href={getSettingsRoute()}
+              className="flex items-center px-3 py-2 text-[13px] font-medium rounded-xl transition-all duration-150"
+              style={{ color: '#9CA3AF' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#F5F5F5'; (e.currentTarget as HTMLElement).style.color = '#374151'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; (e.currentTarget as HTMLElement).style.color = '#9CA3AF'; }}>
+              <Settings className="mr-3 h-[15px] w-[15px] text-gray-400" />
               <span>Settings</span>
             </Link>
-            <button onClick={handleSignOut} className="w-full flex items-center px-2 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-50">
-              <LogOut className="mr-3 h-4 w-4 text-gray-500" />
+            <button onClick={handleSignOut}
+              className="w-full flex items-center px-3 py-2 text-[13px] font-medium rounded-xl text-left transition-all duration-150"
+              style={{ color: '#9CA3AF' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#F5F5F5'; (e.currentTarget as HTMLElement).style.color = '#374151'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; (e.currentTarget as HTMLElement).style.color = '#9CA3AF'; }}>
+              <LogOut className="mr-3 h-[15px] w-[15px] text-gray-400" />
               <span>Logout</span>
             </button>
-            <div className={`mt-2 flex items-center justify-between px-3 py-2 text-xs rounded-lg ${
-              socket?.isConnected 
-                ? 'bg-green-100 text-green-800 border border-green-200' 
-                : 'bg-gray-100 text-gray-600 border border-gray-200'
-            }`}>
-              <div className="flex items-center space-x-2">
-                {socket?.isConnected ? (
-                  <Wifi className="h-4 w-4" />
-                ) : (
-                  <WifiOff className="h-4 w-4" />
-                )}
-                <span className="font-medium">
-                  {socket?.isConnected ? 'Real-time' : 'Offline'}
-                </span>
+
+            {/* Socket status */}
+            <div className="flex items-center justify-between px-3 py-2 rounded-xl text-[11px] mt-1"
+              style={{ background: socket?.isConnected ? '#F0FDF4' : '#F9FAFB', color: socket?.isConnected ? '#16A34A' : '#9CA3AF' }}>
+              <div className="flex items-center gap-1.5">
+                {socket?.isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                <span className="font-medium">{socket?.isConnected ? 'Live' : 'Offline'}</span>
               </div>
-              <button
-                onClick={handleSocketToggle}
-                className="p-1 rounded hover:bg-white/50 transition-colors"
-                title={socket?.isConnected ? 'Disconnect' : 'Connect'}
-              >
+              <button onClick={handleSocketToggle} className="p-0.5 rounded hover:bg-black/5 transition-colors">
                 <Power className="h-3 w-3" />
               </button>
             </div>
@@ -330,48 +303,105 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </div>
       </div>
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
-        {/* Top navigation - Updated for mobile-first */}
-        <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm border-b border-gray-100 lg:block">
+      {/* ── Main content ── */}
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-60">
+
+        {/* ── Header — WHITE, Equa-style ── */}
+        <header className="sticky top-0 z-40"
+          style={{ background: '#FFFFFF', borderBottom: '1px solid #F0F0F0' }}>
           <div className="mx-auto w-full max-w-7xl">
-            <div className="flex h-16 items-center justify-between px-4 lg:px-8">
-            {/* Mobile: Logo and app name, Desktop: Search */}
-              <div className="flex items-center lg:flex-1">
-                <div className="lg:hidden flex items-center">
-                  <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center mr-3 shadow-sm">
-                    <span className="text-white font-bold text-sm tracking-wide">OH</span>
+            <div className="flex h-[60px] items-center justify-between px-4 lg:px-6 gap-4">
+
+              {/* Left: mobile logo / desktop search */}
+              <div className="flex items-center flex-1 min-w-0">
+                {/* Mobile logo */}
+                <div className="lg:hidden flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                    style={{ background: 'linear-gradient(135deg, #6B7C3B 0%, #4a5629 100%)' }}>
+                    <span className="text-white font-black text-[10px]">OH</span>
                   </div>
-                  <span className="font-semibold text-gray-900">OliveHaus</span>
+                  <p className="text-[13px] font-bold text-gray-900">OliveHaus</p>
                 </div>
-                {/* Desktop search */}
-                <div className="hidden lg:flex items-center w-full max-w-md ml-4">
+
+                {/* Desktop search — Equa style pill */}
+                <div className="hidden lg:flex items-center w-full max-w-md">
                   <div className="relative w-full">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[14px] w-[14px] text-gray-400" />
                     <input
                       type="search"
-                      placeholder="Search task"
-                      className="w-full rounded-full border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-400 focus:bg-white"
+                      placeholder="Search or type a command"
+                      className="w-full rounded-full pl-9 pr-16 py-2.5 text-[13px] outline-none transition-all"
+                      style={{
+                        background: '#F5F5F5',
+                        border: '1.5px solid transparent',
+                        color: '#111',
+                      }}
+                      onFocus={e => {
+                        e.currentTarget.style.background = '#fff';
+                        e.currentTarget.style.border = '1.5px solid #E5E7EB';
+                        e.currentTarget.style.boxShadow = '0 0 0 3px rgba(107,124,59,0.08)';
+                      }}
+                      onBlur={e => {
+                        e.currentTarget.style.background = '#F5F5F5';
+                        e.currentTarget.style.border = '1.5px solid transparent';
+                        e.currentTarget.style.boxShadow = '';
+                      }}
                     />
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-gray-400 bg-gray-200 rounded px-1.5 py-0.5">
+                      ⌘F
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* Right section - Notifications and User menu */}
-              <div className="flex items-center space-x-4">
+              {/* Right: new project + notifications + avatar */}
+              <div className="flex items-center gap-2.5 shrink-0">
+                {/* New project button — dark pill (Equa style) */}
+                {userRole !== 'client' && (
+                  <Link href={getNewProjectRoute()}
+                    className="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+                    style={{ background: '#111111' }}>
+                    <Plus className="h-3.5 w-3.5" />
+                    New Project
+                  </Link>
+                )}
+
                 <NotificationBell />
-                {/* User identity (desktop) */}
-                <div className="hidden lg:flex items-center space-x-3 rounded-full border border-slate-200 bg-white px-3 py-1 shadow-sm">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="bg-primary-500 text-white">
-                      {userName.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="leading-tight">
-                    <p className="text-sm font-medium text-slate-900">{userName || 'User'}</p>
-                    <p className="text-xs text-slate-500">{userEmail || 'user@example.com'}</p>
-                  </div>
-                </div>
+
+                {/* Avatar pill */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex items-center gap-2 rounded-full pl-1 pr-3 py-1 transition-colors hover:bg-gray-100"
+                      style={{ border: '1.5px solid #F0F0F0' }}>
+                      <Avatar className="h-7 w-7">
+                        <AvatarFallback className="text-white text-xs font-bold"
+                          style={{ background: 'linear-gradient(135deg, #6B7C3B 0%, #4a5629 100%)' }}>
+                          {userName.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="hidden lg:block leading-tight text-left">
+                        <p className="text-[12px] font-semibold text-gray-800">{userName || 'User'}</p>
+                        <p className="text-[11px] text-gray-400">{roleLabel}</p>
+                      </div>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <div className="px-3 py-2">
+                      <p className="text-[13px] font-semibold text-gray-800">{userName}</p>
+                      <p className="text-[11px] text-gray-400 truncate">{userEmail}</p>
+                    </div>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href={getSettingsRoute()}>
+                        <Settings className="mr-2 h-4 w-4" />Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut} className="text-red-600">
+                      <LogOut className="mr-2 h-4 w-4" />Log out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </div>
@@ -379,50 +409,49 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* Main content */}
         <main className="flex-1 overflow-auto pb-20 lg:pb-6">
-          <div className="mx-auto w-full max-w-7xl px-4 lg:px-8 py-6">
+          <div className="mx-auto w-full max-w-7xl px-4 lg:px-6 py-6">
             {children}
           </div>
         </main>
 
-        {/* Mobile Bottom Navigation - EXISTING NAV ITEMS */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 shadow-lg">
+        {/* ── Mobile Bottom Navigation ── */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50"
+          style={{ background: '#FFFFFF', borderTop: '1px solid #F0F0F0' }}>
           <div className="px-2 py-2 pb-safe">
             <div className="flex items-center justify-around">
-              {/* Primary Navigation Items (First 4) */}
               {primaryItems.map((item) => {
-                const isActive = pathname === item.href || 
-                               (item.href !== '/' && item.href !== '#' && pathname.startsWith(item.href));
-                
+                const isActive = pathname === item.href ||
+                  (item.href.includes('/', 1) && pathname.startsWith(item.href + '/'));
                 return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className="flex flex-col items-center justify-center min-w-0 flex-1 py-2 px-1 text-xs touch-manipulation relative"
-                  >
-                    {/* Badge for notifications */}
+                  <Link key={item.name} href={item.href}
+                    className="flex flex-col items-center justify-center min-w-0 flex-1 py-1.5 px-1 relative">
                     {item.badge && item.badge > 0 && (
-                      <div className="absolute -top-1 -right-1 z-10">
-                        <Badge variant="destructive" className="h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs">
-                          {item.badge > 99 ? '99+' : item.badge}
+                      <div className="absolute top-0 right-1 z-10">
+                        <Badge variant="destructive" className="h-4 w-4 rounded-full p-0 flex items-center justify-center text-[9px]">
+                          {item.badge > 9 ? '9+' : item.badge}
                         </Badge>
                       </div>
                     )}
-                    
-                    <item.icon className={`h-6 w-6 mb-1 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
-                    <span className={`truncate text-xs ${isActive ? 'text-primary-600 font-medium' : 'text-gray-500'}`}>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-0.5 transition-colors ${isActive ? 'bg-gray-900' : ''}`}>
+                      <item.icon className="h-4 w-4"
+                        style={{ color: isActive ? '#fff' : '#9CA3AF' }} />
+                    </div>
+                    <span className="truncate text-[10px]"
+                      style={{ color: isActive ? '#111111' : '#9CA3AF', fontWeight: isActive ? 600 : 400 }}>
                       {item.name}
                     </span>
                   </Link>
                 );
               })}
 
-              {/* More Menu (if there are overflow items) */}
               {hasOverflow && (
                 <DropdownMenu modal={false} open={showMoreMenu} onOpenChange={setShowMoreMenu}>
                   <DropdownMenuTrigger asChild>
-                    <button className="flex flex-col items-center justify-center min-w-0 flex-1 py-2 px-1 text-xs touch-manipulation">
-                      <MoreHorizontal className="h-6 w-6 mb-1 text-gray-500" />
-                      <span className="truncate text-xs text-gray-500">More</span>
+                    <button className="flex flex-col items-center justify-center min-w-0 flex-1 py-1.5 px-1">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center mb-0.5">
+                        <MoreHorizontal className="h-4 w-4 text-gray-400" />
+                      </div>
+                      <span className="text-[10px] text-gray-400">More</span>
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-56" align="end" side="top">
@@ -432,9 +461,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                           <navItem.icon className="mr-2 h-4 w-4" />
                           <span>{navItem.name}</span>
                           {navItem.badge && navItem.badge > 0 && (
-                            <Badge variant="secondary" className="ml-auto">
-                              {navItem.badge > 99 ? '99+' : navItem.badge}
-                            </Badge>
+                            <Badge variant="secondary" className="ml-auto">{navItem.badge > 99 ? '99+' : navItem.badge}</Badge>
                           )}
                         </Link>
                       </DropdownMenuItem>
@@ -442,13 +469,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
                       <Link href={getSettingsRoute()} onClick={() => setShowMoreMenu(false)}>
-                        <Settings className="mr-2 h-4 w-4" />
-                        <span>Settings</span>
+                        <Settings className="mr-2 h-4 w-4" /><span>Settings</span>
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => { setShowMoreMenu(false); handleSignOut(); }}>
-                      <LogOut className="mr-2 h-4 w-4" />
-                      <span>Log out</span>
+                      <LogOut className="mr-2 h-4 w-4" /><span>Log out</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

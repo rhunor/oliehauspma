@@ -13,34 +13,35 @@
     --font-accent: 'Oranienbaum', serif;
     --font-serif: 'Playfair Display', Georgia, serif;
 
-    /* New OliveHaus Login Color Scheme */
+    /* OliveHaus Brand Color Scheme */
     --color-soft-sage: 162 169 141;
     --color-clay-peach: 218 165 140;
     --color-pale-oat: 242 235 220;
     --color-mist-grey: 210 215 220;
     --color-warm-sand: 232 213 192;
 
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    /* OliveHaus Shadcn/Radix tokens — brand-coherent palette */
+    --background: 45 28% 97%;          /* warm cream #f9f7f0 */
+    --foreground: 84 24% 12%;          /* dark olive-brown */
+    --card: 0 0% 100%;                 /* white cards pop on cream bg */
+    --card-foreground: 84 24% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 84 24% 12%;
+    --primary: 75 35% 36%;             /* #6B7C3B OliveHaus sage green */
+    --primary-foreground: 60 30% 97%;  /* cream white text on primary */
+    --secondary: 47 60% 52%;           /* #D4AF37 warm gold */
+    --secondary-foreground: 45 15% 10%;
+    --muted: 45 20% 93%;               /* warm muted bg */
+    --muted-foreground: 84 10% 46%;    /* warm gray text */
+    --accent: 47 50% 94%;              /* gold-tinted accent */
+    --accent-foreground: 84 24% 12%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --border: 75 12% 87%;              /* warm olive-tinted border */
+    --input: 75 12% 87%;
+    --ring: 75 35% 36%;                /* sage green focus ring */
     --radius: 0.5rem;
-    
+
     /* Enhanced mobile-specific variables */
     --mobile-header-height: 4rem;
     --mobile-nav-height: 3.5rem;
@@ -48,8 +49,7 @@
     --mobile-safe-area-bottom: env(safe-area-inset-bottom, 0);
     --mobile-touch-target: 44px;
 
-        /* Luxury gold for logo */
-
+    /* Luxury gold for logo */
     --luxury-gold: 212 175 55;
   }
 
@@ -313,23 +313,23 @@
     }
   }
 
-  /* Button variants with proper colors */
+  /* Button variants with proper brand colors */
   .btn-primary {
-    background-color: rgb(37 99 235);
-    color: white;
+    background-color: rgb(107 124 59); /* #6B7C3B sage green */
+    color: rgb(249 247 240);
     transition-property: color, background-color, border-color;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 200ms;
   }
 
   .btn-primary:hover {
-    background-color: rgb(29 78 216);
+    background-color: rgb(90 104 50); /* #5a6832 */
   }
 
   .btn-primary:focus {
     outline: 2px solid transparent;
     outline-offset: 2px;
-    box-shadow: 0 0 0 2px rgb(59 130 246);
+    box-shadow: 0 0 0 2px rgb(155 169 94); /* primary-400 */
   }
 
   .btn-secondary {
@@ -347,7 +347,7 @@
   .btn-secondary:focus {
     outline: 2px solid transparent;
     outline-offset: 2px;
-    box-shadow: 0 0 0 2px rgb(100 116 139);
+    box-shadow: 0 0 0 2px rgb(107 124 59); /* sage green focus */
   }
 
   .btn-success {
@@ -485,7 +485,7 @@
   }
 
   .nav-mobile-item.active {
-    color: rgb(37 99 235);
+    color: rgb(107 124 59); /* #6B7C3B sage green */
   }
 
   /* Enhanced mobile dropdown/popover positioning */
@@ -605,7 +605,7 @@
 
   /* Semantic color utilities */
   .text-primary {
-    color: rgb(37 99 235);
+    color: rgb(107 124 59); /* #6B7C3B sage green */
   }
 
   .text-secondary {
@@ -626,7 +626,7 @@
 
   /* Background utilities */
   .bg-primary-light {
-    background-color: rgb(239 246 255);
+    background-color: rgb(232 236 217); /* primary-100 */
   }
 
   .bg-secondary-light {
@@ -772,7 +772,7 @@
   }
 
   .focus-mobile:focus {
-    box-shadow: 0 0 0 2px rgb(59 130 246);
+    box-shadow: 0 0 0 2px rgb(107 124 59); /* sage green */
   }
 
   /* Enhanced mobile border radius utilities */
@@ -990,3 +990,54 @@
         .scrollable-container::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
         } */
+
+/* ============================================================
+   OliveHaus Premium Design Enhancements
+   ============================================================ */
+
+/* Subtle paper-grain texture overlay — adds depth without noise */
+html::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)' opacity='1'/%3E%3C/svg%3E");
+  opacity: 0.018;
+  pointer-events: none;
+  z-index: 99999;
+  mix-blend-mode: multiply;
+}
+
+/* Card hover: warm shadow with sage tint */
+.card-hover-premium {
+  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-hover-premium:hover {
+  box-shadow: 0 8px 32px -4px rgba(107, 124, 59, 0.12), 0 2px 8px -2px rgba(107, 124, 59, 0.08);
+  transform: translateY(-1px);
+}
+
+/* Sidebar gold pulse animation for active indicator */
+@keyframes gold-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Smooth sidebar nav transition */
+.sidebar-nav-item {
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Dashboard content area — slightly warmer scrollbars */
+.dashboard-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.dashboard-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dashboard-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(187 192 168); /* warm olive-gray */
+  border-radius: 3px;
+}
+.dashboard-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(155 165 130);
+}

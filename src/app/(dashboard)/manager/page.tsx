@@ -1,78 +1,37 @@
-// src/app/(dashboard)/manager/page.tsx - UPDATED: Mobile-first design with app-style cards
+// src/app/(dashboard)/manager/page.tsx
 import { Suspense } from 'react';
 import { auth } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/db';
 import { ObjectId, Filter } from 'mongodb';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { 
-  Activity, 
-  Calendar, 
-  Target, 
-  ChevronRight, 
-  Clock,
+import {
+  Activity,
+  Calendar,
   CheckCircle,
   AlertTriangle,
-  Shield,
   FileText,
   MessageSquare,
-  Users,
-  TrendingUp,
   FolderOpen,
-  PlusCircle,
-  BarChart3
+  TrendingUp,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { formatDate, formatTimeAgo } from '@/lib/utils';
+
 import FloatingAIChatbot from '@/components/chat/FloatingAIChatbot';
-import MetricCard from '@/components/ui/MetricCard';
 
-// Helper function to format time from date string (proper TypeScript)
-function formatTime(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Invalid time';
-    
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const displayHours = hours % 12 || 12;
-    const displayMinutes = minutes.toString().padStart(2, '0');
-    
-    return `${displayHours}:${displayMinutes} ${ampm}`;
-  } catch (error) {
-    console.error('Error formatting time:', error);
-    return 'Invalid time';
-  }
-}
-
-// Proper TypeScript interfaces
 interface ManagerStats {
   totalProjects: number;
   activeProjects: number;
   completedProjects: number;
   averageProgress: number;
-  totalTasks: number;
-  completedTasks: number;
   clientCount: number;
   recentMessages: number;
-  totalFiles: number;
-  totalIncidents: number;
-  activeRisks: number;
 }
 
 interface ProjectSummary {
   _id: string;
   title: string;
-  description: string;
   status: string;
-  priority: string;
   progress: number;
   clientName: string;
-  createdAt: string;
   updatedAt: string;
 }
 
@@ -82,58 +41,22 @@ interface RecentUpdate {
   title: string;
   description: string;
   timestamp: string;
-  projectTitle?: string;
 }
 
 interface RecentFile {
   _id: string;
-  filename: string;
   originalName: string;
-  size: number;
-  category: string;
   projectTitle: string;
-  uploadedBy: {
-    name: string;
-  };
   createdAt: string;
 }
 
-interface WorkScheduleItem {
-  _id: string;
-  title: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
-  startDate: string;
-  contractor?: string;
-  projectTitle: string;
-}
-
-interface DashboardData {
-  stats: ManagerStats;
-  recentProjects: ProjectSummary[];
-  recentUpdates: RecentUpdate[];
-  recentFiles: RecentFile[];
-  workSchedule: {
-    todayTasks: WorkScheduleItem[];
-    upcomingTasks: WorkScheduleItem[];
-    totalTasks: number;
-    completedToday: number;
-  };
-}
-
-// MongoDB document interfaces (proper typing)
 interface ProjectDocument {
   _id: ObjectId;
   title: string;
-  description: string;
   status: string;
-  priority: string;
   progress: number;
   client: ObjectId;
   manager: ObjectId;
-  startDate?: Date;
-  endDate?: Date;
-  budget?: number;
-  tags?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -144,359 +67,88 @@ interface UserDocument {
   email: string;
 }
 
-// Mobile App Style Dashboard Card Component (NEW - for mobile only)
-interface MobileDashboardCardProps {
-  title: string;
-  description: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'pink';
-  stats?: {
-    value: number | string;
-    label: string;
-  };
-  subtitle?: string;
-  isEmpty?: boolean;
-  emptyMessage?: string;
-}
-
-function MobileDashboardCard({ 
-  title, 
-  description, 
-  href, 
-  icon: Icon, 
-  color, 
-  stats,
-  subtitle,
-  isEmpty = false,
-  emptyMessage 
-}: MobileDashboardCardProps) {
-  const colorClasses: Record<string, { bg: string; icon: string; text: string }> = {
-    blue: {
-      bg: 'bg-primary-50 hover:bg-primary-100',
-      icon: 'text-primary-600',
-      text: 'text-primary-700'
-    },
-    green: { 
-      bg: 'bg-green-50 hover:bg-green-100', 
-      icon: 'text-green-600', 
-      text: 'text-green-700' 
-    },
-    purple: { 
-      bg: 'bg-purple-50 hover:bg-purple-100', 
-      icon: 'text-purple-600', 
-      text: 'text-purple-700' 
-    },
-    orange: { 
-      bg: 'bg-orange-50 hover:bg-orange-100', 
-      icon: 'text-orange-600', 
-      text: 'text-orange-700' 
-    },
-    red: { 
-      bg: 'bg-red-50 hover:bg-red-100', 
-      icon: 'text-red-600', 
-      text: 'text-red-700' 
-    },
-    pink: { 
-      bg: 'bg-pink-50 hover:bg-pink-100', 
-      icon: 'text-pink-600', 
-      text: 'text-pink-700' 
-    }
-  };
-
-  const colors = colorClasses[color];
-
-  return (
-    <Link href={href}>
-      <Card className={`${colors.bg} border-0 hover:shadow-md transition-all duration-200 cursor-pointer group h-full lg:hidden`}>
-        <CardContent className="p-6">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center space-x-3">
-              <div className={`p-3 rounded-full bg-white shadow-sm`}>
-                <Icon className={`h-8 w-8 ${colors.icon}`} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className={`font-bold text-lg ${colors.text}`}>{title}</h3>
-                {subtitle && (
-                  <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {isEmpty ? (
-              <div className="text-center py-8">
-                <div className="text-gray-400 mb-2">
-                  <Icon className="h-12 w-12 mx-auto opacity-50" />
-                </div>
-                <p className="text-gray-500 text-sm font-medium">{emptyMessage}</p>
-              </div>
-            ) : (
-              <>
-                {stats && (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-2xl font-bold ${colors.text}`}>{stats.value}</p>
-                      <p className="text-sm text-gray-600">{stats.label}</p>
-                    </div>
-                  </div>
-                )}
-                
-                <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
-
-// Original Dashboard Card Component (preserved for desktop)
-interface DashboardCardProps {
-  title: string;
-  description: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: 'blue' | 'green' | 'purple' | 'orange' | 'red';
-  stats?: {
-    value: number;
-    label: string;
-  };
-}
-
-function DashboardCard({ 
-  title, 
-  description, 
-  href, 
-  icon: Icon, 
-  color, 
-  stats 
-}: DashboardCardProps) {
-    const iconColorClasses: Record<string, string> = {
-    blue: 'text-blue-600',
-    green: 'text-green-600',
-    purple: 'text-purple-600',
-    orange: 'text-orange-600',
-    red: 'text-red-600'
-  };
-
- return (
-    <Link href={href}>
-      <Card className="hover:shadow-md transition-all duration-200 cursor-pointer group h-full hidden lg:block border border-gray-100">
-        <CardContent className="p-0">
-          {/* CHANGED: Removed gradient, now clean white with subtle shadow */}
-          <div className="bg-white p-6 relative overflow-hidden border-b border-gray-100">
-            <div className="absolute top-0 right-0 -mt-4 -mr-4 opacity-10">
-              <Icon className={`h-24 w-24 transform rotate-12 ${iconColorClasses[color]}`} />
-            </div>
-            <div className="relative">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-gray-50 rounded-lg border border-gray-200">
-                  <Icon className={`h-6 w-6 ${iconColorClasses[color]}`} />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-lg text-gray-900">{title}</h3>
-                  {stats && (
-                    <div className="flex items-center space-x-2 mt-1">
-                      <span className="text-2xl font-bold text-gray-900">{stats.value}</span>
-                      <span className="text-sm text-gray-600">{stats.label}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="p-4 bg-white">
-            <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
-            <div className="flex items-center justify-between mt-4">
-              <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
-                View Details
-              </span>
-              <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
-
-// Database functions (proper TypeScript, following project patterns)
-async function getManagerDashboardData(managerId: string): Promise<DashboardData> {
+async function getManagerDashboardData(managerId: string) {
   try {
     const { db } = await connectToDatabase();
 
-    // Get manager's projects with proper filter typing
-    const projectQuery: Filter<ProjectDocument> = {
-      manager: new ObjectId(managerId)
-    };
-
-    const projects = await db.collection<ProjectDocument>('projects')
-      .find(projectQuery)
-      .toArray();
-
+    const projectQuery: Filter<ProjectDocument> = { manager: new ObjectId(managerId) };
+    const projects = await db.collection<ProjectDocument>('projects').find(projectQuery).toArray();
     const projectIds = projects.map(p => p._id);
 
-    // Calculate statistics
     const stats: ManagerStats = {
       totalProjects: projects.length,
       activeProjects: projects.filter(p => p.status === 'in_progress').length,
       completedProjects: projects.filter(p => p.status === 'completed').length,
-      averageProgress: projects.length > 0 ? Math.round(projects.reduce((sum, p) => sum + p.progress, 0) / projects.length) : 0,
-      totalTasks: 0,
-      completedTasks: 0,
-      clientCount: 0,
+      averageProgress: projects.length > 0
+        ? Math.round(projects.reduce((s, p) => s + p.progress, 0) / projects.length) : 0,
+      clientCount: new Set(projects.map(p => p.client.toString())).size,
       recentMessages: 0,
-      totalFiles: 0,
-      totalIncidents: 0,
-      activeRisks: 0
     };
 
-    // Get unique clients
-    const uniqueClientIds = [...new Set(projects.map(p => p.client))];
-    stats.clientCount = uniqueClientIds.length;
-
-    // Get recent project data with client names
     const recentProjects: ProjectSummary[] = [];
-    for (const project of projects.slice(0, 5)) {
+    for (const project of projects.slice(0, 6)) {
       const client = await db.collection<UserDocument>('users').findOne({ _id: project.client });
       recentProjects.push({
         _id: project._id.toString(),
         title: project.title,
-        description: project.description,
         status: project.status,
-        priority: project.priority,
         progress: project.progress,
-        clientName: client?.name || 'Unknown Client',
-        createdAt: project.createdAt.toISOString(),
-        updatedAt: project.updatedAt.toISOString()
+        clientName: client?.name || 'Unknown',
+        updatedAt: project.updatedAt.toISOString(),
       });
     }
 
-    // Get recent updates
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
+    const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
     const recentUpdates: RecentUpdate[] = projects
-      .filter(project => project.updatedAt >= startOfMonth)
+      .filter(p => p.updatedAt >= startOfMonth)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      .slice(0, 10)
-      .map(project => ({
-        _id: project._id.toString(),
-        type: project.status === 'completed' ? 'project_completed' : 'project_updated',
-        title: `Project ${project.status === 'completed' ? 'completed' : 'updated'}`,
-        description: project.title,
-        timestamp: project.updatedAt.toISOString(),
-        projectTitle: project.title
+      .slice(0, 6)
+      .map(p => ({
+        _id: p._id.toString(),
+        type: p.status === 'completed' ? 'project_completed' : 'project_updated',
+        title: `Project ${p.status === 'completed' ? 'completed' : 'updated'}`,
+        description: p.title,
+        timestamp: p.updatedAt.toISOString(),
       }));
 
-    // Get recent files
     const recentFiles = await db.collection('files')
-      .find({
-        projectId: { $in: projectIds }
-      })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .toArray();
+      .find({ projectId: { $in: projectIds } })
+      .sort({ createdAt: -1 }).limit(5).toArray();
 
-    const transformedRecentFiles: RecentFile[] = [];
-    for (const file of recentFiles) {
-      const project = projects.find(p => p._id.equals(file.projectId));
-      const uploader = await db.collection('users').findOne({ _id: file.uploadedBy });
-      
-      transformedRecentFiles.push({
-        _id: file._id.toString(),
-        filename: file.filename,
-        originalName: file.originalName,
-        size: file.size,
-        category: file.category,
-        projectTitle: project?.title || 'Unknown Project',
-        uploadedBy: {
-          name: uploader?.name || 'Unknown User'
-        },
-        createdAt: file.createdAt.toISOString()
-      });
-    }
+    const transformedFiles: RecentFile[] = recentFiles.map(f => ({
+      _id: f._id.toString(),
+      originalName: f.originalName,
+      projectTitle: projects.find(p => p._id.equals(f.projectId))?.title || 'Unknown',
+      createdAt: f.createdAt.toISOString(),
+    }));
 
-    // Get work schedule data (mock for now)
-    const workSchedule = {
-      todayTasks: [] as WorkScheduleItem[],
-      upcomingTasks: [] as WorkScheduleItem[],
-      totalTasks: 0,
-      completedToday: 0
-    };
-
-    return {
-      stats,
-      recentProjects,
-      recentUpdates,
-      recentFiles: transformedRecentFiles,
-      workSchedule
-    };
-
+    return { stats, recentProjects, recentUpdates, recentFiles: transformedFiles };
   } catch (error) {
     console.error('Error fetching manager dashboard data:', error);
-    
-    // Return default values on error
     return {
-      stats: {
-        totalProjects: 0,
-        activeProjects: 0,
-        completedProjects: 0,
-        averageProgress: 0,
-        totalTasks: 0,
-        completedTasks: 0,
-        clientCount: 0,
-        recentMessages: 0,
-        totalFiles: 0,
-        totalIncidents: 0,
-        activeRisks: 0
-      },
+      stats: { totalProjects: 0, activeProjects: 0, completedProjects: 0, averageProgress: 0, clientCount: 0, recentMessages: 0 },
       recentProjects: [],
       recentUpdates: [],
       recentFiles: [],
-      workSchedule: {
-        todayTasks: [],
-        upcomingTasks: [],
-        totalTasks: 0,
-        completedToday: 0
-      }
     };
   }
 }
 
-// Loading component
 function ManagerDashboardLoading() {
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="space-y-2">
-          <div className="h-8 bg-gray-200 rounded w-64 animate-pulse"></div>
-          <div className="h-4 bg-gray-200 rounded w-96 animate-pulse"></div>
-        </div>
+    <div className="space-y-5 animate-pulse">
+      <div className="h-10 bg-gray-200 rounded-xl w-56" />
+      <div className="grid grid-cols-2 gap-4">
+        {[...Array(2)].map((_, i) => <div key={i} className="bg-white rounded-2xl h-40" />)}
       </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[...Array(8)].map((_, i) => (
-          <Card key={i}>
-            <CardContent className="pt-6">
-              <div className="space-y-3">
-                <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
-                <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
-                <div className="h-3 bg-gray-200 rounded w-3/4 animate-pulse"></div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white rounded-2xl h-60" />
+        <div className="bg-gray-900 rounded-2xl h-60" />
       </div>
     </div>
   );
 }
 
-// Main Dashboard Component
 async function ManagerDashboard() {
   const session = await auth();
 
@@ -512,311 +164,263 @@ async function ManagerDashboard() {
     );
   }
 
-  const {
-    stats,
-    recentProjects,
-    recentUpdates,
-    recentFiles,
-    workSchedule
-  } = await getManagerDashboardData(session.user.id);
+  const { stats, recentProjects, recentFiles } = await getManagerDashboardData(session.user.id);
+
+  const firstName = session.user.name?.split(' ')[0] || 'Manager';
+
+  // Capsule bar chart data
+  const barData = [
+    { label: 'Active', count: stats.activeProjects, color: '#6B7C3B' },
+    { label: 'Planning', count: Math.max(0, stats.totalProjects - stats.activeProjects - stats.completedProjects), color: '#D4AF37' },
+    { label: 'Done', count: stats.completedProjects, color: '#22C55E' },
+  ].filter(d => d.count > 0);
+  const maxCount = Math.max(...barData.map(d => d.count), 1);
 
   return (
     <>
-      <div className="space-y-6">
-        {/* Header with Mobile-First Design */}
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-          <div className="flex-1">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-              <span className="lg:hidden">Home</span>
-              <span className="hidden lg:block">Manager Dashboard</span>
-            </h1>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">
-              <span className="lg:hidden">Welcome back, {session.user.name?.split(' ')[0]}!</span>
-              <span className="hidden lg:block">Manage your projects and track progress</span>
-            </p>
+      <div className="space-y-5">
+
+        {/* ── Greeting ── */}
+        <div>
+          <h1 className="text-[32px] sm:text-[38px] font-extrabold text-gray-900 leading-tight"
+            style={{ letterSpacing: '-0.03em' }}>
+            Hello, {firstName}!
+          </h1>
+          <p className="text-[14px] text-gray-400 mt-0.5">Here&apos;s your weekly overview</p>
+        </div>
+
+        {/* ── Row 1: 2 KPI cards ── */}
+        <div className="grid grid-cols-2 gap-4">
+
+          <Link href="/manager/projects?status=in_progress" className="block">
+            <div className="bg-white rounded-2xl p-6 hover:shadow-lg transition-shadow"
+              style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+                style={{ background: '#111111' }}>
+                <FolderOpen className="h-5 w-5 text-white" />
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[44px] sm:text-[52px] font-extrabold text-gray-900 leading-none"
+                  style={{ letterSpacing: '-0.04em' }}>
+                  {stats.activeProjects}
+                </span>
+                <span className="text-[15px] font-medium text-gray-400 pb-1">projects</span>
+              </div>
+              <p className="text-[12px] text-gray-400 mt-1.5 font-medium uppercase tracking-wide">In Progress</p>
+            </div>
+          </Link>
+
+          <Link href="/manager/projects?status=completed" className="block">
+            <div className="bg-white rounded-2xl p-6 hover:shadow-lg transition-shadow"
+              style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+                style={{ background: '#6B7C3B' }}>
+                <CheckCircle className="h-5 w-5 text-white" />
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[44px] sm:text-[52px] font-extrabold text-gray-900 leading-none"
+                  style={{ letterSpacing: '-0.04em' }}>
+                  {stats.averageProgress}%
+                </span>
+              </div>
+              <p className="text-[12px] text-gray-400 mt-1.5 font-medium uppercase tracking-wide">Avg Progress</p>
+            </div>
+          </Link>
+        </div>
+
+        {/* ── Row 2: Analytics (wide) + Quick links ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+          {/* Analytics — capsule bar chart */}
+          <div className="lg:col-span-2 bg-white rounded-2xl p-6"
+            style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h2 className="text-[15px] font-bold text-gray-900">Project Trends</h2>
+                <p className="text-[12px] text-gray-400 mt-0.5">Projects by current status</p>
+              </div>
+              <Link href="/manager/projects" className="text-[12px] font-semibold text-gray-400 hover:text-gray-600">
+                View all →
+              </Link>
+            </div>
+            <div className="mt-4 mb-6">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[38px] font-extrabold text-gray-900 leading-none"
+                  style={{ letterSpacing: '-0.04em' }}>
+                  {stats.totalProjects}
+                </span>
+                <span className="text-[14px] text-gray-400">total projects</span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <TrendingUp className="h-3.5 w-3.5 text-green-500" />
+                <span className="text-[12px] font-medium text-green-600">{stats.clientCount} active clients</span>
+              </div>
+            </div>
+
+            {/* Capsule bars */}
+            <div className="flex items-end gap-4 sm:gap-8" style={{ height: '100px' }}>
+              {barData.length > 0 ? barData.map(item => {
+                const barH = Math.max(24, Math.round((item.count / maxCount) * 80));
+                const isMax = item.count === maxCount;
+                return (
+                  <div key={item.label} className="flex flex-col items-center gap-2 flex-1">
+                    {isMax
+                      ? <div className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: '#111' }}>{item.count}</div>
+                      : <div className="h-5" />}
+                    <div className="w-full max-w-[48px] rounded-full"
+                      style={{ height: `${barH}px`, background: item.color, opacity: 0.9 }} />
+                    <span className="text-[11px] text-gray-400 font-medium">{item.label}</span>
+                  </div>
+                );
+              }) : (
+                <p className="text-sm text-gray-400 self-center mx-auto">No projects yet</p>
+              )}
+            </div>
           </div>
-          
-          {/* Quick Action Button */}
-          <div className="lg:flex-shrink-0">
-            <Link href="/manager/projects/new">
-              <Button className="w-full lg:w-auto min-h-[44px] touch-manipulation">
-                <PlusCircle className="h-4 w-4 mr-2" />
-                New Project
-              </Button>
+
+          {/* Quick Access */}
+          <div className="bg-white rounded-2xl p-6" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+            <h2 className="text-[15px] font-bold text-gray-900">Quick Access</h2>
+            <p className="text-[12px] text-gray-400 mt-0.5 mb-5">Navigate to key sections</p>
+            <div className="space-y-1.5">
+              {[
+                { href: '/manager/site-schedule', Icon: Calendar, label: 'Site Schedule', sub: 'View timeline' },
+                { href: '/manager/files', Icon: FileText, label: 'Project Files', sub: `${recentFiles.length} recent` },
+                { href: '/manager/messages', Icon: MessageSquare, label: 'Messages', sub: 'Team chat' },
+              ].map(item => (
+                <Link key={item.href} href={item.href}
+                  className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                  <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                    <item.Icon className="h-4 w-4 text-gray-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-gray-800">{item.label}</p>
+                    <p className="text-[11px] text-gray-400">{item.sub}</p>
+                  </div>
+                  <span className="text-gray-300 text-sm">›</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Row 3: Recent Projects + Tracker (dark) ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+          {/* Recent Projects — Reminders-style */}
+          <div className="lg:col-span-2 bg-white rounded-2xl p-6"
+            style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-[15px] font-bold text-gray-900">Recent Projects</h2>
+              <span className="text-[11px] text-gray-400">What&apos;s in progress</span>
+            </div>
+            <p className="text-[12px] text-gray-400 mb-5">Your latest assignments</p>
+            <div className="space-y-1.5">
+              {recentProjects.length > 0 ? recentProjects.slice(0, 5).map(project => {
+                const statusColor = project.status === 'completed' ? '#22C55E'
+                  : project.status === 'in_progress' ? '#6B7C3B'
+                  : project.status === 'planning' ? '#D4AF37' : '#94A3B8';
+                const statusLabel = project.status === 'in_progress' ? 'Active'
+                  : project.status === 'completed' ? 'Done'
+                  : project.status === 'planning' ? 'Planning' : 'Hold';
+                return (
+                  <Link key={project._id} href={`/manager/projects/${project._id}`} className="block">
+                    <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ background: `${statusColor}15` }}>
+                        <FolderOpen className="h-4 w-4" style={{ color: statusColor }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-gray-800 truncate">{project.title}</p>
+                        <p className="text-[11px] text-gray-400">{project.clientName}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                          style={{ background: `${statusColor}15`, color: statusColor }}>
+                          {statusLabel}
+                        </span>
+                        <p className="text-[11px] text-gray-400 mt-1">{project.progress}%</p>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              }) : (
+                <div className="text-center py-10">
+                  <FolderOpen className="h-8 w-8 text-gray-200 mx-auto mb-2" />
+                  <p className="text-[13px] text-gray-400">No projects yet</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Portfolio Tracker — SOLID BLACK like Equa Time Tracker */}
+          <div className="rounded-2xl p-6" style={{ background: '#111111' }}>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Portfolio</p>
+            <h2 className="text-[16px] font-bold text-white mt-1 mb-6">Progress</h2>
+
+            {/* Arc gauge */}
+            <div className="flex items-center justify-center">
+              <div className="relative">
+                <svg width="140" height="100" viewBox="0 0 140 100">
+                  <path d="M 14 88 A 52 52 0 0 1 126 88" fill="none"
+                    stroke="rgba(255,255,255,0.1)" strokeWidth="10" strokeLinecap="round" />
+                  <path d="M 14 88 A 52 52 0 0 1 126 88" fill="none"
+                    stroke="#D4AF37" strokeWidth="10" strokeLinecap="round"
+                    strokeDasharray={`${(stats.averageProgress / 100) * 201} 201`} />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
+                  <p className="text-[34px] font-extrabold text-white leading-none">{stats.averageProgress}%</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="mt-6 space-y-3">
+              <div className="flex justify-between items-center text-[13px]">
+                <span className="text-white/50">Active</span>
+                <span className="font-bold text-white">{stats.activeProjects}</span>
+              </div>
+              <div className="h-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+              <div className="flex justify-between items-center text-[13px]">
+                <span className="text-white/50">Completed</span>
+                <span className="font-bold text-white">{stats.completedProjects}</span>
+              </div>
+              <div className="h-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+              <div className="flex justify-between items-center text-[13px]">
+                <span className="text-white/50">Clients</span>
+                <span className="font-bold text-white">{stats.clientCount}</span>
+              </div>
+            </div>
+
+            <Link href="/manager/projects"
+              className="mt-5 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold transition-colors"
+              style={{ background: 'rgba(255,255,255,0.08)', color: '#fff' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.14)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)'}>
+              <Activity className="h-3.5 w-3.5" />
+              View Projects
             </Link>
           </div>
         </div>
 
-        {/* Mobile Cards - NEW: Mobile app style cards (mobile only) */}
-        <div className="lg:hidden space-y-4">
-          {/* Primary Cards - Always visible */}
-          <div className="grid grid-cols-1 gap-4">
-            {/* Project Management Card */}
-            <MobileDashboardCard
-              title="My Projects"
-              description="Manage and track your assigned projects"
-              href="/manager/projects"
-              icon={FolderOpen}
-              color="blue"
-              stats={{ 
-                value: stats.activeProjects, 
-                label: "Active Projects" 
-              }}
-              subtitle="Project Management"
-            />
-
-            {/* Site Schedule Card */}
-            <MobileDashboardCard
-              title="Site Schedule"
-              description="Monitor project timeline and upcoming activities"
-              href="/manager/site-schedule"
-              icon={Calendar}
-              color="green"
-              stats={{ 
-                value: workSchedule.totalTasks, 
-                label: "Scheduled Tasks" 
-              }}
-              subtitle="Work Schedule"
-            />
-          </div>
-
-          {/* Secondary Cards - Shown when scrolling */}
-          <div className="grid grid-cols-1 gap-4 pt-2">
-            {/* Team Analytics Card */}
-            <MobileDashboardCard
-              title="Team Analytics"
-              description="View project performance and team metrics"
-              href="/manager/analytics"
-              icon={BarChart3}
-              color="purple"
-              stats={{ 
-                value: `${stats.averageProgress}%`, 
-                label: "Avg Progress" 
-              }}
-              subtitle="Performance Metrics"
-            />
-
-            {/* Client Communication Card */}
-            <MobileDashboardCard
-              title="Client Messages"
-              description="Communicate with your project clients"
-              href="/manager/messages"
-              icon={MessageSquare}
-              color="orange"
-              stats={{ 
-                value: stats.recentMessages, 
-                label: "Recent Messages" 
-              }}
-              subtitle="Team Communication"
-            />
-
-            {/* Project Files Card */}
-            <MobileDashboardCard
-              title="Project Files"
-              description="Access project documents and files"
-              href="/manager/files"
-              icon={FileText}
-              color="pink"
-              stats={{ 
-                value: recentFiles.length, 
-                label: "Recent Files" 
-              }}
-              subtitle="Documents & Media"
-            />
-
-            {/* Team Management Card removed: route /manager/team does not exist */}
-          </div>
-        </div>
-
-        {/* Enhanced Header for desktop - modern SaaS neutral card */}
-        <div className="hidden lg:block bg-white rounded-lg p-6 border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight mb-2 text-gray-900">
-                Welcome back, {session.user.name}!
-              </h2>
-              <p className="text-gray-600">
-                Manage your projects and keep clients updated
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-gray-900">{stats.totalProjects}</p>
-              <p className="text-gray-600 text-sm">Total Projects</p>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI Row - desktop only */}
-        <div className="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Active Projects</p>
-            <p className="mt-1 text-xl font-semibold text-gray-900">{stats.activeProjects}</p>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Scheduled Tasks</p>
-            <p className="mt-1 text-xl font-semibold text-gray-900">{workSchedule.totalTasks}</p>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
-            <p className="text-xs text-gray-500">Recent Files</p>
-            <p className="mt-1 text-xl font-semibold text-gray-900">{recentFiles.length}</p>
-          </div>
-        </div>
-
-        {/* Desktop-only layout matching reference */}
-        {(() => {
-          const pending = Math.max(0, stats.totalProjects - stats.activeProjects - stats.completedProjects);
-          const metrics = [
-            { label: 'Total Projects', value: stats.totalProjects, href: '/manager/projects' },
-            { label: 'Ended Projects', value: stats.completedProjects, href: '/manager/projects?status=completed' },
-            { label: 'Running Projects', value: stats.activeProjects, href: '/manager/projects?status=in_progress' },
-            { label: 'Pending Projects', value: pending, href: '/manager/projects?status=planning' },
-          ];
-          return (
-            <div className="hidden lg:flex lg:flex-col gap-6">
-              {/* Top metrics */}
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                {metrics.map(m => (<MetricCard key={m.label} metric={m} />))}
-              </div>
-
-              {/* Middle row: Recent Projects, Key Metrics, Site Schedule */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Recent Projects */}
-                <Card className="shadow-md">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Recent Projects</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {recentProjects.length > 0 ? (
-                      <div className="space-y-3 max-h-56 overflow-y-auto">
-                        {recentProjects.slice(0, 6).map((project) => (
-                          <div key={project._id} className="flex items-center justify-between">
-                            <div className="min-w-0">
-                              <Link href={`/manager/projects/${project._id}`} className="text-sm font-medium text-slate-900 hover:underline truncate block">{project.title}</Link>
-                              <p className="text-xs text-slate-500 truncate">Client: {project.clientName}</p>
-                            </div>
-                            <Badge variant="secondary" className="ml-3">{project.progress}%</Badge>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-slate-500">No projects yet</p>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Key Metrics */}
-                <Card className="shadow-md">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Key Metrics</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-4 text-center">
-                      <div>
-                        <div className="text-2xl font-bold text-primary-700">{stats.averageProgress}%</div>
-                        <div className="text-xs text-slate-500">Avg Progress</div>
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold text-sky-700">{stats.clientCount}</div>
-                        <div className="text-xs text-slate-500">Active Clients</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Site Schedule */}
-                <Card className="shadow-md">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Site Schedule</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-sm text-slate-600 mb-3">Scheduled Tasks: {workSchedule.totalTasks}</div>
-                    <Link href="/manager/site-schedule" className="text-sm text-primary-700 hover:underline font-medium">View Full Schedule</Link>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Bottom row: Recent Files and Quick Actions */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-2 shadow-md">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Recent Files</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {recentFiles.length > 0 ? (
-                      <div className="space-y-3 max-h-56 overflow-y-auto">
-                        {recentFiles.slice(0, 6).map((file) => (
-                          <div key={file._id} className="flex items-center justify-between">
-                            <span className="text-sm text-slate-700 truncate">{file.originalName}</span>
-                            <span className="text-xs text-slate-500 ml-3">{file.projectTitle}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-slate-500">No recent files</p>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card className="shadow-md">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Quick Actions</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Link href="/manager/projects/new">
-                      <Button className="w-full justify-start">
-                        <PlusCircle className="h-4 w-4 mr-2" />
-                        Create Project
-                      </Button>
-                    </Link>
-                    <Link href="/manager/messages">
-                      <Button variant="outline" className="w-full justify-start">
-                        <MessageSquare className="h-4 w-4 mr-2" />
-                        Review Messages
-                      </Button>
-                    </Link>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Welcome Message for New Managers */}
+        {/* Empty state */}
         {stats.totalProjects === 0 && (
-          <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <FolderOpen className="h-8 w-8 text-blue-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  Welcome to Your Project Dashboard!
-                </h3>
-                <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                  Get started by creating your first project. You&apos;ll be able to track progress, 
-                  manage tasks, and communicate with clients all in one place.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <Link href="/manager/projects/new">
-                    <Button className="min-h-[44px]">
-                      <PlusCircle className="h-4 w-4 mr-2" />
-                      Create Your First Project
-                    </Button>
-                  </Link>
-                  <Link href="/manager/help">
-                    <Button variant="outline" className="min-h-[44px]">
-                      <Activity className="h-4 w-4 mr-2" />
-                      View Help Guide
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="bg-white rounded-2xl p-10 text-center"
+            style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+            <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
+              <FolderOpen className="h-7 w-7 text-gray-400" />
+            </div>
+            <h3 className="text-[15px] font-bold text-gray-900 mb-1">No projects yet</h3>
+            <p className="text-[13px] text-gray-400 mb-5">Create your first project to get started.</p>
+            <Link href="/manager/projects/new"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-semibold text-white"
+              style={{ background: '#111111' }}>
+              Create Project
+            </Link>
+          </div>
         )}
       </div>
 
-      {/* Floating AI Chatbot */}
       <Suspense fallback={null}>
         <div className="fixed bottom-4 right-4 z-[1000]">
           <FloatingAIChatbot />
@@ -826,7 +430,6 @@ async function ManagerDashboard() {
   );
 }
 
-// Main exported component with proper error boundaries
 export default async function ManagerDashboardPage() {
   return (
     <Suspense fallback={<ManagerDashboardLoading />}>

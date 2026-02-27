@@ -8,8 +8,8 @@ const cardVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-neutral-200 shadow-sm hover:shadow-md",
-        elegant: "border-neutral-200 shadow-elegant hover:shadow-elegant-lg hover:border-primary-200",
+        default: "border-neutral-200 shadow-sm hover:shadow-[0_4px_20px_-4px_rgba(107,124,59,0.10),0_2px_8px_-2px_rgba(0,0,0,0.06)]",
+        elegant: "border-neutral-200 shadow-[0_2px_12px_-2px_rgba(107,124,59,0.08),0_1px_4px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_28px_-4px_rgba(107,124,59,0.13),0_2px_8px_rgba(0,0,0,0.06)] hover:border-primary-200",
         outline: "border-2 border-neutral-300",
         ghost: "border-transparent shadow-none",
         gradient: "border-transparent bg-gradient-to-br from-primary-50 to-secondary-50",
