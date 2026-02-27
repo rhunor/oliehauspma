@@ -65,7 +65,7 @@ export async function PUT(
     const projectFilter: Record<string, unknown> = { _id: milestone.projectId };
     
     if (session.user.role === 'project_manager') {
-      projectFilter.manager = userId;
+      projectFilter.managers = userId;
     }
 
     const project = await db.collection('projects').findOne(projectFilter);

@@ -142,10 +142,10 @@ export default function ManagerDailySchedulePage() {
     comments: ''
   });
 
-  // Fetch projects (unchanged)
+  // Fetch projects
   const fetchProjects = useCallback(async () => {
     try {
-      const response = await fetch('/api/projects/manager');
+      const response = await fetch('/api/projects');
       if (response.ok) {
         const data = await response.json();
         setProjects(data.projects || []);
@@ -160,24 +160,18 @@ export default function ManagerDailySchedulePage() {
     }
   }, [toast]);
 
-  // Fetch daily progress (unchanged)
- const fetchDailyProgress = useCallback(async () => {
-  try {
-    setLoading(true);
-    const body = { 
-      projectId: selectedProject === 'all' ? undefined : selectedProject,
-      date: selectedProject !== 'all' ? selectedDate : undefined, // Filter by date for specific
-    };
-    const response = await fetch('/api/site-schedule/daily/activities', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (response.ok) {
-      const data = await response.json();
-      setDailyProgress(data.data || []);
-    }
-  } catch (error) {
+  // Fetch daily progress
+  const fetchDailyProgress = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({ manager: 'true' });
+      if (selectedProject !== 'all') params.set('projectId', selectedProject);
+      const response = await fetch(`/api/site-schedule/activities?${params.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setDailyProgress(data.data || []);
+      }
+    } catch (error) {
       console.error('Error fetching daily progress:', error);
       toast({
         variant: 'destructive',

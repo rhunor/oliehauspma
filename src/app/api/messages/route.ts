@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
         _id: projectObjectId,
         $or: [
           { client: currentUserId },
-          { manager: currentUserId }
+          { managers: currentUserId }
         ]
       });
 
@@ -411,7 +411,7 @@ export async function POST(request: NextRequest) {
         _id: projectObjectId,
         $or: [
           { client: currentUserId },
-          { manager: currentUserId }
+          { managers: currentUserId }
         ]
       });
 
@@ -597,7 +597,7 @@ async function validateMessagingPermission(
       // Can message clients they manage
       if (recipientRole === 'client') {
         const hasSharedProject = await db.collection('projects').findOne({
-          manager: new ObjectId(senderId),
+          managers: new ObjectId(senderId),
           client: new ObjectId(recipientId)
         });
         return !!hasSharedProject;
@@ -611,7 +611,7 @@ async function validateMessagingPermission(
       if (recipientRole === 'project_manager') {
         const hasSharedProject = await db.collection('projects').findOne({
           client: new ObjectId(senderId),
-          manager: new ObjectId(recipientId)
+          managers: new ObjectId(recipientId)
         });
         return !!hasSharedProject;
       }

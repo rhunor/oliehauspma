@@ -59,7 +59,7 @@ export async function GET(
     if (session.user.role === 'client') {
       projectFilter.client = userId;
     } else if (session.user.role === 'project_manager') {
-      projectFilter.manager = userId;
+      projectFilter.managers = userId;
     }
     // Super admin has access to all projects
 

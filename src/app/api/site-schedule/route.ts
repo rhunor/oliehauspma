@@ -51,11 +51,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (userRole === 'project_manager' && project.manager.toString() !== userId) {
-      return NextResponse.json(
-        { error: "Unauthorized to view this project" },
-        { status: 403 }
-      );
+    if (userRole === 'project_manager') {
+      const managers: string[] = (project.managers || []).map((m: unknown) => m?.toString());
+      if (!managers.includes(userId)) {
+        return NextResponse.json(
+          { error: "Unauthorized to view this project" },
+          { status: 403 }
+        );
+      }
     }
 
     return NextResponse.json({

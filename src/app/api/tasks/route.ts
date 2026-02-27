@@ -175,7 +175,7 @@ export async function GET(request: NextRequest) {
     } else if (session.user.role === 'project_manager') {
       // Project managers see tasks in projects they manage
       const managerProjects = await db.collection<ProjectDocument>('projects')
-        .find({ manager: userId }, { projection: { _id: 1 } })
+        .find({ managers: userId }, { projection: { _id: 1 } })
         .toArray();
       
       const projectIds = managerProjects.map(p => p._id);
@@ -349,8 +349,8 @@ export async function POST(request: NextRequest) {
     // Verify project exists and user has access
     const project = await db.collection<ProjectDocument>('projects').findOne({
       _id: new ObjectId(data.projectId),
-      ...(session.user.role === 'project_manager' 
-        ? { manager: new ObjectId(session.user.id) } 
+      ...(session.user.role === 'project_manager'
+        ? { managers: new ObjectId(session.user.id) }
         : {})
     });
 
