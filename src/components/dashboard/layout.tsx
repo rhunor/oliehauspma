@@ -432,8 +432,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                         </Badge>
                       </div>
                     )}
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-0.5 transition-colors ${isActive ? 'bg-gray-900' : ''}`}>
-                      <item.icon className="h-4 w-4"
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-0.5 transition-colors ${isActive ? 'bg-gray-900' : ''}`}>
+                      <item.icon className="h-5 w-5"
                         style={{ color: isActive ? '#fff' : '#9CA3AF' }} />
                     </div>
                     <span className="truncate text-[10px]"
@@ -448,8 +448,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <DropdownMenu modal={false} open={showMoreMenu} onOpenChange={setShowMoreMenu}>
                   <DropdownMenuTrigger asChild>
                     <button className="flex flex-col items-center justify-center min-w-0 flex-1 py-1.5 px-1">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center mb-0.5">
-                        <MoreHorizontal className="h-4 w-4 text-gray-400" />
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-0.5">
+                        <MoreHorizontal className="h-5 w-5 text-gray-400" />
                       </div>
                       <span className="text-[10px] text-gray-400">More</span>
                     </button>

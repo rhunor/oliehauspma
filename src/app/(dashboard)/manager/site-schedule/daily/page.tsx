@@ -412,7 +412,7 @@ const handleSuccess = useCallback(() => {
       </Card>
 
       {/* Statistics (unchanged) */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 mb-6">
         <Card>
           <CardContent className="p-4">
             <div className="text-center">
@@ -441,7 +441,7 @@ const handleSuccess = useCallback(() => {
           <CardContent className="p-4">
             <div className="text-center">
               <p className="text-sm text-gray-600">In Progress</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.inProgress}</p>
+              <p className="text-2xl font-bold text-primary-600">{stats.inProgress}</p>
             </div>
           </CardContent>
         </Card>
@@ -509,7 +509,7 @@ const handleSuccess = useCallback(() => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
                     <div>
                       <p className="text-gray-600">Contractor</p>
                       <p className="font-medium truncate">{activity.contractor}</p>
@@ -529,7 +529,7 @@ const handleSuccess = useCallback(() => {
                     {activity.images && activity.images.length > 0 && (
                       <div>
                         <p className="text-gray-600">Images</p>
-                        <p className="font-medium text-blue-600">{activity.images.length} attached</p>
+                        <p className="font-medium text-primary-600">{activity.images.length} attached</p>
                       </div>
                     )}
                   </div>
@@ -538,7 +538,7 @@ const handleSuccess = useCallback(() => {
                     <span suppressHydrationWarning>
                       {new Date(activity.startDate).toLocaleString()} - {new Date(activity.endDate).toLocaleString()}
                     </span>
-                    <span className="text-blue-600 font-medium">Click to view details</span>
+                    <span className="text-primary-600 font-medium">Click to view details</span>
                   </div>
                 </div>
               ))}
@@ -549,7 +549,7 @@ const handleSuccess = useCallback(() => {
 
       {/* Add Activity Dialog (unchanged, minor date fix if needed) */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Daily Task</DialogTitle>
             <DialogDescription>
@@ -643,7 +643,7 @@ const handleSuccess = useCallback(() => {
             </div>
 
             {/* Status, Priority, Category (unchanged) */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority</Label>
                 <Select
@@ -782,7 +782,7 @@ const handleSuccess = useCallback(() => {
                   </div>
                 ) : (
                   <div>
-                    <div className="grid grid-cols-4 gap-2 mb-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                       {imagePreview.map((preview, index) => (
                         <div key={index} className="relative">
                           <img

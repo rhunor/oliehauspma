@@ -442,7 +442,7 @@ export default function MilestoneManagementPage() {
 
       {/* Update Milestone Dialog */}
       <Dialog open={showUpdateDialog} onOpenChange={setShowUpdateDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Update Milestone</DialogTitle>
             <DialogDescription>

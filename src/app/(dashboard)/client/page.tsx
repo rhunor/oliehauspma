@@ -497,7 +497,7 @@ export default async function ClientDashboardPage() {
       </div>
 
       <Suspense fallback={null}>
-        <div style={{ position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 2147483647, pointerEvents: 'auto' }}>
+        <div className="fixed bottom-20 right-4 sm:bottom-8 sm:right-8 z-[2147483647] pointer-events-auto">
           <FloatingAIChatbot />
         </div>
       </Suspense>
