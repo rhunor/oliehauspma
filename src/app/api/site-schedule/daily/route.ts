@@ -174,6 +174,8 @@ export async function POST(request: NextRequest) {
       status: activity.status || 'to-do',
       priority: activity.priority || 'medium',
       category: activity.category || 'other',
+      phase: activity.phase || 'construction',
+      weekNumber: activity.weekNumber || 1,
       progress: activity.progress || 0,
       comments: activity.comments,
       clientComments: [],
@@ -327,10 +329,12 @@ export async function PUT(request: NextRequest) {
       activity.actualDate = updates.actualDate ? new Date(updates.actualDate) : undefined;
     }
     
-    // Update enum fields - UPDATED: Support 'to-do' status
+    // Update enum fields - UPDATED: Support 'to-do' status + phase
     if (updates.status !== undefined) activity.status = updates.status;
     if (updates.priority !== undefined) activity.priority = updates.priority;
     if (updates.category !== undefined) activity.category = updates.category;
+    if (updates.phase !== undefined) activity.phase = updates.phase;
+    if (updates.weekNumber !== undefined) activity.weekNumber = updates.weekNumber;
     
     // Update number field
     if (updates.progress !== undefined) activity.progress = updates.progress;

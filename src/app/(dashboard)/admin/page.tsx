@@ -162,10 +162,10 @@ function MobileDashboardCard({
   emptyMessage 
 }: MobileDashboardCardProps) {
   const colorClasses: Record<string, { bg: string; icon: string; text: string }> = {
-    blue: { 
-      bg: 'bg-blue-50 hover:bg-blue-100', 
-      icon: 'text-blue-600', 
-      text: 'text-blue-700' 
+    blue: {
+      bg: 'bg-primary-50 hover:bg-primary-100',
+      icon: 'text-primary-600',
+      text: 'text-primary-700'
     },
     green: { 
       bg: 'bg-green-50 hover:bg-green-100', 
@@ -300,10 +300,10 @@ function DashboardCard({
           <div className="p-4 bg-white">
             <p className="text-gray-600 text-sm leading-relaxed">{description}</p>
             <div className="flex items-center justify-between mt-4">
-              <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+              <span className="text-sm font-medium text-gray-900 group-hover:text-primary-600 transition-colors">
                 View Details
               </span>
-              <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+              <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-primary-600 group-hover:translate-x-1 transition-all" />
             </div>
           </div>
         </CardContent>
@@ -539,12 +539,12 @@ async function AdminAverageProgress() {
         <div
           className="absolute inset-0 rounded-full"
           style={{
-            background: `conic-gradient(rgb(16 185 129) ${percent * 3.6}deg, rgb(226 232 240) 0deg)`,
+            background: `conic-gradient(rgb(107 124 59) ${percent * 3.6}deg, rgb(226 232 240) 0deg)`,
           }}
         />
         <div className="absolute inset-3 rounded-full bg-white flex items-center justify-center shadow-inner">
           <div className="text-center">
-            <p className="text-3xl font-semibold text-emerald-700">{percent}%</p>
+            <p className="text-3xl font-semibold text-primary-700">{percent}%</p>
             <p className="text-xs text-slate-500">Project Ended</p>
           </div>
         </div>
@@ -699,7 +699,7 @@ async function AdminDashboard() {
             { label: 'Pending Projects', value: pendingCount, href: '/admin/projects?status=planning' },
           ];
           const roleDist: { label: string; count: number; color: string }[] = [
-            { label: 'Admins', count: stats.usersByRole.super_admin, color: 'bg-emerald-600' },
+            { label: 'Admins', count: stats.usersByRole.super_admin, color: 'bg-primary-600' },
             { label: 'Managers', count: stats.usersByRole.project_manager, color: 'bg-sky-600' },
             { label: 'Clients', count: stats.usersByRole.client, color: 'bg-purple-600' },
           ];
@@ -735,10 +735,10 @@ async function AdminDashboard() {
                       {sys.map((s) => (
                         <div key={s.label}>
                           <p className="text-sm text-slate-500">{s.label}</p>
-                          <div className="mt-3 h-24 w-full rounded-md bg-[repeating-linear-gradient(45deg,rgba(16,185,129,0.15),rgba(16,185,129,0.15)_8px,rgba(16,185,129,0.05)_8px,rgba(16,185,129,0.05)_16px)] flex items-end">
-                            <div className="w-full bg-emerald-600 rounded-md" style={{ height: `${s.value}%` }} />
+                          <div className="mt-3 h-24 w-full rounded-md bg-[repeating-linear-gradient(45deg,rgba(107,124,59,0.12),rgba(107,124,59,0.12)_8px,rgba(107,124,59,0.04)_8px,rgba(107,124,59,0.04)_16px)] flex items-end">
+                            <div className="w-full bg-primary-600 rounded-md" style={{ height: `${s.value}%` }} />
                           </div>
-                          <p className="mt-2 text-sm font-medium text-emerald-700">{s.value}%</p>
+                          <p className="mt-2 text-sm font-medium text-primary-700">{s.value}%</p>
                         </div>
                       ))}
                     </div>

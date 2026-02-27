@@ -2,28 +2,23 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
-import { 
-  Calendar, 
+import {
+  Calendar,
   Clock,
-  User,
-  MessageSquare,
-  Send,
+  CheckCircle,
+  AlertTriangle,
   Loader2,
-  X,
   ChevronDown,
   ChevronUp,
-  Image as ImageIcon
+  MessageSquare
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
-import Image from 'next/image';
 import ActivityModal from '@/components/ActivityModal';
+import { ActivityPhase, PHASE_LABELS, PHASE_ORDER } from '@/types/activity';
 
-// UPDATED: TypeScript interfaces with 'to-do' status
 interface DailyActivity {
   _id: string;
   title: string;
@@ -36,6 +31,8 @@ interface DailyActivity {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   comments?: string;
   images?: string[];
+  phase?: ActivityPhase;
+  weekNumber?: number;
   projectTitle: string;
   date: string;
   projectId: string;
@@ -43,35 +40,61 @@ interface DailyActivity {
   updatedAt?: string;
 }
 
-interface ClientComment {
-  _id: string;
-  userId: string;
-  userName: string;
-  userRole: string;
-  content: string;
-  attachments?: string[];
-  createdAt: string;
-  updatedAt?: string;
-}
+const getStatusBadgeClass = (status: string): string => {
+  switch (status) {
+    case 'completed': return 'bg-green-100 text-green-800';
+    case 'in_progress': return 'bg-blue-100 text-blue-800';
+    case 'pending': return 'bg-gray-100 text-gray-800';
+    case 'delayed': return 'bg-red-100 text-red-800';
+    case 'on_hold': return 'bg-yellow-100 text-yellow-800';
+    case 'to-do': return 'bg-purple-100 text-purple-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+};
 
-interface ActivityWithComments extends DailyActivity {
-  clientComments: ClientComment[];
-  totalComments: number;
-}
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
+    case 'in_progress': return <Clock className="h-4 w-4 text-blue-500" />;
+    case 'delayed': return <AlertTriangle className="h-4 w-4 text-red-500" />;
+    case 'to-do': return <Calendar className="h-4 w-4 text-purple-500" />;
+    default: return <Clock className="h-4 w-4 text-gray-400" />;
+  }
+};
+
+const PHASE_BG: Record<ActivityPhase, string> = {
+  site_preliminaries: 'bg-blue-50 border-blue-200',
+  construction: 'bg-orange-50 border-orange-200',
+  installation: 'bg-purple-50 border-purple-200',
+  setup_styling: 'bg-emerald-50 border-emerald-200',
+  post_handover: 'bg-rose-50 border-rose-200',
+};
+
+const PHASE_BADGE: Record<ActivityPhase, string> = {
+  site_preliminaries: 'bg-blue-100 text-blue-800',
+  construction: 'bg-orange-100 text-orange-800',
+  installation: 'bg-purple-100 text-purple-800',
+  setup_styling: 'bg-emerald-100 text-emerald-800',
+  post_handover: 'bg-rose-100 text-rose-800',
+};
+
+const PHASE_PROGRESS_BAR: Record<ActivityPhase, string> = {
+  site_preliminaries: 'bg-blue-500',
+  construction: 'bg-orange-500',
+  installation: 'bg-purple-500',
+  setup_styling: 'bg-emerald-500',
+  post_handover: 'bg-rose-500',
+};
 
 export default function ClientSiteSchedulePage() {
   const { data: session } = useSession();
   const { toast } = useToast();
 
-  const [activities, setActivities] = useState<ActivityWithComments[]>([]);
+  const [activities, setActivities] = useState<DailyActivity[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedActivity, setExpandedActivity] = useState<string | null>(null);
-  
-  const [commentText, setCommentText] = useState<Record<string, string>>({});
-  const [submittingComment, setSubmittingComment] = useState<Record<string, boolean>>({});
-  const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
+  const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
+  const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(new Set());
 
-  // Modal state
   const [selectedActivity, setSelectedActivity] = useState<DailyActivity | null>(null);
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
 
@@ -79,182 +102,58 @@ export default function ClientSiteSchedulePage() {
     try {
       setLoading(true);
       const response = await fetch('/api/site-schedule/activities?manager=false', { cache: 'no-store' });
-      
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.data) {
-          const activitiesWithComments = data.data.map((activity: DailyActivity) => ({
-            ...activity,
-            clientComments: [],
-            totalComments: 0
-          }));
-          setActivities(activitiesWithComments);
+          setActivities(data.data);
         }
       }
     } catch (error) {
       console.error('Error fetching activities:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to load activities',
-      });
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to load activities' });
     } finally {
       setLoading(false);
     }
   }, [toast]);
 
-  const fetchComments = useCallback(async (activityId: string) => {
-    setLoadingComments(prev => ({ ...prev, [activityId]: true }));
-    
-    try {
-      const response = await fetch(`/api/site-schedule/daily/${activityId}/comments`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.data) {
-          setActivities(prev => prev.map(activity => 
-            activity._id === activityId 
-              ? {
-                  ...activity,
-                  clientComments: data.data.comments || [],
-                  totalComments: data.data.totalComments || 0
-                }
-              : activity
-          ));
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching comments:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to load comments',
-      });
-    } finally {
-      setLoadingComments(prev => ({ ...prev, [activityId]: false }));
-    }
-  }, [toast]);
+  useEffect(() => {
+    if (session) fetchActivities();
+  }, [session, fetchActivities]);
 
-  const toggleActivity = async (activityId: string) => {
-    if (expandedActivity === activityId) {
-      setExpandedActivity(null);
-    } else {
-      setExpandedActivity(activityId);
-      
-      const activity = activities.find(a => a._id === activityId);
-      if (activity && activity.clientComments.length === 0) {
-        await fetchComments(activityId);
-      }
-    }
+  const handleSuccess = useCallback(() => {
+    fetchActivities();
+  }, [fetchActivities]);
+
+  // Group by phase → week
+  const groupedByPhase: Record<ActivityPhase, Record<number, DailyActivity[]>> = {
+    site_preliminaries: {},
+    construction: {},
+    installation: {},
+    setup_styling: {},
+    post_handover: {},
   };
 
-  const handleSubmitComment = async (activityId: string) => {
-    const content = commentText[activityId]?.trim();
-    
-    if (!content) {
-      toast({
-        variant: 'destructive',
-        title: 'Validation Error',
-        description: 'Please enter a comment',
-      });
-      return;
-    }
+  activities.forEach(activity => {
+    const phase: ActivityPhase = activity.phase || 'construction';
+    const week = activity.weekNumber || 1;
+    if (!groupedByPhase[phase][week]) groupedByPhase[phase][week] = [];
+    groupedByPhase[phase][week].push(activity);
+  });
 
-    if (content.length > 1000) {
-      toast({
-        variant: 'destructive',
-        title: 'Validation Error',
-        description: 'Comment must be less than 1000 characters',
-      });
-      return;
-    }
-
-    setSubmittingComment(prev => ({ ...prev, [activityId]: true }));
-
-    try {
-      const response = await fetch(`/api/site-schedule/daily/${activityId}/comments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ content }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.success && data.data) {
-          setActivities(prev => prev.map(activity => 
-            activity._id === activityId 
-              ? {
-                  ...activity,
-                  clientComments: [...activity.clientComments, data.data],
-                  totalComments: activity.totalComments + 1
-                }
-              : activity
-          ));
-
-          setCommentText(prev => ({ ...prev, [activityId]: '' }));
-
-          toast({
-            title: 'Success',
-            description: 'Comment added successfully',
-          });
-        }
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to add comment');
-      }
-    } catch (error) {
-      console.error('Error submitting comment:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to add comment',
-      });
-    } finally {
-      setSubmittingComment(prev => ({ ...prev, [activityId]: false }));
-    }
+  const togglePhase = (phase: string) => {
+    setCollapsedPhases(prev => {
+      const next = new Set(prev);
+      if (next.has(phase)) next.delete(phase); else next.add(phase);
+      return next;
+    });
   };
 
-  const handleDeleteComment = async (activityId: string, commentId: string) => {
-    if (!confirm('Are you sure you want to delete this comment?')) {
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `/api/site-schedule/daily/${activityId}/comments?commentId=${commentId}`,
-        { method: 'DELETE' }
-      );
-
-      if (response.ok) {
-        setActivities(prev => prev.map(activity => 
-          activity._id === activityId 
-            ? {
-                ...activity,
-                clientComments: activity.clientComments.filter(c => c._id !== commentId),
-                totalComments: Math.max(0, activity.totalComments - 1)
-              }
-            : activity
-        ));
-
-        toast({
-          title: 'Success',
-          description: 'Comment deleted successfully',
-        });
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete comment');
-      }
-    } catch (error) {
-      console.error('Error deleting comment:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to delete comment',
-      });
-    }
+  const toggleWeek = (key: string) => {
+    setCollapsedWeeks(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   };
 
   const handleActivityClick = (activity: DailyActivity) => {
@@ -262,76 +161,46 @@ export default function ClientSiteSchedulePage() {
     setIsActivityModalOpen(true);
   };
 
-  const handleSuccess = useCallback(() => {
-    fetchActivities(); // Refetch after comment
-  }, [fetchActivities]);
-
-  useEffect(() => {
-    if (session) {
-      fetchActivities();
-    }
-  }, [session, fetchActivities]);
-
-  // UPDATED: Helper function with 'to-do' status
-  const getStatusBadgeClass = (status: string): string => {
-    switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'in_progress': return 'bg-blue-100 text-blue-800';
-      case 'pending': return 'bg-gray-100 text-gray-800';
-      case 'delayed': return 'bg-red-100 text-red-800';
-      case 'on_hold': return 'bg-yellow-100 text-yellow-800';
-      case 'to-do': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getPriorityColor = (priority: string): string => {
-    switch (priority) {
-      case 'urgent': return 'text-red-600';
-      case 'high': return 'text-orange-600';
-      case 'medium': return 'text-blue-600';
-      case 'low': return 'text-green-600';
-      default: return 'text-gray-600';
-    }
-  };
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const getInitials = (name: string): string => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
+  const overallCompleted = activities.filter(a => a.status === 'completed').length;
+  const overallPct = activities.length > 0 ? Math.round((overallCompleted / activities.length) * 100) : 0;
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-[60vh]">
         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Site Activities</h1>
-        <p className="text-gray-600 mt-1">View daily activities and provide feedback</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Site Activities</h1>
+        <p className="text-gray-600 mt-1">Track your project progress by phase</p>
       </div>
 
-      {/* Activities List */}
-      {activities.length === 0 ? (
+      {/* Overall progress */}
+      {activities.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">Overall Progress</span>
+              <span className="text-sm font-semibold text-gray-900">{overallPct}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div
+                className="h-2 rounded-full bg-gray-900 transition-all duration-500"
+                style={{ width: `${overallPct}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{overallCompleted} of {activities.length} activities completed</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Empty state */}
+      {activities.length === 0 && (
         <Card>
           <CardContent className="p-12 text-center">
             <Calendar className="h-16 w-16 text-gray-300 mx-auto mb-4" />
@@ -339,110 +208,127 @@ export default function ClientSiteSchedulePage() {
             <p className="text-gray-600">There are no activities scheduled at the moment.</p>
           </CardContent>
         </Card>
-      ) : (
+      )}
+
+      {/* Phase-grouped view */}
+      {activities.length > 0 && (
         <div className="space-y-4">
-          {activities.map((activity) => (
-            <Card key={activity._id} className="overflow-hidden cursor-pointer" onClick={() => handleActivityClick(activity)}>
-              <CardHeader className="bg-gray-50">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <CardTitle className="text-lg">{activity.title}</CardTitle>
-                    <p className="text-sm text-gray-600 mt-1">{activity.projectTitle}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className={getStatusBadgeClass(activity.status)}>
-                      {activity.status.replace('_', ' ').replace('-', ' ')}
+          {PHASE_ORDER.map((phase) => {
+            const weekMap = groupedByPhase[phase];
+            const weekNums = Object.keys(weekMap).map(Number).sort((a, b) => a - b);
+            const phaseActivities = activities.filter(a => (a.phase || 'construction') === phase);
+            const phaseCompleted = phaseActivities.filter(a => a.status === 'completed').length;
+            const phaseTotal = phaseActivities.length;
+            const phasePct = phaseTotal > 0 ? Math.round((phaseCompleted / phaseTotal) * 100) : 0;
+
+            if (phaseTotal === 0) return null;
+
+            const isPhaseCollapsed = collapsedPhases.has(phase);
+
+            return (
+              <div key={phase} className={`rounded-xl border-2 overflow-hidden ${PHASE_BG[phase]}`}>
+                {/* Phase header */}
+                <button
+                  className="w-full flex items-center justify-between p-4 text-left"
+                  onClick={() => togglePhase(phase)}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0 mr-3">
+                    <Badge className={`text-xs font-medium shrink-0 ${PHASE_BADGE[phase]}`}>
+                      {PHASE_LABELS[phase]}
                     </Badge>
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-6">
-                {/* Activity Details */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div className="flex items-start gap-2">
-                    <User className="h-4 w-4 text-gray-400 mt-1" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Contractor</p>
-                      <p className="text-sm text-gray-900">{activity.contractor}</p>
-                    </div>
-                  </div>
-
-                  {activity.supervisor && (
-                    <div className="flex items-start gap-2">
-                      <User className="h-4 w-4 text-gray-400 mt-1" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Supervisor</p>
-                        <p className="text-sm text-gray-900">{activity.supervisor}</p>
+                    <div className="flex-1 min-w-0 hidden sm:block">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs text-gray-600">{phaseCompleted}/{phaseTotal} completed</span>
+                        <span className="text-xs font-semibold text-gray-800">{phasePct}%</span>
+                      </div>
+                      <div className="w-full max-w-xs bg-white/60 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${PHASE_PROGRESS_BAR[phase]}`}
+                          style={{ width: `${phasePct}%` }}
+                        />
                       </div>
                     </div>
-                  )}
-
-                  <div className="flex items-start gap-2">
-                    <Clock className="h-4 w-4 text-gray-400 mt-1" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Start Date</p>
-                      <p className="text-sm text-gray-900">{formatDate(activity.startDate)}</p>
-                    </div>
+                    <span className="text-xs text-gray-500 sm:hidden">{phaseCompleted}/{phaseTotal}</span>
                   </div>
+                  {isPhaseCollapsed
+                    ? <ChevronDown className="h-5 w-5 text-gray-500 shrink-0" />
+                    : <ChevronUp className="h-5 w-5 text-gray-500 shrink-0" />
+                  }
+                </button>
 
-                  <div className="flex items-start gap-2">
-                    <Clock className="h-4 w-4 text-gray-400 mt-1" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">End Date</p>
-                      <p className="text-sm text-gray-900">{formatDate(activity.endDate)}</p>
-                    </div>
-                  </div>
-                </div>
+                {!isPhaseCollapsed && (
+                  <div className="px-4 pb-4 space-y-3">
+                    {weekNums.map((week) => {
+                      const weekKey = `${phase}-week-${week}`;
+                      const weekActivities = weekMap[week];
+                      const weekDone = weekActivities.filter(a => a.status === 'completed').length;
+                      const isWeekCollapsed = collapsedWeeks.has(weekKey);
 
-                {activity.description && (
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-600 mb-1">Description</p>
-                    <p className="text-sm text-gray-700">{activity.description}</p>
-                  </div>
-                )}
+                      return (
+                        <div key={weekKey} className="bg-white rounded-lg border overflow-hidden shadow-sm">
+                          {/* Week header */}
+                          <button
+                            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleWeek(weekKey)}
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold text-gray-800">Week {week}</span>
+                              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                                {weekDone}/{weekActivities.length} done
+                              </span>
+                            </div>
+                            {isWeekCollapsed
+                              ? <ChevronDown className="h-4 w-4 text-gray-400" />
+                              : <ChevronUp className="h-4 w-4 text-gray-400" />
+                            }
+                          </button>
 
-                {/* Activity Images */}
-                {activity.images && activity.images.length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-600 mb-2">Activity Images</p>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      {activity.images.map((imageUrl, index) => (
-                        <div key={index} className="relative w-full h-32">
-                          <Image
-                            src={imageUrl}
-                            alt={`Activity image ${index + 1}`}
-                            fill
-                            className="object-cover rounded border"
-                          />
+                          {!isWeekCollapsed && (
+                            <div className="divide-y divide-gray-100">
+                              {weekActivities.map((activity) => (
+                                <div
+                                  key={activity._id}
+                                  className="px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer"
+                                  onClick={() => handleActivityClick(activity)}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        {getStatusIcon(activity.status)}
+                                        <span className="font-medium text-gray-900 text-sm">{activity.title}</span>
+                                      </div>
+                                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
+                                        <span>{activity.contractor}</span>
+                                        {activity.supervisor && <span>· {activity.supervisor}</span>}
+                                      </div>
+                                      {activity.description && (
+                                        <p className="text-xs text-gray-600 mt-1 line-clamp-1">{activity.description}</p>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <Badge className={`text-xs ${getStatusBadgeClass(activity.status)}`}>
+                                        {activity.status.replace('_', ' ').replace('-', ' ')}
+                                      </Badge>
+                                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400">
+                                        <MessageSquare className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
                 )}
-
-                {activity.comments && (
-                  <div className="mb-4 p-3 bg-gray-50 rounded">
-                    <p className="text-sm font-medium text-gray-600 mb-1">Internal Notes</p>
-                    <p className="text-sm text-gray-700">{activity.comments}</p>
-                  </div>
-                )}
-
-                {/* Comments Section (moved to modal; placeholder) */}
-                <div className="mt-6 pt-6 border-t">
-                  <div className="flex items-center gap-2 mb-4">
-                    <MessageSquare className="h-5 w-5 text-gray-600" />
-                    <h3 className="text-lg font-semibold">Comments ({activity.totalComments})</h3>
-                  </div>
-                  <p className="text-sm text-gray-500">Click to view and add comments</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Modal */}
       <ActivityModal
         activity={selectedActivity}
         isOpen={isActivityModalOpen}

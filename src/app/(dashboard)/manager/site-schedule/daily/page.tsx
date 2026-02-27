@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import ActivityModal from '@/components/ActivityModal'; // Updated import
+import { ActivityPhase, PHASE_LABELS, PHASE_ORDER } from '@/types/activity';
 
 // TypeScript interfaces (unchanged)
 interface ManagerProject {
@@ -63,6 +64,8 @@ interface DailyActivity {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   images?: string[];
   category?: 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
+  phase?: ActivityPhase;
+  weekNumber?: number;
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -134,6 +137,8 @@ export default function ManagerDailySchedulePage() {
     status: 'to-do',
     priority: 'medium',
     category: 'structural',
+    phase: 'construction',
+    weekNumber: 1,
     comments: ''
   });
 
@@ -295,6 +300,8 @@ export default function ManagerDailySchedulePage() {
           status: 'to-do',
           priority: 'medium',
           category: 'structural',
+          phase: 'construction',
+          weekNumber: 1,
           comments: ''
         });
         setSelectedImages([]);
@@ -692,6 +699,40 @@ const handleSuccess = useCallback(() => {
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            {/* Phase and Week Number */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="phase">Phase</Label>
+                <Select
+                  value={newActivity.phase || 'construction'}
+                  onValueChange={(value) => setNewActivity({...newActivity, phase: value as ActivityPhase})}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PHASE_ORDER.map((phase) => (
+                      <SelectItem key={phase} value={phase}>
+                        {PHASE_LABELS[phase]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="weekNumber">Week Number</Label>
+                <Input
+                  id="weekNumber"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={newActivity.weekNumber || 1}
+                  onChange={(e) => setNewActivity({...newActivity, weekNumber: parseInt(e.target.value) || 1})}
+                />
               </div>
             </div>
 

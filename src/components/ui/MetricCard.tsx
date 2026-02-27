@@ -17,19 +17,19 @@ export default function MetricCard({ metric, className }: MetricCardProps) {
     <div
       className={cn(
         'rounded-xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow',
-        'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500',
+        'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-400',
         className
       )}
     >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm text-slate-500">{metric.label}</p>
-          <p className="mt-2 text-3xl font-semibold text-emerald-700">{metric.value}</p>
+          <p className="mt-2 text-3xl font-semibold text-primary-700">{metric.value}</p>
         </div>
         <div
           className={cn(
             'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-            isUp && 'bg-emerald-50 text-emerald-700',
+            isUp && 'bg-primary-50 text-primary-700',
             isDown && 'bg-red-50 text-red-700',
             !isUp && !isDown && 'bg-slate-50 text-slate-600'
           )}

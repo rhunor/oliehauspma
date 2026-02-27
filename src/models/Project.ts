@@ -163,6 +163,9 @@ const projectSchema = new mongoose.Schema({
   },
   scopeOfWork: String,
   designStyle: String,
+  projectCoordinator: { type: String, default: '' },
+  siteOfficer: { type: String, default: '' },
+  workDays: { type: String, default: '' },
   status: {
     type: String,
     enum: ['planning', 'in_progress', 'on_hold', 'completed', 'cancelled'],

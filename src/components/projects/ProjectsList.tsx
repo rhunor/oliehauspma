@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { 
   Calendar, 
   Users, 
@@ -299,8 +300,20 @@ export default function ProjectsList({
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProjects.map((project) => (
-            <Card key={project._id} className="hover:shadow-md transition-shadow">
+          {filteredProjects.map((project, index) => (
+            <motion.div
+              key={project._id}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: index * 0.06 }}
+            >
+            <Card className={`hover:shadow-md transition-shadow border-l-4 ${
+              project.status === 'completed' ? 'border-l-green-500' :
+              project.status === 'in_progress' ? 'border-l-blue-500' :
+              project.status === 'on_hold' ? 'border-l-yellow-500' :
+              project.status === 'cancelled' ? 'border-l-red-500' :
+              'border-l-gray-300'
+            }`}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -308,7 +321,7 @@ export default function ProjectsList({
                       {/* ✅ FIXED: Main project title now uses role-based URL */}
                       <Link 
                         href={getRoleBasedProjectUrl(userRole, project._id)}
-                        className="hover:text-blue-600 transition-colors"
+                        className="hover:text-primary-600 transition-colors"
                       >
                         {project.title}
                       </Link>
@@ -376,7 +389,7 @@ export default function ProjectsList({
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
-                      className="bg-blue-600 h-2 rounded-full transition-all" 
+                      className="bg-primary-500 h-2 rounded-full transition-all"
                       style={{ width: `${project.progress}%` }}
                     />
                   </div>
@@ -417,6 +430,7 @@ export default function ProjectsList({
                 </div>
               </CardContent>
             </Card>
+            </motion.div>
           ))}
         </div>
       )}

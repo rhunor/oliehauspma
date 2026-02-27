@@ -172,10 +172,10 @@ function MobileDashboardCard({
   emptyMessage 
 }: MobileDashboardCardProps) {
   const colorClasses: Record<string, { bg: string; icon: string; text: string }> = {
-    blue: { 
-      bg: 'bg-blue-50 hover:bg-blue-100', 
-      icon: 'text-blue-600', 
-      text: 'text-blue-700' 
+    blue: {
+      bg: 'bg-primary-50 hover:bg-primary-100',
+      icon: 'text-primary-600',
+      text: 'text-primary-700'
     },
     green: { 
       bg: 'bg-green-50 hover:bg-green-100', 
@@ -712,7 +712,7 @@ async function ManagerDashboard() {
                   <CardContent>
                     <div className="grid grid-cols-2 gap-4 text-center">
                       <div>
-                        <div className="text-2xl font-bold text-emerald-700">{stats.averageProgress}%</div>
+                        <div className="text-2xl font-bold text-primary-700">{stats.averageProgress}%</div>
                         <div className="text-xs text-slate-500">Avg Progress</div>
                       </div>
                       <div>
@@ -730,7 +730,7 @@ async function ManagerDashboard() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-sm text-slate-600 mb-3">Scheduled Tasks: {workSchedule.totalTasks}</div>
-                    <Link href="/manager/site-schedule" className="text-sm text-emerald-700 hover:underline">View Full Schedule</Link>
+                    <Link href="/manager/site-schedule" className="text-sm text-primary-700 hover:underline font-medium">View Full Schedule</Link>
                   </CardContent>
                 </Card>
               </div>

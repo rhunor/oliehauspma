@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadFileToS3, validateFileType, validateFileSize, generateFileKey } from '@/lib/s3';
 import { auth } from '@/lib/auth';
+import { uploadToCloudflare } from '@/lib/cloudflare-images';
 import { validateFile, sanitizeFilename } from '@/lib/file-validation';
 import { rateLimit, rateLimitPresets } from '@/lib/rate-limit';
 import { logInfo, logError, logAudit } from '@/lib/logger';
@@ -55,42 +55,38 @@ export async function POST(request: NextRequest) {
       }, 'UPLOAD');
     }
 
-    // 5. Additional legacy validation (keeping for backward compatibility)
-    if (!validateFileType(file) || !validateFileSize(file, 50)) {
-      return NextResponse.json({ error: 'Invalid file type or size' }, { status: 400 });
-    }
-
-    // 6. Sanitize filename
+    // 5. Sanitize filename
     const sanitizedName = sanitizeFilename(file.name);
-
-    // 7. Generate secure key and upload
     const userId = session.user.id;
-    const key = generateFileKey(userId, projectId || 'general', sanitizedName);
-    const fullKey = `${folder}/${key}`;
 
-    logInfo('Starting file upload', {
+    logInfo('Starting Cloudflare Images upload', {
       fileName: sanitizedName,
       fileSize: file.size,
       fileType: file.type,
       folder,
       projectId,
-      userId
+      userId,
     }, 'UPLOAD');
 
-    const result = await uploadFileToS3({
+    // 6. Upload to Cloudflare Images
+    const result = await uploadToCloudflare({
       file,
-      key: fullKey,
-      contentType: file.type,
-      metadata: { uploadedBy: userId, projectId },
+      metadata: {
+        uploadedBy: userId,
+        projectId: projectId || 'general',
+        folder,
+        originalName: sanitizedName,
+      },
     });
 
-    // 8. Audit log successful upload
-    logAudit('File uploaded successfully', userId, {
+    // 7. Audit log successful upload
+    logAudit('File uploaded to Cloudflare Images', userId, {
       fileName: sanitizedName,
       fileSize: file.size,
       url: result.url,
+      imageId: result.imageId,
       projectId,
-      folder
+      folder,
     });
 
     return NextResponse.json({ 

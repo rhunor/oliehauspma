@@ -144,7 +144,7 @@ export default async function AdminProjectDetailPage({ params }: ProjectDetailPa
     } : undefined,
     projectCoordinator: project.projectCoordinator || '',
     siteOfficer: project.siteOfficer || '',
-    workDays: project.workDays || [],
+    workDays: project.workDays || '',
     files: project.files || [],
     milestones: Array.isArray(project.milestones) 
       ? project.milestones.map((milestone: Record<string, unknown>) => ({

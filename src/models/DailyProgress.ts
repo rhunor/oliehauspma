@@ -33,6 +33,10 @@ export interface IDailyActivity {
   incidentReport?: string;
   progress?: number;
   
+  // OliveHaus construction phases
+  phase?: 'site_preliminaries' | 'construction' | 'installation' | 'setup_styling' | 'post_handover';
+  weekNumber?: number;
+
   // NEW: Link to Project.siteSchedule activities
   linkedActivityId?: Types.ObjectId; // References Project.siteSchedule.phases[].activities[]._id
   linkedPhaseId?: Types.ObjectId;    // References Project.siteSchedule.phases[]._id
@@ -162,6 +166,18 @@ const dailyActivitySchema = new Schema<IDailyActivity>({
     default: 0
   },
   
+  // OliveHaus construction phases
+  phase: {
+    type: String,
+    enum: ['site_preliminaries', 'construction', 'installation', 'setup_styling', 'post_handover'],
+    default: 'construction'
+  },
+  weekNumber: {
+    type: Number,
+    min: 1,
+    default: 1
+  },
+
   // NEW: Linking fields
   linkedActivityId: {
     type: Schema.Types.ObjectId,

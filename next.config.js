@@ -57,6 +57,13 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      // Cloudflare Images delivery network
+      {
+        protocol: 'https',
+        hostname: 'imagedelivery.net',
+        port: '',
+        pathname: '/**',
+      },
     ],
     formats: ['image/webp', 'image/avif'],
     minimumCacheTTL: 3600, // 1 hour

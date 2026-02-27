@@ -236,7 +236,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [showMoreMenu]);
 
   return (
-    <div className={`${jakarta.className} min-h-screen bg-gray-50 flex flex-col`}>
+    <div className={`${jakarta.className} min-h-screen bg-neutral-100 flex flex-col`}>
       {/* Mobile sidebar overlay - Only visible on larger screens now */}
       {isSidebarOpen && (
         <div 
@@ -252,12 +252,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="flex items-center justify-between h-16 px-6 bg-white border-b">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">P</span>
+                <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center shadow-sm">
+                  <span className="text-white font-bold text-sm tracking-wide">OH</span>
                 </div>
               </div>
               <div className="ml-3">
-                <p className="text-sm font-medium text-gray-900">{roleLabel}</p>
+                <p className="text-sm font-semibold text-gray-900">OliveHaus</p>
               </div>
             </div>
           </div>
@@ -274,13 +274,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   href={item.href}
                   className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${
                     isActive
-                      ? 'bg-blue-50 border-r-2 border-blue-500 text-blue-700'
+                      ? 'bg-primary-50 border-r-2 border-primary-500 text-primary-700'
                       : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
                   }`}
                 >
                   <item.icon
                     className={`mr-3 h-5 w-5 flex-shrink-0 ${
-                      isActive ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-500'
+                      isActive ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-500'
                     }`}
                   />
                   <span className="truncate">{item.name}</span>
@@ -333,16 +333,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Top navigation - Updated for mobile-first */}
-        <header className="sticky top-0 z-40 bg-white shadow-sm border-b lg:block">
+        <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm border-b border-gray-100 lg:block">
           <div className="mx-auto w-full max-w-7xl">
             <div className="flex h-16 items-center justify-between px-4 lg:px-8">
             {/* Mobile: Logo and app name, Desktop: Search */}
               <div className="flex items-center lg:flex-1">
                 <div className="lg:hidden flex items-center">
-                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
-                    <span className="text-white font-bold text-lg">P</span>
+                  <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center mr-3 shadow-sm">
+                    <span className="text-white font-bold text-sm tracking-wide">OH</span>
                   </div>
-                  <span className="font-semibold text-gray-900">{roleLabel}</span>
+                  <span className="font-semibold text-gray-900">OliveHaus</span>
                 </div>
                 {/* Desktop search */}
                 <div className="hidden lg:flex items-center w-full max-w-md ml-4">
@@ -351,7 +351,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     <input
                       type="search"
                       placeholder="Search task"
-                      className="w-full rounded-full border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                      className="w-full rounded-full border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-400 focus:bg-white"
                     />
                   </div>
                 </div>
@@ -363,7 +363,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 {/* User identity (desktop) */}
                 <div className="hidden lg:flex items-center space-x-3 rounded-full border border-slate-200 bg-white px-3 py-1 shadow-sm">
                   <Avatar className="h-8 w-8">
-                    <AvatarFallback className="bg-emerald-600 text-white">
+                    <AvatarFallback className="bg-primary-500 text-white">
                       {userName.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -408,8 +408,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       </div>
                     )}
                     
-                    <item.icon className={`h-6 w-6 mb-1 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
-                    <span className={`truncate text-xs ${isActive ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>
+                    <item.icon className={`h-6 w-6 mb-1 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
+                    <span className={`truncate text-xs ${isActive ? 'text-primary-600 font-medium' : 'text-gray-500'}`}>
                       {item.name}
                     </span>
                   </Link>

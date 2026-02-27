@@ -8,7 +8,7 @@ import DailyProgress, { IDailyActivity } from "@/models/DailyProgress";
 import Project from "@/models/Project";
 import { Types } from "mongoose";
 
-// UPDATED: Response interface with 'to-do' status
+// UPDATED: Response interface with 'to-do' status + phase fields
 interface ActivityResponse {
   _id: string;
   title: string;
@@ -17,11 +17,14 @@ interface ActivityResponse {
   supervisor?: string;
   startDate: string;
   endDate: string;
-  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold'; // UPDATED: Added 'to-do'
+  status: 'to-do' | 'pending' | 'in_progress' | 'completed' | 'delayed' | 'on_hold';
   priority: string;
   category: string;
+  phase?: string;
+  weekNumber?: number;
   comments?: string;
   images?: string[];
+  incidentReport?: string;
   projectId: string;
   projectTitle: string;
   date: Date;
@@ -114,11 +117,14 @@ export async function GET(request: NextRequest) {
           supervisor: activity.supervisor,
           startDate: activity.startDate ? activity.startDate.toISOString() : new Date().toISOString(),
           endDate: activity.endDate ? activity.endDate.toISOString() : new Date().toISOString(),
-          status: activity.status || 'to-do', // UPDATED: Default to 'to-do'
+          status: activity.status || 'to-do',
           priority: activity.priority || 'medium',
           category: activity.category || 'other',
+          phase: activity.phase || 'construction',
+          weekNumber: activity.weekNumber || 1,
           comments: activity.comments,
           images: activity.images || [],
+          incidentReport: activity.incidentReport,
           projectId: populatedProject._id.toString(),
           projectTitle: populatedProject.title,
           date: doc.date,

@@ -12,6 +12,38 @@ export type ActivityStatus = 'to-do' | 'in_progress' | 'completed' | 'delayed' |
 export type ActivityPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type ActivityCategory = 'structural' | 'electrical' | 'plumbing' | 'finishing' | 'other';
 
+// OliveHaus construction project phases
+export type ActivityPhase =
+  | 'site_preliminaries'
+  | 'construction'
+  | 'installation'
+  | 'setup_styling'
+  | 'post_handover';
+
+export const PHASE_LABELS: Record<ActivityPhase, string> = {
+  site_preliminaries: 'Site Preliminaries & Design',
+  construction: 'Construction Phase',
+  installation: 'Installation Phase',
+  setup_styling: 'Set Up & Styling Phase',
+  post_handover: 'Post-Handover Maintenance',
+};
+
+export const PHASE_ORDER: ActivityPhase[] = [
+  'site_preliminaries',
+  'construction',
+  'installation',
+  'setup_styling',
+  'post_handover',
+];
+
+export const PHASE_COLORS: Record<ActivityPhase, string> = {
+  site_preliminaries: 'blue',
+  construction: 'orange',
+  installation: 'purple',
+  setup_styling: 'emerald',
+  post_handover: 'rose',
+};
+
 // Activity Comment interface
 export interface ActivityComment {
   _id?: string;

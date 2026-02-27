@@ -26,6 +26,9 @@ interface ProjectFormData {
   siteAddress: string;
   scopeOfWork: string;
   designStyle: string;
+  projectCoordinator: string;
+  siteOfficer: string;
+  workDays: string;
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   startDate: string;
@@ -50,6 +53,9 @@ interface ProjectSubmitData {
   siteAddress: string;
   scopeOfWork?: string;
   designStyle?: string;
+  projectCoordinator?: string;
+  siteOfficer?: string;
+  workDays?: string;
   status: string;
   priority: string;
   projectDuration?: string;
@@ -80,6 +86,9 @@ export default function ProjectEditPage() {
     siteAddress: '',
     scopeOfWork: '',
     designStyle: '',
+    projectCoordinator: '',
+    siteOfficer: '',
+    workDays: '',
     status: 'planning',
     priority: 'medium',
     startDate: '',
@@ -135,6 +144,9 @@ export default function ProjectEditPage() {
             siteAddress: data.siteAddress || '',
             scopeOfWork: data.scopeOfWork || '',
             designStyle: data.designStyle || '',
+            projectCoordinator: data.projectCoordinator || '',
+            siteOfficer: data.siteOfficer || '',
+            workDays: data.workDays || '',
             status: data.status || 'planning',
             priority: data.priority || 'medium',
             startDate: data.startDate ? data.startDate.split('T')[0] : '',
@@ -242,6 +254,9 @@ export default function ProjectEditPage() {
         siteAddress: formData.siteAddress,
         scopeOfWork: formData.scopeOfWork,
         designStyle: formData.designStyle,
+        projectCoordinator: formData.projectCoordinator,
+        siteOfficer: formData.siteOfficer,
+        workDays: formData.workDays,
         status: formData.status,
         priority: formData.priority,
         projectDuration: formData.projectDuration,
@@ -494,6 +509,37 @@ export default function ProjectEditPage() {
                 value={formData.designStyle}
                 onChange={(e) => handleInputChange('designStyle', e.target.value)}
                 placeholder="e.g., Modern, Contemporary, Traditional"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="projectCoordinator">Project Coordinator</Label>
+                <Input
+                  id="projectCoordinator"
+                  value={formData.projectCoordinator}
+                  onChange={(e) => handleInputChange('projectCoordinator', e.target.value)}
+                  placeholder="Coordinator name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="siteOfficer">Site Officer</Label>
+                <Input
+                  id="siteOfficer"
+                  value={formData.siteOfficer}
+                  onChange={(e) => handleInputChange('siteOfficer', e.target.value)}
+                  placeholder="Site officer name"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="workDays">Work Days</Label>
+              <Input
+                id="workDays"
+                value={formData.workDays}
+                onChange={(e) => handleInputChange('workDays', e.target.value)}
+                placeholder="e.g., Monday – Saturday, 8am – 5pm"
               />
             </div>
 

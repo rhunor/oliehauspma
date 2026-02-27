@@ -197,8 +197,11 @@ export async function PUT(
     if (updateData.status) updateFields.status = updateData.status;
     if (updateData.priority) updateFields.priority = updateData.priority;
     if (updateData.siteAddress) updateFields.siteAddress = updateData.siteAddress;
-    if (updateData.scopeOfWork) updateFields.scopeOfWork = updateData.scopeOfWork;
-    if (updateData.designStyle) updateFields.designStyle = updateData.designStyle;
+    if (updateData.scopeOfWork !== undefined) updateFields.scopeOfWork = updateData.scopeOfWork;
+    if (updateData.designStyle !== undefined) updateFields.designStyle = updateData.designStyle;
+    if (updateData.projectCoordinator !== undefined) updateFields.projectCoordinator = updateData.projectCoordinator;
+    if (updateData.siteOfficer !== undefined) updateFields.siteOfficer = updateData.siteOfficer;
+    if (updateData.workDays !== undefined) updateFields.workDays = updateData.workDays;
     if (updateData.projectDuration) updateFields.projectDuration = updateData.projectDuration;
     if (updateData.budget !== undefined) updateFields.budget = updateData.budget;
     if (updateData.progress !== undefined) updateFields.progress = updateData.progress;

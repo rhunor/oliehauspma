@@ -228,10 +228,10 @@ function MobileDashboardCard({
   emptyMessage 
 }: MobileDashboardCardProps) {
   const colorClasses: Record<string, { bg: string; icon: string; text: string }> = {
-    blue: { 
-      bg: 'bg-blue-50 hover:bg-blue-100', 
-      icon: 'text-blue-600', 
-      text: 'text-blue-700' 
+    blue: {
+      bg: 'bg-primary-50 hover:bg-primary-100',
+      icon: 'text-primary-600',
+      text: 'text-primary-700'
     },
     green: { 
       bg: 'bg-green-50 hover:bg-green-100', 
@@ -1204,7 +1204,7 @@ export default async function ClientDashboardPage() {
                   <CardContent>
                     <WorkScheduleWidget workSchedule={workSchedule} />
                     <div className="mt-3 text-right">
-                      <Link href="/client/site-schedule" className="text-sm text-emerald-700 hover:underline">View Full Schedule</Link>
+                      <Link href="/client/site-schedule" className="text-sm text-primary-700 hover:underline font-medium">View Full Schedule</Link>
                     </div>
                   </CardContent>
                 </Card>
@@ -1232,10 +1232,10 @@ export default async function ClientDashboardPage() {
                           const percent = activeProject?.progress ?? 0;
                           return (
                             <>
-                              <div className="absolute inset-0 rounded-full" style={{ background: `conic-gradient(rgb(16 185 129) ${percent * 3.6}deg, rgb(226 232 240) 0deg)` }} />
+                              <div className="absolute inset-0 rounded-full" style={{ background: `conic-gradient(rgb(107 124 59) ${percent * 3.6}deg, rgb(226 232 240) 0deg)` }} />
                               <div className="absolute inset-3 rounded-full bg-white flex items-center justify-center shadow-inner">
                                 <div className="text-center">
-                                  <p className="text-3xl font-semibold text-emerald-700">{percent}%</p>
+                                  <p className="text-3xl font-semibold text-primary-700">{percent}%</p>
                                   <p className="text-xs text-slate-500">In Progress</p>
                                 </div>
                               </div>
